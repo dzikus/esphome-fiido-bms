@@ -1,0 +1,58 @@
+name: tests
+on:
+  push:
+    branches: [main]
+    paths: ["components/fiido_bms/**", "tests/**", ".github/**"]
+  pull_request:
+    paths: ["components/fiido_bms/**", "tests/**", ".github/**"]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  unit-tests:
+    name: protocol unit tests (native)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12"
+      - name: Cache PlatformIO
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('tests/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Run protocol unit tests
+        run: |
+          set -euo pipefail
+          pio test -d tests -e native < /dev/null
+          echo "--- re-run built binary as source of truth ---"
+          tests/.pio/build/native/program
+  esphome-build:
+    name: esphome compile (full component)
+    needs: unit-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12"
+      - name: Cache PlatformIO
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-esphome-${{ hashFiles('.github/ci-build.yaml') }}
+          restore-keys: ${{ runner.os }}-esphome-
+      - name: Install ESPHome
+        run: pip install esphome
+      - name: Compile full component
+        run: |
+          set -euo pipefail
+          esphome compile .github/ci-build.yaml

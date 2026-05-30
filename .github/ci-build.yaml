@@ -1,0 +1,46 @@
+# CI-only configuration that compiles the full component (all platforms) so a
+# build-breaking change in any source file fails CI. Not meant for flashing.
+# Uses a dummy BLE MAC; no device is contacted during compile.
+esphome:
+  name: ci-build
+  # Sub-device API (per-entity device_id) requires ESPHome 2025.7.0 or newer.
+  min_version: 2025.7.0
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [fiido_bms]
+
+esp32_ble_tracker:
+
+ble_client:
+  - id: ble_test
+    mac_address: AA:BB:CC:DD:EE:FF
+
+fiido_bms:
+  - id: hub_test
+    ble_client_id: ble_test
+
+sensor:
+  - platform: fiido_bms
+    fiido_bms_id: hub_test
+
+binary_sensor:
+  - platform: fiido_bms
+    fiido_bms_id: hub_test
+
+select:
+  - platform: fiido_bms
+    fiido_bms_id: hub_test
+
+switch:
+  - platform: fiido_bms
+    fiido_bms_id: hub_test

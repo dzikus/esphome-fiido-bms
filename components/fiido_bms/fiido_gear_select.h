@@ -1,0 +1,37 @@
+#pragma once
+
+#ifdef USE_ESP32
+
+#include <vector>
+#include <string>
+
+#include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
+#include "esphome/components/select/select.h"
+#include "fiido_bms.h"
+
+namespace esphome {
+namespace fiido_bms {
+
+class FiidoGearSelect : public select::Select, public Parented<FiidoBMSHub> {
+ public:
+  void control(const std::string &value) override;
+
+  void set_gear_count(uint8_t count);
+  uint8_t get_gear_count() const { return this->gear_count_; }
+  void set_names_3(std::vector<std::string> n) { this->names_3_ = std::move(n); }
+  void set_names_5(std::vector<std::string> n) { this->names_5_ = std::move(n); }
+  const std::vector<std::string> &gear_names() const {
+    return (this->gear_count_ == 3) ? this->names_3_ : this->names_5_;
+  }
+
+ protected:
+  uint8_t gear_count_{5};
+  std::vector<std::string> names_3_;
+  std::vector<std::string> names_5_;
+};
+
+}  // namespace fiido_bms
+}  // namespace esphome
+
+#endif  // USE_ESP32
