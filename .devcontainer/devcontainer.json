@@ -1,0 +1,39 @@
+{
+  "name": "esphome-fiido-bms",
+  "build": { "dockerfile": "Dockerfile" },
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.platformio && platformio settings set enable_telemetry No && pre-commit install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esphome.esphome-vscode",
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-vscode.cpptools",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "ruff.path": ["/usr/local/bin/ruff"],
+        "[python]": {
+          "editor.formatOnSave": true,
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+          }
+        },
+        "yaml.customTags": ["!secret scalar", "!lambda scalar"],
+        "python.analysis.extraPaths": ["/usr/local/lib/python3.12/site-packages"],
+        "files.associations": {
+          ".pre-commit-config.yaml": "yaml",
+          "**/.github/**/*.yml": "yaml",
+          "**/.github/**/*.yaml": "yaml"
+        },
+        "C_Cpp.errorSquiggles": "disabled"
+      }
+    }
+  },
+  "mounts": [
+    "source=fiido-bms-platformio,target=/home/vscode/.platformio,type=volume"
+  ]
+}
