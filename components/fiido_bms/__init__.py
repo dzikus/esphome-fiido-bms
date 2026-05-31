@@ -22,44 +22,48 @@ CONF_ENFORCE_GEAR_MODE_3 = "enforce_gear_mode_3"
 # and the polls feeding them can be dropped from the burst rotation. When true
 # they are created with disabled_by_default=True so HA hides them until the
 # user explicitly opts in per entity.
-DEV_SENSOR_KEYS = frozenset({
-    # battery group
-    "battery_current",
-    "battery_current_voltage",
-    "battery_hw_version",
-    "battery_sw_version",
-    "battery_manufacturer",
-    # ctrl group (whole poll skippable when expose_dev=false)
-    "ctrl_upper_voltage",
-    "ctrl_lower_voltage",
-    "ctrl_current",
-    "ctrl_temperature",
-    "ctrl_hw_version",
-    "ctrl_sw_version",
-    "ctrl_version",
-    "ctrl_manufacturer",
-    # motor group
-    "motor_version",
-    "motor_magnetic",
-    "motor_wire_count",
-    "motor_steel_count",
-    "motor_reduction_ratio",
-    # energy group
-    "crank_rpm",
-    "crank_torque",
-    "this_take_energy",
-    "total_take_energy",
-    # stats (backbone poll, no skip; only entity gated)
-    "bicycle_gear_start",
-    # meter group (whole poll skippable when expose_dev=false)
-    "meter_hw_version",
-    "meter_sw_version",
-    "meter_mode_data",
-})
+DEV_SENSOR_KEYS = frozenset(
+    {
+        # battery group
+        "battery_current",
+        "battery_current_voltage",
+        "battery_hw_version",
+        "battery_sw_version",
+        "battery_manufacturer",
+        # ctrl group (whole poll skippable when expose_dev=false)
+        "ctrl_upper_voltage",
+        "ctrl_lower_voltage",
+        "ctrl_current",
+        "ctrl_temperature",
+        "ctrl_hw_version",
+        "ctrl_sw_version",
+        "ctrl_version",
+        "ctrl_manufacturer",
+        # motor group
+        "motor_version",
+        "motor_magnetic",
+        "motor_wire_count",
+        "motor_steel_count",
+        "motor_reduction_ratio",
+        # energy group
+        "crank_rpm",
+        "crank_torque",
+        "this_take_energy",
+        "total_take_energy",
+        # stats (backbone poll, no skip; only entity gated)
+        "bicycle_gear_start",
+        # meter group (whole poll skippable when expose_dev=false)
+        "meter_hw_version",
+        "meter_sw_version",
+        "meter_mode_data",
+    }
+)
 
-DEV_BINARY_SENSOR_KEYS = frozenset({
-    "brake",
-})
+DEV_BINARY_SENSOR_KEYS = frozenset(
+    {
+        "brake",
+    }
+)
 
 # Filled in by __init__ to_code per hub_id so sensor.py / binary_sensor.py
 # to_code can decide whether to create dev entities and which polls to enable.

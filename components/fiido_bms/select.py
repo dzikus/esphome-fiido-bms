@@ -6,20 +6,16 @@ from esphome.const import CONF_DEVICE_ID, ENTITY_CATEGORY_CONFIG
 from . import (
     CONF_FIIDO_BMS_ID,
     CONF_UI_GEAR_MODE_3,
-    HUB_CONFIGS,
     FIIDO_BMS_COMPONENT_SCHEMA,
+    HUB_CONFIGS,
     fiido_bms_ns,
 )
 
 DEPENDENCIES = ["fiido_bms"]
 CODEOWNERS = ["@dzikus"]
 
-FiidoGearSelect = fiido_bms_ns.class_(
-    "FiidoGearSelect", select.Select, cg.Parented
-)
-FiidoModeSelect = fiido_bms_ns.class_(
-    "FiidoModeSelect", select.Select, cg.Parented
-)
+FiidoGearSelect = fiido_bms_ns.class_("FiidoGearSelect", select.Select, cg.Parented)
+FiidoModeSelect = fiido_bms_ns.class_("FiidoModeSelect", select.Select, cg.Parented)
 FiidoSpeedLimitSelect = fiido_bms_ns.class_(
     "FiidoSpeedLimitSelect", select.Select, cg.Parented
 )

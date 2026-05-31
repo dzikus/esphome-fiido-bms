@@ -9,11 +9,11 @@ from esphome.const import (
 )
 
 from . import (
-    CONF_FIIDO_BMS_ID,
     CONF_EXPOSE_DEV_SENSORS,
+    CONF_FIIDO_BMS_ID,
     DEV_BINARY_SENSOR_KEYS,
-    HUB_CONFIGS,
     FIIDO_BMS_COMPONENT_SCHEMA,
+    HUB_CONFIGS,
 )
 
 DEPENDENCIES = ["fiido_bms"]
@@ -24,8 +24,23 @@ CODEOWNERS = ["@dzikus"]
 #   brake: ADDR 0x2A bit 5. Not user-verified on physical bike yet.
 # (yaml_key, setter_cpp_method, device_class|None, icon|None, entity_category|None, default_name)
 BINARY_SENSORS = [
-    ("connected", "set_connected_binary_sensor", DEVICE_CLASS_CONNECTIVITY, None,                  ENTITY_CATEGORY_DIAGNOSTIC, "BLE Connected"),
-    ("brake",     "set_brake_binary_sensor",     None,                      "mdi:car-brake-alert", None,                       "Brake"),
+    (
+        "connected",
+        "set_connected_binary_sensor",
+        DEVICE_CLASS_CONNECTIVITY,
+        None,
+        ENTITY_CATEGORY_DIAGNOSTIC,
+        "BLE Connected",
+    ),
+    ("brake", "set_brake_binary_sensor", None, "mdi:car-brake-alert", None, "Brake"),
+    (
+        "pas_limit",
+        "set_pas_limit_binary_sensor",
+        None,
+        "mdi:bike-pedal-clipless",
+        ENTITY_CATEGORY_DIAGNOSTIC,
+        "PAS Limit",
+    ),
 ]
 
 
