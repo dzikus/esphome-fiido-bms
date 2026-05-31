@@ -4,3 +4,4 @@ __pycache__/
 .pioenvs/
 .pio/
 secrets.yaml
+.ruff_cache/
