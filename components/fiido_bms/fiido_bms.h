@@ -133,6 +133,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   void set_connected_binary_sensor(binary_sensor::BinarySensor *s) { connected_binary_sensor_ = s; }
   void set_brake_binary_sensor(binary_sensor::BinarySensor *s) { brake_binary_sensor_ = s; }
+  void set_pas_limit_binary_sensor(binary_sensor::BinarySensor *s) { pas_limit_binary_sensor_ = s; }
 
  protected:
   static constexpr uint32_t BURST_INTERVAL_MS = 5;
@@ -229,6 +230,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   binary_sensor::BinarySensor *connected_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *brake_binary_sensor_{nullptr};
+  binary_sensor::BinarySensor *pas_limit_binary_sensor_{nullptr};
 
   FiidoMotorSwitch *motor_switch_{nullptr};
   FiidoLightSwitch *light_switch_{nullptr};

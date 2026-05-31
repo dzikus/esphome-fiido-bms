@@ -558,6 +558,9 @@ void FiidoBMSHub::parse_stats_(const uint8_t *p, size_t len) {
   // ADDR 0x2A bit 5 = brake. Not user-verified on physical bike yet.
   publish_(this->brake_binary_sensor_, (p[stats::ADDR_2A_OFFSET] & 0b00100000) != 0);
 
+  // ADDR 0x2C bit 7 = PAS limit. ON = pedal assist capped to 25 km/h, OFF = unlimited.
+  publish_(this->pas_limit_binary_sensor_, (p[stats::ADDR_2C_OFFSET] & 0x80) != 0);
+
   // Cache flag bytes for read-modify-write bit operations.
   this->addr_27_cache_ = p[stats::ADDR_27_OFFSET];
   this->addr_27_valid_ = true;
