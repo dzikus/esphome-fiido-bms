@@ -1,0 +1,44 @@
+esphome:
+  name: fiido-bms-intellisense
+  min_version: 2025.7.0
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [fiido_bms]
+
+esp32_ble_tracker:
+
+ble_client:
+  - id: ble_probe
+    mac_address: 00:00:00:00:00:00
+
+fiido_bms:
+  - id: hub_probe
+    ble_client_id: ble_probe
+    # Force the dev-gated branches to compile too, for full TU coverage.
+    expose_dev_sensors: true
+
+sensor:
+  - platform: fiido_bms
+    fiido_bms_id: hub_probe
+
+binary_sensor:
+  - platform: fiido_bms
+    fiido_bms_id: hub_probe
+
+select:
+  - platform: fiido_bms
+    fiido_bms_id: hub_probe
+
+switch:
+  - platform: fiido_bms
+    fiido_bms_id: hub_probe

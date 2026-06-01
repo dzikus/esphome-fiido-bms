@@ -4,3 +4,6 @@ __pycache__/
 .pioenvs/
 .pio/
 secrets.yaml
+.ruff_cache/
+.vscode/c_cpp_properties.json
+.vscode/compile_commands.json

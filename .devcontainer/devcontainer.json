@@ -1,0 +1,47 @@
+{
+  "name": "esphome-fiido-bms",
+  "build": { "dockerfile": "Dockerfile" },
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.platformio && platformio settings set enable_telemetry No && pre-commit install",
+  "postStartCommand": "esphome compile .intellisense.yaml && python3 .devcontainer/gen-cpp-properties.py || echo 'WARN: IntelliSense setup failed; C++ error-checking degraded until it succeeds'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esphome.esphome-vscode",
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-vscode.cpptools",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.analysis.extraPaths": ["/usr/local/lib/python3.12/site-packages"],
+        "ruff.path": ["/usr/local/bin/ruff"],
+        "[python]": {
+          "editor.formatOnSave": true,
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+          }
+        },
+        "yaml.customTags": ["!secret scalar", "!lambda scalar"],
+        "files.associations": {
+          ".pre-commit-config.yaml": "yaml",
+          "**/.github/**/*.yml": "yaml",
+          "**/.github/**/*.yaml": "yaml"
+        },
+        "C_Cpp.default.compilerPath": "/home/vscode/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32-elf-gcc",
+        "C_Cpp.default.cppStandard": "gnu++20",
+        "C_Cpp.default.cStandard": "gnu17",
+        "C_Cpp.default.includePath": [
+          "${workspaceFolder}/components/**",
+          "/usr/local/lib/python3.12/site-packages"
+        ],
+        "C_Cpp.errorSquiggles": "enabled"
+      }
+    }
+  },
+  "mounts": [
+    "source=fiido-bms-platformio,target=/home/vscode/.platformio,type=volume"
+  ]
+}
