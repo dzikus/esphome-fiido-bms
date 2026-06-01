@@ -10,7 +10,8 @@
         "ms-python.python",
         "charliermarsh.ruff",
         "ms-vscode.cpptools",
-        "redhat.vscode-yaml"
+        "redhat.vscode-yaml",
+        "github.vscode-github-actions"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
