@@ -21,7 +21,7 @@ wifi:
   password: !secret wifi_password
 
 external_components:
-  - source: github://dzikus/esphome-fiido-bms@v1.0.0
+  - source: github://dzikus/esphome-fiido-bms@v1.1.0
 
 esp32_ble_tracker:
 

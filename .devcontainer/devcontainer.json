@@ -1,6 +1,9 @@
 {
   "name": "esphome-fiido-bms",
   "build": { "dockerfile": "Dockerfile" },
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
   "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.platformio && platformio settings set enable_telemetry No && pre-commit install",
   "postStartCommand": "esphome compile .intellisense.yaml && python3 .devcontainer/gen-cpp-properties.py || echo 'WARN: IntelliSense setup failed; C++ error-checking degraded until it succeeds'",
   "customizations": {
@@ -10,7 +13,8 @@
         "ms-python.python",
         "charliermarsh.ruff",
         "ms-vscode.cpptools",
-        "redhat.vscode-yaml"
+        "redhat.vscode-yaml",
+        "github.vscode-github-actions"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
