@@ -65,6 +65,13 @@ DEV_BINARY_SENSOR_KEYS = frozenset(
     }
 )
 
+# disabled_by_default in HA but not gated by expose_dev_sensors
+HIDDEN_SENSOR_KEYS = frozenset(
+    {
+        "startup_time",
+    }
+)
+
 # Filled in by __init__ to_code per hub_id so sensor.py / binary_sensor.py
 # to_code can decide whether to create dev entities and which polls to enable.
 HUB_CONFIGS = {}
