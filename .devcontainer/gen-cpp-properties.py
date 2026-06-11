@@ -1,75 +1,77 @@
 #!/usr/bin/env python3
+"""Generate .vscode C++ IntelliSense config from the esphome build.
+
+PlatformIO's compiledb carries every compiler flag inline, but esphome does
+not leave it at the build root, and its entries point at the build-tree
+copies of the sources instead of the workspace files open in the editor. So:
+run pio compiledb, filter the component TUs, remap their paths back to the
+workspace, and point cpptools at the result.
+"""
 import json
 import os
 import shlex
 import shutil
+import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WORKSPACE = os.path.dirname(HERE)
-_BUILD = os.path.join(WORKSPACE, ".esphome", "build", "fiido-bms-intellisense")
-CMAKE_DB = os.path.join(_BUILD, "compile_commands.json")
-DEFINES_H = os.path.join(_BUILD, "src", "esphome", "core", "defines.h")
-_BUILD_COMPONENT = os.path.join(_BUILD, "src", "esphome", "components", "fiido_bms")
-_WS_COMPONENT = os.path.join(WORKSPACE, "components", "fiido_bms")
+BUILD = os.path.join(WORKSPACE, ".esphome", "build", "fiido-bms-intellisense")
+DB = os.path.join(BUILD, "compile_commands.json")
+DEFINES_H = os.path.join(BUILD, "src", "esphome", "core", "defines.h")
+BUILD_COMPONENT = os.path.join(BUILD, "src", "esphome", "components", "fiido_bms")
+WS_COMPONENT = os.path.join(WORKSPACE, "components", "fiido_bms")
 DEST_DIR = os.path.join(WORKSPACE, ".vscode")
-DEST = os.path.join(DEST_DIR, "c_cpp_properties.json")
-DEST_CMDS = os.path.join(DEST_DIR, "compile_commands.json")
 
 
 def _resolve_compiler(raw):
-    if os.path.isabs(raw) and os.path.exists(raw):
-        return raw
     found = shutil.which(raw)
-    if found:
-        return found
-    # bare compiler name from esp-idf; search platformio toolchains
+    if found or os.path.isabs(raw):
+        return found or raw
     pkgs = os.path.join(os.path.expanduser("~"), ".platformio", "packages")
     if os.path.isdir(pkgs):
         for pkg in sorted(os.listdir(pkgs)):
-            if "toolchain" in pkg:
-                c = os.path.join(pkgs, pkg, "bin", os.path.basename(raw))
-                if os.path.exists(c):
-                    return c
+            c = os.path.join(pkgs, pkg, "bin", raw)
+            if "toolchain" in pkg and os.path.exists(c):
+                return c
     return raw
 
 
-def _file_abs(entry):
-    f = entry.get("file", "")
-    if not os.path.isabs(f):
-        f = os.path.normpath(os.path.join(entry.get("directory", ""), f))
-    return f
-
-
 def _component_entries(db):
-    ws = _WS_COMPONENT + os.sep
-    build = _BUILD_COMPONENT + os.sep
     out = []
     for e in db:
-        f = _file_abs(e)
-        if f.startswith(ws):
+        f = e.get("file", "")
+        if not os.path.isabs(f):
+            f = os.path.normpath(os.path.join(e.get("directory", ""), f))
+        if f.startswith(BUILD_COMPONENT + os.sep):
+            out.append({**e, "file": WS_COMPONENT + f[len(BUILD_COMPONENT):]})
+        elif f.startswith(WS_COMPONENT + os.sep):
             out.append(e)
-        elif f.startswith(build):
-            out.append({**e, "file": _WS_COMPONENT + f[len(_BUILD_COMPONENT) :]})
     return out
 
 
 def main():
-    if not os.path.exists(CMAKE_DB):
-        print(f"gen-cpp-properties: {CMAKE_DB} not found")
+    subprocess.run(
+        ["pio", "run", "-d", BUILD, "-t", "compiledb"],
+        check=False,
+        timeout=600,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if not os.path.exists(DB):
+        print(f"gen-cpp-properties: {DB} not found (pio compiledb failed?)")
         return 1
-    with open(CMAKE_DB) as fh:
+    with open(DB) as fh:
         db = json.load(fh)
-    if not db:
-        print("gen-cpp-properties: cmake db is empty")
+    entries = _component_entries(db)
+    if not entries:
+        print(f"gen-cpp-properties: no component TUs in {DB}")
         return 1
 
-    cmd = db[0].get("command", "")
-    raw = shlex.split(cmd)[0] if cmd else (db[0].get("arguments") or [""])[0]
-    compiler = _resolve_compiler(raw)
-
+    cmd = entries[0].get("command", "")
+    argv0 = shlex.split(cmd)[0] if cmd else (entries[0].get("arguments") or [""])[0]
     config = {
         "name": "ESP32",
-        "compilerPath": compiler,
+        "compilerPath": _resolve_compiler(argv0),
         "compilerArgs": ["-mlongcalls"],
         "cStandard": "gnu17",
         "cppStandard": "gnu++20",
@@ -78,27 +80,17 @@ def main():
             "path": ["${workspaceFolder}/components/**"],
             "limitSymbolsToIncludedHeaders": True,
         },
+        "compileCommands": os.path.join(DEST_DIR, "compile_commands.json"),
     }
     if os.path.exists(DEFINES_H):
         config["forcedInclude"] = [DEFINES_H]
 
     os.makedirs(DEST_DIR, exist_ok=True)
-    entries = _component_entries(db)
-    if entries:
-        tmp = DEST_CMDS + ".tmp"
-        with open(tmp, "w") as fh:
-            json.dump(entries, fh, indent=2)
-        os.replace(tmp, DEST_CMDS)
-        config["compileCommands"] = DEST_CMDS
-        print(f"gen-cpp-properties: {len(entries)} TUs -> {DEST_CMDS}")
-    else:
-        print(f"gen-cpp-properties: WARN 0 TUs; sample: {db[0].get('file')!r}")
-
-    tmp = DEST + ".tmp"
-    with open(tmp, "w") as fh:
+    with open(os.path.join(DEST_DIR, "compile_commands.json"), "w") as fh:
+        json.dump(entries, fh, indent=2)
+    with open(os.path.join(DEST_DIR, "c_cpp_properties.json"), "w") as fh:
         json.dump({"version": 4, "configurations": [config]}, fh, indent=4)
-    os.replace(tmp, DEST)
-    print(f"gen-cpp-properties: wrote {DEST}")
+    print(f"gen-cpp-properties: {len(entries)} TUs -> {DEST_DIR}")
     return 0
 
 
