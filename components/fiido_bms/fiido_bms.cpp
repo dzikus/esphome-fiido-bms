@@ -50,7 +50,7 @@ void FiidoBMSHub::dump_config() {
   ESP_LOGCONFIG(TAG, "Fiido BMS Hub:");
   ESP_LOGCONFIG(TAG, "  MAC: %s", this->parent_->address_str());
   ESP_LOGCONFIG(TAG, "  Startup delay: %u ms (hub %d of %d)",
-                this->startup_delay_ms_, this->hub_index_, this->total_hubs_);
+                (unsigned) this->startup_delay_ms_, this->hub_index_, this->total_hubs_);
   ESP_LOGCONFIG(TAG, "  Update interval ON/OFF: %u / %u ms",
                 (unsigned) this->update_interval_on_ms_,
                 (unsigned) this->update_interval_off_ms_);
