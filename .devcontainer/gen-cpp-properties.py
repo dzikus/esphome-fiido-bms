@@ -7,6 +7,7 @@ copies of the sources instead of the workspace files open in the editor. So:
 run pio compiledb, filter the component TUs, remap their paths back to the
 workspace, and point cpptools at the result.
 """
+
 import json
 import os
 import shlex
@@ -43,7 +44,7 @@ def _component_entries(db):
         if not os.path.isabs(f):
             f = os.path.normpath(os.path.join(e.get("directory", ""), f))
         if f.startswith(BUILD_COMPONENT + os.sep):
-            out.append({**e, "file": WS_COMPONENT + f[len(BUILD_COMPONENT):]})
+            out.append({**e, "file": WS_COMPONENT + f[len(BUILD_COMPONENT) :]})
         elif f.startswith(WS_COMPONENT + os.sep):
             out.append(e)
     return out
