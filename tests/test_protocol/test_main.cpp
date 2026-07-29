@@ -35,8 +35,10 @@ void test_build_poll_frame_all_polls() {
       {0x46, 0x64, 0x55, 0x35, 0x05, 0x47},  // STATS
       {0x46, 0x64, 0x55, 0x0D, 0x60, 0x1A},  // METER
       {0x46, 0x64, 0x55, 0x01, 0x3C, 0x4A},  // SPEEDLIM
+      {0x46, 0x64, 0x55, 0x01, 0x52, 0x24},  // BOOST
+      {0x46, 0x64, 0x55, 0x02, 0x57, 0x22},  // DISPLAY
   };
-  TEST_ASSERT_EQUAL_UINT(7, POLL_TABLE_SIZE);
+  TEST_ASSERT_EQUAL_UINT(9, POLL_TABLE_SIZE);
   uint8_t out[POLL_FRAME_LEN];
   for (size_t i = 0; i < POLL_TABLE_SIZE; i++) {
     build_poll_frame(POLL_TABLE[i].addr, POLL_TABLE[i].len, out);
@@ -62,6 +64,50 @@ void test_build_write_frame_gear_mode() {
   uint8_t out[8];
   size_t n = build_write_frame(FRAME_TYPE_WRITE_J0, 0x25, payload, 1, out);
   const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x25, 0x30, 0xC9};
+  TEST_ASSERT_EQUAL_UINT(7, n);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+}
+
+void test_build_write_frame_brightness() {
+  // J0 write (0xFF) to ADDR 0x57, one raw payload byte (display brightness).
+  const uint8_t payload[] = {0xFF};
+  uint8_t out[8];
+  size_t n = build_write_frame(FRAME_TYPE_WRITE_J0, 0x57, payload, 1, out);
+  const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x57, 0xFF, 0x74};
+  TEST_ASSERT_EQUAL_UINT(7, n);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+}
+
+void test_build_write_frame_boost() {
+  // L0 write (0xAA) to ADDR 0x52, one raw payload byte (PAS boost level).
+  const uint8_t payload[] = {100};
+  uint8_t out[8];
+  size_t n = build_write_frame(FRAME_TYPE_WRITE_L0, 0x52, payload, 1, out);
+  const uint8_t expected[] = {0x46, 0x64, 0xAA, 0x01, 0x52, 0x64, 0xBF};
+  TEST_ASSERT_EQUAL_UINT(7, n);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+}
+
+void test_build_write_frame_guard_time() {
+  // J0 write (0xFF) to ADDR 0x58, one raw payload byte (guard timeout seconds).
+  const uint8_t payload[] = {0x00};
+  uint8_t out[8];
+  size_t n = build_write_frame(FRAME_TYPE_WRITE_J0, 0x58, payload, 1, out);
+  const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x58, 0x00, 0x84};
+  TEST_ASSERT_EQUAL_UINT(7, n);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+}
+
+void test_build_write_frame_addr_39() {
+  // Byte 0x39 latches only via the J0 (0xFF) frame type; 0xAA writes are ack'd
+  // but not applied. Payload carries bits 4..0 only (mask 0x1F), so a cache of
+  // 0xE8 with bit 3 kept becomes 0x08.
+  uint8_t b = 0xE8 & 0x1F;
+  TEST_ASSERT_EQUAL_UINT8(0x08, b);
+  const uint8_t payload[] = {b};
+  uint8_t out[8];
+  size_t n = build_write_frame(FRAME_TYPE_WRITE_J0, 0x39, payload, 1, out);
+  const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x39, 0x08, 0xED};
   TEST_ASSERT_EQUAL_UINT(7, n);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
 }
@@ -346,6 +392,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_build_poll_frame_all_polls);
   RUN_TEST(test_build_write_frame_motor_enable);
   RUN_TEST(test_build_write_frame_gear_mode);
+  RUN_TEST(test_build_write_frame_brightness);
+  RUN_TEST(test_build_write_frame_boost);
+  RUN_TEST(test_build_write_frame_guard_time);
+  RUN_TEST(test_build_write_frame_addr_39);
   RUN_TEST(test_build_write_frame_multibyte_payload);
   RUN_TEST(test_validate_notify_bad_crc);
   RUN_TEST(test_validate_notify_bad_signature);

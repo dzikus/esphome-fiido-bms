@@ -5,7 +5,7 @@ from esphome.const import CONF_ID
 
 CODEOWNERS = ["@dzikus"]
 DEPENDENCIES = ["ble_client"]
-AUTO_LOAD = ["sensor", "binary_sensor", "switch", "select"]
+AUTO_LOAD = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 MULTI_CONF = True
 
 CONF_FIIDO_BMS_ID = "fiido_bms_id"

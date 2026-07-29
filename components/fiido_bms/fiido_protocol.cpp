@@ -13,6 +13,11 @@ const PollDef POLL_TABLE[] = {
     {0x60, 13, "METER"},
     // Speed limit value (read-only baseline, log-only). Frame: 46 64 55 01 3C 4A.
     {0x3C, 1, "SPEEDLIM"},
+    // Boost level read-back (1 byte). Frame: 46 64 55 01 52 24.
+    {0x52, 1, "BOOST"},
+    // Display block read-back: 0x57 brightness + 0x58 guard time (2 bytes).
+    // Frame: 46 64 55 02 57 22.
+    {0x57, 2, "DISPLAY"},
 };
 const size_t POLL_TABLE_SIZE = sizeof(POLL_TABLE) / sizeof(POLL_TABLE[0]);
 

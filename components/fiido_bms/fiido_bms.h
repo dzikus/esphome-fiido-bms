@@ -31,6 +31,18 @@ class FiidoKeySoundSwitch;
 class FiidoThrottleSwitch;
 class FiidoSlowModeSwitch;
 class FiidoBleSwitch;
+class FiidoCruiseSwitch;
+class FiidoStartModeSwitch;
+class FiidoInsensitivitySwitch;
+class FiidoShowTotalKmSwitch;
+class FiidoAutoScreenOffSwitch;
+class FiidoRingSwitch;
+class FiidoDoubleSpeedSwitch;
+class FiidoBikeGuardSwitch;
+class FiidoBrightnessNumber;
+class FiidoBoostNumber;
+class FiidoGuardTimeNumber;
+class FiidoPairWatchButton;
 
 class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
  public:
@@ -62,6 +74,19 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void set_throttle_enable(bool on);
   void set_slow_mode_enable(bool on);
   void set_ble_user_enabled(bool en);
+  void set_cruise_enable(bool on);
+  void set_start_mode_enable(bool on);
+  void set_insensitivity_enable(bool on);
+  void set_show_total_km_enable(bool on);
+  void set_auto_screen_off_enable(bool on);
+  void set_ring_enable(bool on);
+  void set_double_speed_enable(bool on);
+  void set_bike_guard_enable(bool on);
+
+  void set_brightness(float value);
+  void set_boost(float value);
+  void set_guard_time(float value);
+  void pair_watch();
 
   void set_motor_switch(FiidoMotorSwitch *sw) { motor_switch_ = sw; }
   void set_light_switch(FiidoLightSwitch *sw) { light_switch_ = sw; }
@@ -75,6 +100,22 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void set_throttle_switch(FiidoThrottleSwitch *sw) { throttle_switch_ = sw; }
   void set_slow_mode_switch(FiidoSlowModeSwitch *sw) { slow_mode_switch_ = sw; }
   void set_ble_switch(FiidoBleSwitch *sw) { ble_switch_ = sw; }
+  void set_cruise_switch(FiidoCruiseSwitch *sw) { cruise_switch_ = sw; }
+  void set_start_mode_switch(FiidoStartModeSwitch *sw) { start_mode_switch_ = sw; }
+  void set_insensitivity_switch(FiidoInsensitivitySwitch *sw) { insensitivity_switch_ = sw; }
+  void set_show_total_km_switch(FiidoShowTotalKmSwitch *sw) { show_total_km_switch_ = sw; }
+  void set_auto_screen_off_switch(FiidoAutoScreenOffSwitch *sw) { auto_screen_off_switch_ = sw; }
+  void set_ring_switch(FiidoRingSwitch *sw) { ring_switch_ = sw; }
+  void set_double_speed_switch(FiidoDoubleSpeedSwitch *sw) { double_speed_switch_ = sw; }
+  void set_bike_guard_switch(FiidoBikeGuardSwitch *sw) { bike_guard_switch_ = sw; }
+
+  void set_brightness_number(FiidoBrightnessNumber *n) { brightness_number_ = n; }
+  void set_boost_number(FiidoBoostNumber *n) { boost_number_ = n; }
+  void set_guard_time_number(FiidoGuardTimeNumber *n) { guard_time_number_ = n; }
+  void set_pair_watch_button(FiidoPairWatchButton *b) { pair_watch_button_ = b; }
+
+  void enable_boost_poll() { this->poll_enabled_boost_ = true; }
+  void enable_display_poll() { this->poll_enabled_display_ = true; }
 
   void set_auto_shutdown_enabled(bool en) { this->auto_shutdown_enabled_ = en; }
 
@@ -153,6 +194,17 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t LIFECYCLE_TICK_MS = 1000;
   // Minimum gap between two enforce_gear_mode_3 writes triggered by parse_stats_.
   static constexpr uint32_t ENFORCE_GEAR_MODE_3_COOLDOWN_MS = 60000;
+  // Frame CRC is a plain XOR, so a corrupted frame can still validate.
+  // Sample outside these bounds is dropped, last published value stays.
+  static constexpr float MAX_TOTAL_KM = 200000.0f;
+  static constexpr float MAX_TRIP_KM = 1000.0f;
+  static constexpr float MAX_SPEED_KMH = 100.0f;
+  static constexpr uint8_t MAX_SOC_PCT = 100;
+  static constexpr int16_t MIN_MOTOR_TEMP_C = -40;
+  static constexpr int16_t MAX_MOTOR_TEMP_C = 125;
+  // Rate limit for rejected-frame logs; a fragmented stream rejects every frame.
+  static constexpr uint32_t BAD_NOTIFY_LOG_INTERVAL_MS = 5000;
+  static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
 
   bool send_raw_write(uint8_t type, uint8_t addr, const std::vector<uint8_t> &payload);
   void send_handshake_();
@@ -174,6 +226,13 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void parse_stats_(const uint8_t *payload, size_t len);
   void parse_meter_(const uint8_t *payload, size_t len);
   void parse_speed_limit_(const uint8_t *payload, size_t len);
+  void parse_boost_(const uint8_t *payload, size_t len);
+  void parse_display_(const uint8_t *payload, size_t len);
+  // Read-modify-write a single bit of a cached flag byte, then publish-verify.
+  void write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache,
+                       bool cache_valid, const char *name);
+  // Raw 1-byte value write (no bit-masking) for number entities.
+  void write_value_byte_(uint8_t type, uint8_t addr, uint8_t value, const char *name);
 
   static void publish_(sensor::Sensor *s, float value);
   static void publish_(binary_sensor::BinarySensor *s, bool value);
@@ -185,6 +244,11 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint16_t char_write_handle_{0};
   uint16_t char_notify_handle_{0};
   bool handshake_sent_{false};
+
+  uint32_t last_bad_notify_log_ms_{0};
+  uint32_t bad_notify_count_{0};
+  uint32_t last_unknown_addr_log_ms_{0};
+  uint32_t unknown_addr_count_{0};
 
   sensor::Sensor *battery_voltage_sensor_{nullptr};
   sensor::Sensor *battery_current_voltage_sensor_{nullptr};
@@ -245,6 +309,19 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   FiidoThrottleSwitch *throttle_switch_{nullptr};
   FiidoSlowModeSwitch *slow_mode_switch_{nullptr};
   FiidoBleSwitch *ble_switch_{nullptr};
+  FiidoCruiseSwitch *cruise_switch_{nullptr};
+  FiidoStartModeSwitch *start_mode_switch_{nullptr};
+  FiidoInsensitivitySwitch *insensitivity_switch_{nullptr};
+  FiidoShowTotalKmSwitch *show_total_km_switch_{nullptr};
+  FiidoAutoScreenOffSwitch *auto_screen_off_switch_{nullptr};
+  FiidoRingSwitch *ring_switch_{nullptr};
+  FiidoDoubleSpeedSwitch *double_speed_switch_{nullptr};
+  FiidoBikeGuardSwitch *bike_guard_switch_{nullptr};
+
+  FiidoBrightnessNumber *brightness_number_{nullptr};
+  FiidoBoostNumber *boost_number_{nullptr};
+  FiidoGuardTimeNumber *guard_time_number_{nullptr};
+  FiidoPairWatchButton *pair_watch_button_{nullptr};
 
   bool ble_user_enabled_{true};
 
@@ -276,6 +353,20 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint8_t addr_38_cache_{0};
   bool addr_38_valid_{false};
 
+  // payload[52] = ADDR 0x39. Only bits 4..0 are defined; bits 7..5 are written
+  // as 0, so the cache keeps the low 5 bits and the write builds from them.
+  uint8_t addr_39_cache_{0};
+  bool addr_39_valid_{false};
+
+  // ADDR 0x52 boost level, separate poll.
+  uint8_t addr_52_cache_{0};
+  bool addr_52_valid_{false};
+
+  // ADDR 0x57 brightness + 0x58 guard time, separate display poll.
+  uint8_t addr_57_cache_{0};
+  uint8_t addr_58_cache_{0};
+  bool addr_57_valid_{false};
+
   uint32_t update_interval_on_ms_{3000};
   uint32_t update_interval_off_ms_{15000};
   uint32_t idle_disconnect_ms_{15 * 60 * 1000};
@@ -306,6 +397,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   bool poll_enabled_motor_{false};
   bool poll_enabled_energy_{false};
   bool poll_enabled_meter_{false};
+  bool poll_enabled_boost_{false};
+  bool poll_enabled_display_{false};
 };
 
 }  // namespace fiido_bms

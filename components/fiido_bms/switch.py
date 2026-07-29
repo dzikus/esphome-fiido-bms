@@ -1,7 +1,11 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import switch
-from esphome.const import CONF_DEVICE_ID, ENTITY_CATEGORY_CONFIG
+from esphome.const import (
+    CONF_DEVICE_ID,
+    CONF_DISABLED_BY_DEFAULT,
+    ENTITY_CATEGORY_CONFIG,
+)
 
 from . import CONF_FIIDO_BMS_ID, FIIDO_BMS_COMPONENT_SCHEMA, fiido_bms_ns
 
@@ -28,6 +32,26 @@ FiidoSlowModeSwitch = fiido_bms_ns.class_(
 FiidoBleSwitch = fiido_bms_ns.class_(
     "FiidoBleSwitch", switch.Switch, cg.Parented, cg.Component
 )
+FiidoCruiseSwitch = fiido_bms_ns.class_("FiidoCruiseSwitch", switch.Switch, cg.Parented)
+FiidoStartModeSwitch = fiido_bms_ns.class_(
+    "FiidoStartModeSwitch", switch.Switch, cg.Parented
+)
+FiidoInsensitivitySwitch = fiido_bms_ns.class_(
+    "FiidoInsensitivitySwitch", switch.Switch, cg.Parented
+)
+FiidoShowTotalKmSwitch = fiido_bms_ns.class_(
+    "FiidoShowTotalKmSwitch", switch.Switch, cg.Parented
+)
+FiidoAutoScreenOffSwitch = fiido_bms_ns.class_(
+    "FiidoAutoScreenOffSwitch", switch.Switch, cg.Parented
+)
+FiidoRingSwitch = fiido_bms_ns.class_("FiidoRingSwitch", switch.Switch, cg.Parented)
+FiidoDoubleSpeedSwitch = fiido_bms_ns.class_(
+    "FiidoDoubleSpeedSwitch", switch.Switch, cg.Parented
+)
+FiidoBikeGuardSwitch = fiido_bms_ns.class_(
+    "FiidoBikeGuardSwitch", switch.Switch, cg.Parented
+)
 
 CONF_MOTOR = "motor"
 CONF_LIGHT = "light"
@@ -37,6 +61,26 @@ CONF_KEY_SOUND = "key_sound"
 CONF_THROTTLE = "throttle"
 CONF_SLOW_MODE_ON_BOOT = "slow_mode_on_boot"
 CONF_BLUETOOTH = "bluetooth"
+CONF_CRUISE = "cruise"
+CONF_START_MODE = "start_mode"
+CONF_INSENSITIVITY = "insensitivity"
+CONF_SHOW_TOTAL_KM = "show_total_km"
+CONF_AUTO_SCREEN_OFF = "auto_screen_off"
+CONF_RING = "ring"
+CONF_DOUBLE_SPEED = "double_speed"
+CONF_BIKE_GUARD = "bike_guard"
+
+# Newer controls ship hidden in the HA registry until validated on hardware.
+# bike_guard stays visible (paired with the visible guard_time number).
+HIDDEN_SWITCH_KEYS = {
+    CONF_CRUISE,
+    CONF_START_MODE,
+    CONF_INSENSITIVITY,
+    CONF_SHOW_TOTAL_KM,
+    CONF_AUTO_SCREEN_OFF,
+    CONF_RING,
+    CONF_DOUBLE_SPEED,
+}
 
 # Each entry: (config_key, cpp_class, hub_setter_name, default_restore_mode, is_component, extra_kwargs, default_name)
 # is_component=True means the C++ class inherits Component and needs setup() lifecycle.
@@ -114,6 +158,78 @@ SWITCHES = [
         {"icon": "mdi:bluetooth", "entity_category": ENTITY_CATEGORY_CONFIG},
         "Bluetooth",
     ),
+    (
+        CONF_CRUISE,
+        FiidoCruiseSwitch,
+        "set_cruise_switch",
+        "RESTORE_DEFAULT_ON",
+        False,
+        {"icon": "mdi:car-cruise-control"},
+        "Cruise Control",
+    ),
+    (
+        CONF_START_MODE,
+        FiidoStartModeSwitch,
+        "set_start_mode_switch",
+        "RESTORE_DEFAULT_ON",
+        False,
+        {"icon": "mdi:ray-start-arrow", "entity_category": ENTITY_CATEGORY_CONFIG},
+        "Start Mode",
+    ),
+    (
+        CONF_INSENSITIVITY,
+        FiidoInsensitivitySwitch,
+        "set_insensitivity_switch",
+        "RESTORE_DEFAULT_ON",
+        False,
+        {"icon": "mdi:tune", "entity_category": ENTITY_CATEGORY_CONFIG},
+        "Insensitivity",
+    ),
+    (
+        CONF_SHOW_TOTAL_KM,
+        FiidoShowTotalKmSwitch,
+        "set_show_total_km_switch",
+        "RESTORE_DEFAULT_ON",
+        False,
+        {"icon": "mdi:counter", "entity_category": ENTITY_CATEGORY_CONFIG},
+        "Show Total Km",
+    ),
+    (
+        CONF_AUTO_SCREEN_OFF,
+        FiidoAutoScreenOffSwitch,
+        "set_auto_screen_off_switch",
+        "RESTORE_DEFAULT_ON",
+        False,
+        {"icon": "mdi:monitor-off", "entity_category": ENTITY_CATEGORY_CONFIG},
+        "Auto Screen Off",
+    ),
+    (
+        CONF_RING,
+        FiidoRingSwitch,
+        "set_ring_switch",
+        "RESTORE_DEFAULT_OFF",
+        False,
+        {"icon": "mdi:bell-ring"},
+        "Ring",
+    ),
+    (
+        CONF_DOUBLE_SPEED,
+        FiidoDoubleSpeedSwitch,
+        "set_double_speed_switch",
+        "RESTORE_DEFAULT_OFF",
+        False,
+        {"icon": "mdi:fast-forward", "entity_category": ENTITY_CATEGORY_CONFIG},
+        "Double Speed",
+    ),
+    (
+        CONF_BIKE_GUARD,
+        FiidoBikeGuardSwitch,
+        "set_bike_guard_switch",
+        "RESTORE_DEFAULT_OFF",
+        False,
+        {"icon": "mdi:shield-lock", "entity_category": ENTITY_CATEGORY_CONFIG},
+        "Bike Guard",
+    ),
 ]
 
 
@@ -129,6 +245,8 @@ def _inject_defaults(config):
         sub.setdefault("name", default_name)
         if platform_dev is not None and CONF_DEVICE_ID not in sub:
             sub[CONF_DEVICE_ID] = platform_dev
+        if key in HIDDEN_SWITCH_KEYS:
+            sub.setdefault(CONF_DISABLED_BY_DEFAULT, True)
     return config
 
 

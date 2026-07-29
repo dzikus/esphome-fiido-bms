@@ -71,6 +71,7 @@ inline constexpr size_t ADDR_2A_OFFSET = 37;  // brake bit 5
 inline constexpr size_t ADDR_2B_OFFSET = 38;  // throttle / pairing / guard flags
 inline constexpr size_t ADDR_2C_OFFSET = 39;  // key_sound / slow_mode / pas_limit / gear_way flags
 inline constexpr size_t ADDR_38_OFFSET = 51;  // speaker / switchStatus / CAN protocol flags
+inline constexpr size_t ADDR_39_OFFSET = 52;  // auto_screen_off / ring / lock flags
 }  // namespace stats
 
 }  // namespace fiido_bms

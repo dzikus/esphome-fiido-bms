@@ -355,7 +355,7 @@ SENSORS = [
         UNIT_SECOND,
         0,
         DEVICE_CLASS_DURATION,
-        STATE_CLASS_MEASUREMENT,
+        STATE_CLASS_TOTAL_INCREASING,
         "mdi:timer-outline",
         ENTITY_CATEGORY_DIAGNOSTIC,
         "Uptime",
