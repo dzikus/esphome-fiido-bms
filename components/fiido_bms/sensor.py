@@ -32,6 +32,7 @@ from . import (
     CONF_FIIDO_BMS_ID,
     DEV_SENSOR_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
+    HIDDEN_SENSOR_KEYS,
     HUB_CONFIGS,
 )
 
@@ -354,7 +355,7 @@ SENSORS = [
         UNIT_SECOND,
         0,
         DEVICE_CLASS_DURATION,
-        STATE_CLASS_MEASUREMENT,
+        STATE_CLASS_TOTAL_INCREASING,
         "mdi:timer-outline",
         ENTITY_CATEGORY_DIAGNOSTIC,
         "Uptime",
@@ -410,7 +411,7 @@ SENSORS = [
         UNIT_EMPTY,
         0,
         None,
-        None,
+        STATE_CLASS_MEASUREMENT,
         "mdi:bike-pedal",
         ENTITY_CATEGORY_DIAGNOSTIC,
         "Gear Start",
@@ -514,7 +515,10 @@ def _inject_defaults(config):
         sub.setdefault("name", default_name)
         if platform_dev is not None and CONF_DEVICE_ID not in sub:
             sub[CONF_DEVICE_ID] = platform_dev
-        if key in DEV_SENSOR_KEYS and CONF_DISABLED_BY_DEFAULT not in sub:
+        if (
+            key in (DEV_SENSOR_KEYS | HIDDEN_SENSOR_KEYS)
+            and CONF_DISABLED_BY_DEFAULT not in sub
+        ):
             sub[CONF_DISABLED_BY_DEFAULT] = True
     return config
 

@@ -4,8 +4,14 @@
 #include "fiido_mode_select.h"
 #include "fiido_speed_limit_select.h"
 #include "fiido_speed_unit_select.h"
+#include "fiido_number.h"
+#include "fiido_button.h"
 
 #ifdef USE_ESP32
+
+#include "esphome/components/number/number.h"
+#include "esphome/components/button/button.h"
+#include <esp_bt_device.h>
 
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
@@ -44,7 +50,7 @@ void FiidoBMSHub::dump_config() {
   ESP_LOGCONFIG(TAG, "Fiido BMS Hub:");
   ESP_LOGCONFIG(TAG, "  MAC: %s", this->parent_->address_str());
   ESP_LOGCONFIG(TAG, "  Startup delay: %u ms (hub %d of %d)",
-                this->startup_delay_ms_, this->hub_index_, this->total_hubs_);
+                (unsigned) this->startup_delay_ms_, this->hub_index_, this->total_hubs_);
   ESP_LOGCONFIG(TAG, "  Update interval ON/OFF: %u / %u ms",
                 (unsigned) this->update_interval_on_ms_,
                 (unsigned) this->update_interval_off_ms_);
@@ -106,11 +112,18 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       this->addr_2B_valid_ = false;
       this->addr_2C_valid_ = false;
       this->addr_38_valid_ = false;
+      this->addr_39_valid_ = false;
       this->addr_3C_valid_ = false;
+      this->addr_52_valid_ = false;
+      this->addr_57_valid_ = false;
       this->prev_motor_on_ = false;
       this->prev_light_on_ = false;
       this->prev_gear_ = 0xFF;
       this->last_dispatch_ms_ = 0;
+      this->last_bad_notify_log_ms_ = 0;
+      this->bad_notify_count_ = 0;
+      this->last_unknown_addr_log_ms_ = 0;
+      this->unknown_addr_count_ = 0;
       break;
     }
     case ESP_GATTC_SEARCH_CMPL_EVT: {
@@ -159,9 +172,18 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       uint8_t addr = 0;
       size_t payload_len = 0;
       if (!validate_notify(buf, len, &addr, &payload_len)) {
-        ESP_LOGW(TAG, "[%s] NOTIFY invalid (len=%u): %s",
-                 this->parent_->address_str(), (unsigned) len,
-                 format_hex_pretty(buf, len).c_str());
+        this->bad_notify_count_++;
+        uint32_t now = millis();
+        if (this->last_bad_notify_log_ms_ == 0 ||
+            (now - this->last_bad_notify_log_ms_) >= BAD_NOTIFY_LOG_INTERVAL_MS) {
+          size_t dump = len < BAD_NOTIFY_DUMP_LEN ? len : BAD_NOTIFY_DUMP_LEN;
+          ESP_LOGW(TAG, "[%s] NOTIFY invalid (len=%u, %u dropped since last log), head: %s",
+                   this->parent_->address_str(), (unsigned) len,
+                   (unsigned) this->bad_notify_count_,
+                   format_hex_pretty(buf, dump).c_str());
+          this->last_bad_notify_log_ms_ = now;
+          this->bad_notify_count_ = 0;
+        }
         break;
       }
       const uint8_t *payload = buf + NOTIFY_HDR_LEN;
@@ -173,14 +195,25 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
         case 0x05: this->parse_stats_(payload, payload_len); break;
         case 0x60: this->parse_meter_(payload, payload_len); break;
         case 0x3C: this->parse_speed_limit_(payload, payload_len); break;
+        case 0x52: this->parse_boost_(payload, payload_len); break;
+        case 0x57: this->parse_display_(payload, payload_len); break;
         case 0x0D:
           ESP_LOGD(TAG, "[%s] HANDSHAKE response OK",
                    this->parent_->address_str());
           break;
-        default:
-          ESP_LOGW(TAG, "[%s] NOTIFY unhandled addr=0x%02X",
-                   this->parent_->address_str(), addr);
+        default: {
+          this->unknown_addr_count_++;
+          uint32_t now = millis();
+          if (this->last_unknown_addr_log_ms_ == 0 ||
+              (now - this->last_unknown_addr_log_ms_) >= BAD_NOTIFY_LOG_INTERVAL_MS) {
+            ESP_LOGW(TAG, "[%s] NOTIFY unhandled addr=0x%02X (%u dropped since last log)",
+                     this->parent_->address_str(), addr,
+                     (unsigned) this->unknown_addr_count_);
+            this->last_unknown_addr_log_ms_ = now;
+            this->unknown_addr_count_ = 0;
+          }
           break;
+        }
       }
       break;
     }
@@ -266,6 +299,8 @@ void FiidoBMSHub::send_burst_poll_() {
       case 0x96: en = this->poll_enabled_motor_; break;
       case 0xC8: en = this->poll_enabled_energy_; break;
       case 0x60: en = this->poll_enabled_meter_; break;
+      case 0x52: en = this->poll_enabled_boost_; break;
+      case 0x57: en = this->poll_enabled_display_; break;
       default: en = true;
     }
     if (en) break;
@@ -375,11 +410,14 @@ void FiidoBMSHub::parse_motor_(const uint8_t *p, size_t len) {
   publish_(this->motor_reduction_ratio_sensor_, p[4] / 10.0f);
   publish_(this->motor_wheel_diameter_sensor_, u16be(p, 5) / 10.0f);
   // Temperature is two's complement signed 16-bit (BMS range -40..+125 C).
-  publish_(this->motor_temperature_sensor_, (int16_t) u16be(p, 7));
+  int16_t temp_c = (int16_t) u16be(p, 7);
+  if (temp_c >= MIN_MOTOR_TEMP_C && temp_c <= MAX_MOTOR_TEMP_C) {
+    publish_(this->motor_temperature_sensor_, temp_c);
+  }
   publish_(this->motor_capacity_sensor_, u16be(p, 9));
   ESP_LOGV(TAG, "[%s] MOTOR ver=%u T=%dC wheel=%.1f cap=%u",
            this->parent_->address_str(),
-           p[0], (int16_t) u16be(p, 7), u16be(p, 5) / 10.0, u16be(p, 9));
+           p[0], temp_c, u16be(p, 5) / 10.0, u16be(p, 9));
 }
 
 void FiidoBMSHub::parse_energy_(const uint8_t *p, size_t len) {
@@ -511,10 +549,16 @@ void FiidoBMSHub::set_ble_user_enabled(bool en) {
 
 void FiidoBMSHub::parse_stats_(const uint8_t *p, size_t len) {
   if (len != 53) return;
-  publish_(this->total_kilometers_sensor_, u32be(p, 23) / 10.0f);
-  publish_(this->current_kilometers_sensor_, u16be(p, 27) / 10.0f);
-  publish_(this->bicycle_speed_sensor_, u16be(p, 29) / 10.0f);
-  publish_(this->battery_soc_sensor_, p[stats::ADDR_24_OFFSET]);
+  // total_kilometers is total_increasing in HA: a bogus sample stays in
+  // long-term statistics, so gate all four on plausible range.
+  float total_km = u32be(p, 23) / 10.0f;
+  if (total_km <= MAX_TOTAL_KM) publish_(this->total_kilometers_sensor_, total_km);
+  float trip_km = u16be(p, 27) / 10.0f;
+  if (trip_km <= MAX_TRIP_KM) publish_(this->current_kilometers_sensor_, trip_km);
+  float speed = u16be(p, 29) / 10.0f;
+  if (speed <= MAX_SPEED_KMH) publish_(this->bicycle_speed_sensor_, speed);
+  uint8_t soc = p[stats::ADDR_24_OFFSET];
+  if (soc <= MAX_SOC_PCT) publish_(this->battery_soc_sensor_, soc);
   publish_(this->bicycle_gear_start_sensor_, p[stats::ADDR_25_OFFSET]);
 
   if (this->gear_select_ != nullptr) {
@@ -574,6 +618,10 @@ void FiidoBMSHub::parse_stats_(const uint8_t *p, size_t len) {
   this->addr_2C_valid_ = true;
   this->addr_38_cache_ = p[stats::ADDR_38_OFFSET];
   this->addr_38_valid_ = true;
+  // Only bits 4..0 of byte 0x39 are defined; keep just those in the cache so a
+  // later read-modify-write builds the byte with bits 7..5 cleared.
+  this->addr_39_cache_ = p[stats::ADDR_39_OFFSET] & 0x1F;
+  this->addr_39_valid_ = true;
 
   this->dispatch_pending_writes_();
 
@@ -642,6 +690,27 @@ void FiidoBMSHub::parse_stats_(const uint8_t *p, size_t len) {
     bool slow_mode_on = (p[stats::ADDR_2C_OFFSET] & 0x40) != 0;
     this->slow_mode_switch_->publish_state(slow_mode_on);
   }
+
+  uint8_t b27 = p[stats::ADDR_27_OFFSET];
+  uint8_t b28 = p[stats::ADDR_28_OFFSET];
+  uint8_t b2B = p[stats::ADDR_2B_OFFSET];
+  uint8_t b39 = p[stats::ADDR_39_OFFSET];
+  // bit 6 ADDR 0x27 = cruise control.
+  if (this->cruise_switch_ != nullptr) this->cruise_switch_->publish_state((b27 & 0x40) != 0);
+  // bit 1 ADDR 0x27 = start mode.
+  if (this->start_mode_switch_ != nullptr) this->start_mode_switch_->publish_state((b27 & 0x02) != 0);
+  // bit 0 ADDR 0x27 = insensitivity.
+  if (this->insensitivity_switch_ != nullptr) this->insensitivity_switch_->publish_state((b27 & 0x01) != 0);
+  // bit 6 ADDR 0x28 = show total km on display.
+  if (this->show_total_km_switch_ != nullptr) this->show_total_km_switch_->publish_state((b28 & 0x40) != 0);
+  // bit 3 ADDR 0x39 = auto screen off.
+  if (this->auto_screen_off_switch_ != nullptr) this->auto_screen_off_switch_->publish_state((b39 & 0x08) != 0);
+  // bit 1 ADDR 0x39 = ring/bell.
+  if (this->ring_switch_ != nullptr) this->ring_switch_->publish_state((b39 & 0x02) != 0);
+  // bit 5 ADDR 0x2B = double speed.
+  if (this->double_speed_switch_ != nullptr) this->double_speed_switch_->publish_state((b2B & 0x20) != 0);
+  // bit 6 ADDR 0x2B = bike guard.
+  if (this->bike_guard_switch_ != nullptr) this->bike_guard_switch_->publish_state((b2B & 0x40) != 0);
 
   // Auto-shutdown idle tracking.
   // Edge motor OFF -> ON: reset idle timer to give the user a grace period.
@@ -1232,6 +1301,272 @@ void FiidoBMSHub::set_slow_mode_enable(bool on) {
     ESP_LOGW(TAG, "[%s] WRITE 0x2C (slow_mode) failed - cache not updated",
              this->parent_->address_str());
   }
+}
+
+// Generic single-bit read-modify-write on a cached flag byte (L0 frame).
+// Caller passes a pointer to the cache field plus its current valid flag so this
+// can defer until the next STATS refresh when the base byte is unknown.
+void FiidoBMSHub::write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache,
+                                  bool cache_valid, const char *name) {
+  if (!cache_valid) {
+    ESP_LOGW(TAG, "[%s] %s skipped: ADDR 0x%02X cache cold",
+             this->parent_->address_str(), name, addr);
+    return;
+  }
+  uint8_t b = *cache;
+  if (set) b |= mask; else b &= ~mask;
+  // Byte 0x39 carries only bits 4..0; force the upper three bits to 0 on write.
+  // addr 0x39 also uses the 0xFF frame type; 0xAA writes are ack'd but not applied.
+  uint8_t frame_type = 0xAA;
+  if (addr == 0x39) {
+    b &= 0x1F;
+    frame_type = 0xFF;
+  }
+  ESP_LOGI(TAG, "[%s] %s ADDR 0x%02X: 0x%02X -> 0x%02X (mask 0x%02X)",
+           this->parent_->address_str(), name, addr, *cache, b, mask);
+  if (this->send_raw_write(frame_type, addr, std::vector<uint8_t>{b})) {
+    *cache = b;
+    this->force_poll_stats_ = true;
+    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+  } else {
+    ESP_LOGW(TAG, "[%s] WRITE 0x%02X (%s) failed - cache not updated",
+             this->parent_->address_str(), addr, name);
+  }
+}
+
+void FiidoBMSHub::set_cruise_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    if (this->cruise_switch_ != nullptr) this->cruise_switch_->publish_state(!on);
+    return;
+  }
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, on]() { this->set_cruise_enable(on); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  if (!this->addr_27_valid_) {
+    this->enqueue_pending_write_([this, on]() { this->set_cruise_enable(on); });
+    return;
+  }
+  this->write_flag_bit_(0x27, 0x40, on, &this->addr_27_cache_, this->addr_27_valid_, "CRUISE");
+}
+
+void FiidoBMSHub::set_start_mode_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    if (this->start_mode_switch_ != nullptr) this->start_mode_switch_->publish_state(!on);
+    return;
+  }
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, on]() { this->set_start_mode_enable(on); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  if (!this->addr_27_valid_) {
+    this->enqueue_pending_write_([this, on]() { this->set_start_mode_enable(on); });
+    return;
+  }
+  this->write_flag_bit_(0x27, 0x02, on, &this->addr_27_cache_, this->addr_27_valid_, "START_MODE");
+}
+
+void FiidoBMSHub::set_insensitivity_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    if (this->insensitivity_switch_ != nullptr) this->insensitivity_switch_->publish_state(!on);
+    return;
+  }
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, on]() { this->set_insensitivity_enable(on); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  if (!this->addr_27_valid_) {
+    this->enqueue_pending_write_([this, on]() { this->set_insensitivity_enable(on); });
+    return;
+  }
+  this->write_flag_bit_(0x27, 0x01, on, &this->addr_27_cache_, this->addr_27_valid_, "INSENS");
+}
+
+void FiidoBMSHub::set_show_total_km_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    if (this->show_total_km_switch_ != nullptr) this->show_total_km_switch_->publish_state(!on);
+    return;
+  }
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, on]() { this->set_show_total_km_enable(on); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  if (!this->addr_28_valid_) {
+    this->enqueue_pending_write_([this, on]() { this->set_show_total_km_enable(on); });
+    return;
+  }
+  this->write_flag_bit_(0x28, 0x40, on, &this->addr_28_cache_, this->addr_28_valid_, "SHOW_TOTAL_KM");
+}
+
+void FiidoBMSHub::set_auto_screen_off_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    if (this->auto_screen_off_switch_ != nullptr) this->auto_screen_off_switch_->publish_state(!on);
+    return;
+  }
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, on]() { this->set_auto_screen_off_enable(on); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  if (!this->addr_39_valid_) {
+    this->enqueue_pending_write_([this, on]() { this->set_auto_screen_off_enable(on); });
+    return;
+  }
+  this->write_flag_bit_(0x39, 0x08, on, &this->addr_39_cache_, this->addr_39_valid_, "AUTO_SCREEN_OFF");
+}
+
+void FiidoBMSHub::set_ring_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    if (this->ring_switch_ != nullptr) this->ring_switch_->publish_state(!on);
+    return;
+  }
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, on]() { this->set_ring_enable(on); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  if (!this->addr_39_valid_) {
+    this->enqueue_pending_write_([this, on]() { this->set_ring_enable(on); });
+    return;
+  }
+  this->write_flag_bit_(0x39, 0x02, on, &this->addr_39_cache_, this->addr_39_valid_, "RING");
+}
+
+void FiidoBMSHub::set_double_speed_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    if (this->double_speed_switch_ != nullptr) this->double_speed_switch_->publish_state(!on);
+    return;
+  }
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, on]() { this->set_double_speed_enable(on); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  if (!this->addr_2B_valid_) {
+    this->enqueue_pending_write_([this, on]() { this->set_double_speed_enable(on); });
+    return;
+  }
+  this->write_flag_bit_(0x2B, 0x20, on, &this->addr_2B_cache_, this->addr_2B_valid_, "DOUBLE_SPEED");
+}
+
+void FiidoBMSHub::set_bike_guard_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    if (this->bike_guard_switch_ != nullptr) this->bike_guard_switch_->publish_state(!on);
+    return;
+  }
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, on]() { this->set_bike_guard_enable(on); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  if (!this->addr_2B_valid_) {
+    this->enqueue_pending_write_([this, on]() { this->set_bike_guard_enable(on); });
+    return;
+  }
+  this->write_flag_bit_(0x2B, 0x40, on, &this->addr_2B_cache_, this->addr_2B_valid_, "BIKE_GUARD");
+}
+
+// Raw 1-byte value write for number entities. Clamps to 0..255 then sends.
+void FiidoBMSHub::write_value_byte_(uint8_t type, uint8_t addr, uint8_t value, const char *name) {
+  ESP_LOGI(TAG, "[%s] %s WRITE ADDR 0x%02X = %u (type 0x%02X)",
+           this->parent_->address_str(), name, addr, value, type);
+  if (!this->send_raw_write(type, addr, std::vector<uint8_t>{value})) {
+    ESP_LOGW(TAG, "[%s] WRITE 0x%02X (%s) failed",
+             this->parent_->address_str(), addr, name);
+    return;
+  }
+  this->force_poll_stats_ = true;
+  this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+}
+
+void FiidoBMSHub::set_brightness(float value) {
+  if (!this->ble_user_enabled_) return;
+  uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : (uint8_t) value);
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, value]() { this->set_brightness(value); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  this->write_value_byte_(0xFF, 0x57, v, "BRIGHTNESS");
+  this->addr_57_cache_ = v;
+  if (this->brightness_number_ != nullptr) this->brightness_number_->publish_state(v);
+}
+
+void FiidoBMSHub::set_boost(float value) {
+  if (!this->ble_user_enabled_) return;
+  uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : (uint8_t) value);
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, value]() { this->set_boost(value); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  this->write_value_byte_(0xAA, 0x52, v, "BOOST");
+  this->addr_52_cache_ = v;
+  if (this->boost_number_ != nullptr) this->boost_number_->publish_state(v);
+}
+
+void FiidoBMSHub::set_guard_time(float value) {
+  if (!this->ble_user_enabled_) return;
+  uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : (uint8_t) value);
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    this->enqueue_pending_write_([this, value]() { this->set_guard_time(value); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  this->write_value_byte_(0xFF, 0x58, v, "GUARD_TIME");
+  this->addr_58_cache_ = v;
+  if (this->guard_time_number_ != nullptr) this->guard_time_number_->publish_state(v);
+}
+
+// Pair this ESP32 as a proximity unlock companion: send its own BLE address as a
+// 6-byte value. The on-air byte order is logged so it can be checked later.
+void FiidoBMSHub::pair_watch() {
+  if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] PAIR_WATCH rejected: BLE user-disabled",
+             this->parent_->address_str());
+    return;
+  }
+  const uint8_t *mac = esp_bt_dev_get_address();
+  if (mac == nullptr) {
+    ESP_LOGW(TAG, "[%s] PAIR_WATCH: own BLE address not available",
+             this->parent_->address_str());
+    return;
+  }
+  std::vector<uint8_t> payload(mac, mac + 6);
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    ESP_LOGI(TAG, "[%s] PAIR_WATCH queued (disconnected)",
+             this->parent_->address_str());
+    this->enqueue_pending_write_([this]() { this->pair_watch(); });
+    this->ensure_enabled_for_write_();
+    return;
+  }
+  ESP_LOGI(TAG, "[%s] PAIR_WATCH ADDR 0x09 MAC bytes (send order) = %s",
+           this->parent_->address_str(),
+           format_hex_pretty(payload.data(), payload.size()).c_str());
+  this->send_raw_write(0xFF, 0x09, payload);
+}
+
+void FiidoBMSHub::parse_boost_(const uint8_t *p, size_t len) {
+  if (len != 1) return;
+  this->addr_52_cache_ = p[0];
+  this->addr_52_valid_ = true;
+  if (this->boost_number_ != nullptr) this->boost_number_->publish_state(p[0]);
+  ESP_LOGV(TAG, "[%s] BOOST value=%u", this->parent_->address_str(), p[0]);
+}
+
+void FiidoBMSHub::parse_display_(const uint8_t *p, size_t len) {
+  if (len != 2) return;
+  this->addr_57_cache_ = p[0];
+  this->addr_58_cache_ = p[1];
+  this->addr_57_valid_ = true;
+  if (this->brightness_number_ != nullptr) this->brightness_number_->publish_state(p[0]);
+  if (this->guard_time_number_ != nullptr) this->guard_time_number_->publish_state(p[1]);
+  ESP_LOGV(TAG, "[%s] DISPLAY brightness=%u guard_time=%u",
+           this->parent_->address_str(), p[0], p[1]);
 }
 
 }  // namespace fiido_bms
