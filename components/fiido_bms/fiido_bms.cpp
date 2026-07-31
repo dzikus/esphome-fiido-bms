@@ -12,6 +12,7 @@
 #include "esphome/components/number/number.h"
 #include "esphome/components/button/button.h"
 #include <esp_bt_device.h>
+#include <cmath>
 
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
@@ -240,6 +241,8 @@ void FiidoBMSHub::gap_event_handler(esp_gap_ble_cb_event_t event,
 }
 
 void FiidoBMSHub::update() {
+  // set_enabled(false) is async, so node_state can stay ESTABLISHED for a while.
+  if (!this->ble_user_enabled_) return;
   if (this->node_state != espbt::ClientState::ESTABLISHED) {
     return;
   }
@@ -524,6 +527,8 @@ void FiidoBMSHub::set_ble_user_enabled(bool en) {
   if (!en) {
     this->pending_writes_.clear();
     this->cancel_timeout("burst");
+    this->cancel_timeout("speed_limit_phase2");
+    this->cancel_timeout("force_stats_tick");
     this->burst_remaining_ = 0;
     this->burst_idx_ = 0;
     this->parent_->set_enabled(false);
@@ -722,7 +727,8 @@ void FiidoBMSHub::parse_stats_(const uint8_t *p, size_t len) {
   // Edge motor ON -> OFF (physical button): BMS persists bit 3 across the
   // OFF/ON cycle so the bike would come back ON with stale lights. Clear
   // bit 3 now while the link is still live.
-  if (this->prev_motor_on_ && !motor_on && (p[stats::ADDR_27_OFFSET] & 0x08) != 0) {
+  if (this->ble_user_enabled_ && this->prev_motor_on_ && !motor_on &&
+      (p[stats::ADDR_27_OFFSET] & 0x08) != 0) {
     uint8_t b = p[stats::ADDR_27_OFFSET] & ~0x08;
     ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)",
              this->parent_->address_str(), p[stats::ADDR_27_OFFSET], b);
@@ -1037,6 +1043,8 @@ void FiidoBMSHub::set_speed_limit(const std::string &option) {
     }
     return;
   }
+  // Newer command supersedes a pending phase2, which holds the old target.
+  this->cancel_timeout("speed_limit_phase2");
   if (!this->ble_user_enabled_) {
     ESP_LOGW(TAG, "[%s] SPEED_LIMIT '%s' rejected: BLE user-disabled",
              this->parent_->address_str(), option.c_str());
@@ -1083,8 +1091,9 @@ void FiidoBMSHub::set_speed_limit(const std::string &option) {
     // The 50ms delay opens a window for disconnect or a transient reconnect
     // before this runs. Bail if the link or cache base is no longer trustworthy
     // to avoid writing preserve-bits onto a stale ADDR 0x27.
-    if (this->node_state != espbt::ClientState::ESTABLISHED || !this->addr_27_valid_) {
-      ESP_LOGW(TAG, "[%s] SPEED_LIMIT phase2 aborted - link/cache not ready",
+    if (!this->ble_user_enabled_ ||
+        this->node_state != espbt::ClientState::ESTABLISHED || !this->addr_27_valid_) {
+      ESP_LOGW(TAG, "[%s] SPEED_LIMIT phase2 aborted - BLE disabled or link/cache not ready",
                this->parent_->address_str());
       return;
     }
@@ -1485,6 +1494,8 @@ void FiidoBMSHub::write_value_byte_(uint8_t type, uint8_t addr, uint8_t value, c
 
 void FiidoBMSHub::set_brightness(float value) {
   if (!this->ble_user_enabled_) return;
+  // NaN passes both clamp compares and the cast below is UB.
+  if (!std::isfinite(value)) return;
   uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : (uint8_t) value);
   if (this->node_state != espbt::ClientState::ESTABLISHED) {
     this->enqueue_pending_write_([this, value]() { this->set_brightness(value); });
@@ -1498,6 +1509,7 @@ void FiidoBMSHub::set_brightness(float value) {
 
 void FiidoBMSHub::set_boost(float value) {
   if (!this->ble_user_enabled_) return;
+  if (!std::isfinite(value)) return;
   uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : (uint8_t) value);
   if (this->node_state != espbt::ClientState::ESTABLISHED) {
     this->enqueue_pending_write_([this, value]() { this->set_boost(value); });
@@ -1511,6 +1523,7 @@ void FiidoBMSHub::set_boost(float value) {
 
 void FiidoBMSHub::set_guard_time(float value) {
   if (!this->ble_user_enabled_) return;
+  if (!std::isfinite(value)) return;
   uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : (uint8_t) value);
   if (this->node_state != espbt::ClientState::ESTABLISHED) {
     this->enqueue_pending_write_([this, value]() { this->set_guard_time(value); });
@@ -1530,6 +1543,12 @@ void FiidoBMSHub::pair_watch() {
              this->parent_->address_str());
     return;
   }
+  // One-shot with no undo here, so never queued for replay like other setters.
+  if (this->node_state != espbt::ClientState::ESTABLISHED) {
+    ESP_LOGW(TAG, "[%s] PAIR_WATCH dropped: link down, press again while connected",
+             this->parent_->address_str());
+    return;
+  }
   const uint8_t *mac = esp_bt_dev_get_address();
   if (mac == nullptr) {
     ESP_LOGW(TAG, "[%s] PAIR_WATCH: own BLE address not available",
@@ -1537,13 +1556,6 @@ void FiidoBMSHub::pair_watch() {
     return;
   }
   std::vector<uint8_t> payload(mac, mac + 6);
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    ESP_LOGI(TAG, "[%s] PAIR_WATCH queued (disconnected)",
-             this->parent_->address_str());
-    this->enqueue_pending_write_([this]() { this->pair_watch(); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
   ESP_LOGI(TAG, "[%s] PAIR_WATCH ADDR 0x09 MAC bytes (send order) = %s",
            this->parent_->address_str(),
            format_hex_pretty(payload.data(), payload.size()).c_str());
