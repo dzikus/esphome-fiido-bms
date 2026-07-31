@@ -178,6 +178,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
  protected:
   static constexpr uint32_t BURST_INTERVAL_MS = 5;
+  static constexpr uint32_t BURST_RETRY_MS = 50;
+  static constexpr uint8_t BURST_SEND_RETRIES = 2;
   static constexpr uint32_t IDLE_SHUTDOWN_MS = 15 * 60 * 1000;
   static constexpr uint32_t PERIODIC_PROBE_MS = 5 * 60 * 1000;
   static constexpr uint32_t PROBE_WINDOW_MS = 60 * 1000;
@@ -208,9 +210,10 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   bool send_raw_write(uint8_t type, uint8_t addr, const std::vector<uint8_t> &payload);
   void send_handshake_();
-  void send_poll_(size_t idx);
+  bool send_poll_(size_t idx, bool warn_on_fail);
   void send_burst_poll_();
-  bool send_frame_(const uint8_t *frame, size_t len, const char *name);
+  bool send_frame_(const uint8_t *frame, size_t len, const char *name,
+                   bool warn_on_fail = true);
   void publish_connected_(bool state);
   void mark_activity_(const char *reason);
 
@@ -241,6 +244,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint32_t connect_time_ms_{0};
   size_t burst_idx_{0};
   size_t burst_remaining_{0};
+  uint8_t burst_retry_{0};
+  bool link_congested_{false};
   uint16_t char_write_handle_{0};
   uint16_t char_notify_handle_{0};
   bool handshake_sent_{false};

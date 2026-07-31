@@ -146,6 +146,14 @@ select:
 switch:
   - platform: fiido_bms
     fiido_bms_id: hub_c11
+
+number:
+  - platform: fiido_bms
+    fiido_bms_id: hub_c11
+
+button:
+  - platform: fiido_bms
+    fiido_bms_id: hub_c11
 ```
 
 That gives you all default entities, named in English, with default icons and
@@ -394,6 +402,46 @@ esphome:
       name: "Fiido M1 PRO 2025"
 
 sensor:
+  - platform: fiido_bms
+    fiido_bms_id: hub_c11
+    device_id: dev_c11
+  - platform: fiido_bms
+    fiido_bms_id: hub_m1
+    device_id: dev_m1
+
+binary_sensor:
+  - platform: fiido_bms
+    fiido_bms_id: hub_c11
+    device_id: dev_c11
+  - platform: fiido_bms
+    fiido_bms_id: hub_m1
+    device_id: dev_m1
+
+select:
+  - platform: fiido_bms
+    fiido_bms_id: hub_c11
+    device_id: dev_c11
+  - platform: fiido_bms
+    fiido_bms_id: hub_m1
+    device_id: dev_m1
+
+switch:
+  - platform: fiido_bms
+    fiido_bms_id: hub_c11
+    device_id: dev_c11
+  - platform: fiido_bms
+    fiido_bms_id: hub_m1
+    device_id: dev_m1
+
+number:
+  - platform: fiido_bms
+    fiido_bms_id: hub_c11
+    device_id: dev_c11
+  - platform: fiido_bms
+    fiido_bms_id: hub_m1
+    device_id: dev_m1
+
+button:
   - platform: fiido_bms
     fiido_bms_id: hub_c11
     device_id: dev_c11

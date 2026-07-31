@@ -85,11 +85,24 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       ESP_LOGI(TAG, "[%s] Connection opened", this->parent_->address_str());
       this->connect_time_ms_ = millis();
       this->handshake_sent_ = false;
+      this->link_congested_ = false;
+      break;
+    }
+    case ESP_GATTC_CONGEST_EVT: {
+      if (param->congest.conn_id != this->parent_->get_conn_id()) break;
+      this->link_congested_ = param->congest.congested;
+      ESP_LOGD(TAG, "[%s] l2cap %scongested", this->parent_->address_str(),
+               this->link_congested_ ? "" : "un");
+      if (!this->link_congested_ && this->burst_remaining_ > 0) {
+        this->cancel_timeout("burst");
+        this->send_burst_poll_();
+      }
       break;
     }
     case ESP_GATTC_DISCONNECT_EVT: {
       ESP_LOGW(TAG, "[%s] Disconnected", this->parent_->address_str());
       this->node_state = espbt::ClientState::IDLE;
+      this->link_congested_ = false;
       if (this->char_notify_handle_ != 0) {
         auto unreg = esp_ble_gattc_unregister_for_notify(
             this->parent()->get_gattc_if(), this->parent()->get_remote_bda(),
@@ -105,6 +118,7 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       this->cancel_timeout("burst");
       this->burst_remaining_ = 0;
       this->burst_idx_ = 0;
+      this->burst_retry_ = 0;
       this->publish_connected_(false);
       // Bike state may change while disconnected; need fresh STATS post-reconnect.
       this->addr_27_valid_ = false;
@@ -281,6 +295,7 @@ void FiidoBMSHub::update() {
   this->last_burst_ms_ = now;
   this->burst_idx_ = start_idx;
   this->burst_remaining_ = POLL_TABLE_SIZE;
+  this->burst_retry_ = 0;
   this->send_burst_poll_();
 }
 
@@ -311,7 +326,19 @@ void FiidoBMSHub::send_burst_poll_() {
     this->burst_remaining_--;
   }
   if (this->burst_remaining_ == 0) return;
-  this->send_poll_(this->burst_idx_);
+  if (this->link_congested_) {
+    this->set_timeout("burst", BURST_RETRY_MS,
+                      [this]() { this->send_burst_poll_(); });
+    return;
+  }
+  bool last_try = this->burst_retry_ >= BURST_SEND_RETRIES;
+  if (!this->send_poll_(this->burst_idx_, last_try) && !last_try) {
+    this->burst_retry_++;
+    this->set_timeout("burst", BURST_RETRY_MS,
+                      [this]() { this->send_burst_poll_(); });
+    return;
+  }
+  this->burst_retry_ = 0;
   this->burst_idx_ = (this->burst_idx_ + 1) % POLL_TABLE_SIZE;
   this->burst_remaining_--;
   if (this->burst_remaining_ > 0) {
@@ -326,11 +353,11 @@ void FiidoBMSHub::send_handshake_() {
   this->send_frame_(frame, POLL_FRAME_LEN, "HANDSHAKE");
 }
 
-void FiidoBMSHub::send_poll_(size_t idx) {
+bool FiidoBMSHub::send_poll_(size_t idx, bool warn_on_fail) {
   const PollDef &poll = POLL_TABLE[idx];
   uint8_t frame[POLL_FRAME_LEN];
   build_poll_frame(poll.addr, poll.len, frame);
-  this->send_frame_(frame, POLL_FRAME_LEN, poll.name);
+  return this->send_frame_(frame, POLL_FRAME_LEN, poll.name, warn_on_fail);
 }
 
 bool FiidoBMSHub::send_raw_write(uint8_t type, uint8_t addr,
@@ -349,7 +376,8 @@ bool FiidoBMSHub::send_raw_write(uint8_t type, uint8_t addr,
   return this->send_frame_(frame, flen, "RAW_WRITE");
 }
 
-bool FiidoBMSHub::send_frame_(const uint8_t *frame, size_t len, const char *name) {
+bool FiidoBMSHub::send_frame_(const uint8_t *frame, size_t len, const char *name,
+                              bool warn_on_fail) {
   if (this->char_write_handle_ == 0) {
     ESP_LOGW(TAG, "[%s] send %s skipped, FFE2 handle not yet known",
              this->parent_->address_str(), name);
@@ -362,8 +390,13 @@ bool FiidoBMSHub::send_frame_(const uint8_t *frame, size_t len, const char *name
       this->char_write_handle_, len, const_cast<uint8_t *>(frame),
       ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
   if (status) {
-    ESP_LOGW(TAG, "[%s] write %s failed, status=%d",
-             this->parent_->address_str(), name, status);
+    if (warn_on_fail) {
+      ESP_LOGW(TAG, "[%s] write %s failed, status=%d",
+               this->parent_->address_str(), name, status);
+    } else {
+      ESP_LOGD(TAG, "[%s] write %s failed, status=%d, will retry",
+               this->parent_->address_str(), name, status);
+    }
     return false;
   }
   return true;
@@ -531,6 +564,7 @@ void FiidoBMSHub::set_ble_user_enabled(bool en) {
     this->cancel_timeout("force_stats_tick");
     this->burst_remaining_ = 0;
     this->burst_idx_ = 0;
+    this->burst_retry_ = 0;
     this->parent_->set_enabled(false);
     this->motor_off_since_ms_ = 0;
     this->probe_started_ms_ = 0;
