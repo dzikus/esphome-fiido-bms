@@ -12,14 +12,17 @@ contended.
 The component reads the bike state out of its BMS, parses the proprietary frames the
 official app uses, and writes back to flip a small set of physical controls:
 power, light, gear, gear count, speed limit, speed unit, horn, key sound, throttle,
-slow mode on boot.
+slow mode on boot. A further set (cruise, start mode, insensitivity, show total km,
+auto screen off, ring, double speed, bike guard, display brightness, boost, guard
+time, watch pairing) is experimental and off by default; see Experimental controls.
 
 The document is split in two:
 
 - **Part 1 - Integrator** (yaml only): how to wire a bike into an ESPHome device and
   what entities you get.
 - **Part 2 - Extender** (C++ + python): how the component is structured, how it polls,
-  how it writes, and how to add a new sensor, binary sensor, select, or switch.
+  how it writes, and how to add a new sensor, binary sensor, select, switch, number,
+  or button.
 
 ---
 
@@ -83,8 +86,13 @@ hidden in HA until you enable them per entity.
 - 4 selects: `gear` (3 or 5 options depending on mode), `mode` (3 / 5, hidden on
   bikes pinned to 3-gear), `speed_limit` (6 km/h / 25 km/h / No limit), `speed_unit`
   (km/h / mph).
-- 8 switches: `motor` (Power), `light`, `auto_shutdown`, `speaker` (Horn), `key_sound`,
-  `throttle`, `slow_mode_on_boot`, `bluetooth` (BLE link master switch).
+- 8 stable switches: `motor` (Power), `light`, `auto_shutdown`, `speaker` (Horn),
+  `key_sound`, `throttle`, `slow_mode_on_boot`, `bluetooth` (BLE link master switch).
+- 8 experimental switches: `cruise`, `start_mode`, `insensitivity`, `show_total_km`,
+  `auto_screen_off`, `ring`, `double_speed`, `bike_guard`. Created `disabled_by_default`
+  except `bike_guard`. See Experimental controls.
+- 3 numbers: `guard_time` (visible), `brightness` and `boost` (`disabled_by_default`).
+- 1 button: `pair_watch` (`disabled_by_default`).
 
 ### Screenshots
 
@@ -251,19 +259,76 @@ cosmetic; physical BMS state can still be flipped to 5 by other apps. Use
 
 ### Entities (switch)
 
-All switches default to `RESTORE_DEFAULT_ON` except `motor` and `light`, which default
-to `RESTORE_DEFAULT_OFF`. Restore mode is overridable per entity.
+All switches default to `RESTORE_DEFAULT_ON` except `motor`, `light`, `ring`,
+`double_speed`, and `bike_guard`, which default to `RESTORE_DEFAULT_OFF`. Restore mode
+is overridable per entity.
 
 | Key                  | Default name        | Source              | Write                                |
 |----------------------|---------------------|---------------------|--------------------------------------|
 | `motor`              | Power               | STATS 0x27 bit 7    | WRITE L0 ADDR 0x27 (R-M-W, bit 7)    |
 | `light`              | Light               | STATS 0x27 bit 3    | WRITE L0 ADDR 0x27 (R-M-W, bit 3, rejected if motor is OFF) |
-| `auto_shutdown`      | Auto Shutdown       | local (HA-restored) | enables / disables 15-min idle-disconnect |
+| `auto_shutdown`      | Auto Shutdown       | local (HA-restored) | gates the automatic motor power-off after 15 min without activity (speed, gear or light change). Does not affect `idle_disconnect` |
 | `speaker`            | Horn                | STATS 0x38 bits 3:2 | WRITE L0 ADDR 0x38 (R-M-W, ON = 00, OFF = 01) |
 | `key_sound`          | Key Sound           | STATS 0x2C bit 4    | WRITE L0 ADDR 0x2C (R-M-W, **inverted**: bit 4 = 0 means ON) |
 | `throttle`           | Throttle            | STATS 0x2B bit 1    | WRITE L0 ADDR 0x2B (R-M-W, **inverted**: bit 1 = 0 means active) |
 | `slow_mode_on_boot`  | Slow Mode on Boot   | STATS 0x2C bit 6    | WRITE L0 ADDR 0x2C (R-M-W, bit 6 = 1 forces 6 km/h limit on next power-up) |
 | `bluetooth`          | Bluetooth           | local               | master switch for the BLE link itself |
+| `cruise`             | Cruise Control      | STATS 0x27 bit 6    | WRITE L0 ADDR 0x27 (R-M-W, bit 6)    |
+| `start_mode`         | Start Mode          | STATS 0x27 bit 1    | WRITE L0 ADDR 0x27 (R-M-W, bit 1)    |
+| `insensitivity`      | Insensitivity       | STATS 0x27 bit 0    | WRITE L0 ADDR 0x27 (R-M-W, bit 0)    |
+| `show_total_km`      | Show Total Km       | STATS 0x28 bit 6    | WRITE L0 ADDR 0x28 (R-M-W, bit 6)    |
+| `auto_screen_off`    | Auto Screen Off     | STATS 0x39 bit 3    | WRITE J0 ADDR 0x39 (R-M-W, bit 3, low 5 bits only) |
+| `ring`               | Ring                | STATS 0x39 bit 1    | WRITE J0 ADDR 0x39 (R-M-W, bit 1, low 5 bits only) |
+| `double_speed`       | Double Speed        | STATS 0x2B bit 5    | WRITE L0 ADDR 0x2B (R-M-W, bit 5)    |
+| `bike_guard`         | Bike Guard          | STATS 0x2B bit 6    | WRITE L0 ADDR 0x2B (R-M-W, bit 6)    |
+
+The eight rows from `cruise` down are experimental and capability-gated (see
+Experimental controls). All except `bike_guard` are created `disabled_by_default`.
+
+### Entities (number)
+
+Add a `number:` platform block for the hub (same shape as `switch:`) to expose these.
+All three use BOX input mode and the config entity category. Real hardware ranges are
+unknown, so each spans the full byte (0 - 255, step 1).
+
+| Key          | Default name       | Unit | Range   | Source / write                            |
+|--------------|--------------------|------|---------|-------------------------------------------|
+| `guard_time` | Guard Time         | s    | 0 - 255 | DISPLAY 0x58, WRITE J0 ADDR 0x58 (1B raw) |
+| `brightness` | Display Brightness | -    | 0 - 255 | DISPLAY 0x57, WRITE J0 ADDR 0x57 (1B raw) |
+| `boost`      | Boost              | -    | 0 - 255 | BOOST 0x52, WRITE L0 ADDR 0x52 (1B raw)   |
+
+`brightness` and `boost` are experimental and created `disabled_by_default`;
+`guard_time` is visible. See Experimental controls.
+
+### Entities (button)
+
+Add a `button:` platform block for the hub (same shape as `switch:`) to expose this.
+
+| Key          | Default name | Write                                          |
+|--------------|--------------|------------------------------------------------|
+| `pair_watch` | Pair Watch   | WRITE J0 ADDR 0x09 (6-byte ESP32 BLE address)  |
+
+Pressing it sends the ESP32's own BLE address to ADDR 0x09, the register the app uses
+to pair a proximity-unlock companion. Experimental, `disabled_by_default`, and
+unverified on C11 / M1. See Experimental controls.
+
+### Experimental controls
+
+`cruise`, `start_mode`, `insensitivity`, `show_total_km`, `auto_screen_off`, `ring`,
+`double_speed`, `bike_guard`, the numbers `brightness`, `boost`, `guard_time`, and the
+`pair_watch` button drive registers that exist in the protocol but are not confirmed to
+have any effect on the C11 Pro or M1 Pro 2025. Those bikes report the matching
+capability as unsupported, and toggling the controls produced no observable change in
+testing. The BMS still latches the written bit and returns it on the next read, which
+is not proof the feature works.
+
+They are capability-gated: other Fiido models that report the capability as supported
+may honour them. Because they are unverified, every switch above except `bike_guard`,
+plus `brightness`, `boost`, and `pair_watch`, is created `disabled_by_default` and
+stays hidden in HA until you enable it per entity. `bike_guard` and `guard_time` are
+created visible, but `bike_guard` ON is incomplete: the app performs an extra unlock
+step the component does not send. If any of these work on your bike, a report or PR is
+welcome.
 
 ### Override per-entity
 
@@ -369,18 +434,23 @@ components/fiido_bms/
   sensor.py                    sensor platform: 36 keys (10 always on, 26 dev), schema + to_code
   binary_sensor.py             binary_sensor platform: 2 keys (1 always on, 1 dev)
   select.py                    4 select classes + platform
-  switch.py                    8 switch classes + platform
+  switch.py                    16 switch classes + platform (8 stable, 8 experimental)
+  number.py                    3 number classes + platform (guard_time, brightness, boost)
+  button.py                    1 button class + platform (pair_watch)
 
   fiido_protocol.{h,cpp}       pure C++: CRC XOR, frame builders, validate, POLL_TABLE
   fiido_bms.{h,cpp}            FiidoBMSHub: BLE client + PollingComponent + state machine
 
-  fiido_bool_switch.h          all 8 switches via two templates + one-line subclasses:
+  fiido_bool_switch.h          all 16 switches via two templates + one-line subclasses:
                                FiidoBoolSwitch<Setter>             write_state only
                                FiidoBoolSwitchWithRestore<Setter>  setup() restore + defer
                                motor / light / speaker / key_sound / throttle / slow_mode
-                                 are write-only; the bit + ADDR live in the hub setter
+                                 and the 8 experimental switches are write-only; the bit
+                                 + ADDR live in the hub setter
                                bluetooth / auto_shutdown use the with-restore template
                                  (local state, re-applied on boot)
+  fiido_number.h               3 numbers via one template (brightness / boost / guard_time)
+  fiido_button.h               pair_watch button
 
   fiido_gear_select.{h,cpp}         ADDR 0x26, count-aware (3 vs 5)
   fiido_mode_select.{h,cpp}         ADDR 0x25 nibble-packed
@@ -408,16 +478,18 @@ and `update_interval_off_ms_` (default 15s, motor off) inside `parse_stats_`, ba
 on bit 7 of ADDR 0x27. The flip is one-way per STATS frame; the gate decides when
 the next burst actually fires.
 
-A burst is six polls scheduled 5 ms apart in time via `set_timeout("burst", 5ms)`:
+A burst walks the whole `POLL_TABLE` (9 entries) scheduled 5 ms apart in time via
+`set_timeout("burst", 5ms)`:
 
 ```
-BATTERY -> CTRL -> MOTOR -> ENERGY -> STATS -> METER
+BATTERY -> CTRL -> MOTOR -> ENERGY -> STATS -> METER -> SPEEDLIM -> BOOST -> DISPLAY
 ```
 
 5 ms is the empirically established sweet spot; anything below ~3 ms makes the BMS
-drop frames. Polls whose group is disabled (no consumer sensor, gated by
-`expose_dev_sensors`) are skipped at burst time; a safety counter bounds the skip
-loop so a fully disabled rotation cannot spin forever.
+drop frames. Polls whose group is disabled (no consumer sensor gated by
+`expose_dev_sensors`, or a number entity that is not configured) are skipped at burst
+time; a safety counter bounds the skip loop so a fully disabled rotation cannot spin
+forever.
 
 After every successful WRITE the hub sets `force_poll_stats_ = true`, cancels the
 in-flight burst, and re-enters burst rotation starting with STATS so the WRITE's
@@ -452,9 +524,12 @@ visible effect (a flipped bit) shows up in HA within one burst step.
 | any `-> PROBING`                   | HA writes a control while link is down               | `enqueue_pending_write_(fn)` + `ensure_enabled_for_write_()` + `set_enabled(true)` |
 | WRITE drained                      | STATS valid after re-connect                         | `dispatch_pending_writes_()` runs every enqueued lambda                 |
 
-`auto_shutdown` switch disables the first transition; with it OFF the link stays up
-until something else cuts it. The `bluetooth` switch is a hard kill: turning it OFF
-clears the pending-writes queue, cancels the burst timeout, calls
+None of these transitions is gated by `auto_shutdown` - that switch controls a
+different mechanism (the automatic motor power-off, see the switch table above).
+The BLE link is released on `idle_disconnect` regardless of it.
+
+The `bluetooth` switch is a hard kill: turning it OFF
+clears the pending-writes queue, cancels the pending timeouts, calls
 `parent_->set_enabled(false)`, and any subsequent WRITE setter rejects the change
 (`motor`/`light`/`speaker` re-publish the inverted state, others log + return).
 
@@ -467,12 +542,15 @@ address, populated from the STATS poll:
 | ADDR | Offset in STATS payload | What lives there                              | Used by                                                   |
 |------|-------------------------|-----------------------------------------------|-----------------------------------------------------------|
 | 0x25 | payload[32]             | gear range, nibble-packed                     | `set_gear_mode`                                           |
-| 0x27 | payload[34]             | bit 7 = motor, bit 5 = speed_limit_en, bit 3 = light, plus cruise/start/insens bits not used | `set_motor_enable`, `set_light_enable`, `set_speed_limit` |
-| 0x28 | payload[35]             | bit 7 = speed unit (1 = mph), other UI flags  | `set_speed_unit`                                          |
-| 0x2B | payload[38]             | bit 1 = throttle (inverted)                   | `set_throttle_enable`                                     |
+| 0x27 | payload[34]             | bit 7 = motor, bit 6 = cruise, bit 5 = speed_limit_en, bit 3 = light, bit 1 = start_mode, bit 0 = insensitivity | `set_motor_enable`, `set_light_enable`, `set_speed_limit`, `set_cruise_enable`, `set_start_mode_enable`, `set_insensitivity_enable` |
+| 0x28 | payload[35]             | bit 7 = speed unit (1 = mph), bit 6 = show_total_km, other UI flags | `set_speed_unit`, `set_show_total_km_enable`             |
+| 0x2B | payload[38]             | bit 1 = throttle (inverted), bit 5 = double_speed, bit 6 = bike_guard | `set_throttle_enable`, `set_double_speed_enable`, `set_bike_guard_enable` |
 | 0x2C | payload[39]             | bits 3:2 = gear way, bit 4 = key_sound (inverted), bit 6 = slow_mode_on_boot | `set_key_sound_enable`, `set_slow_mode_enable`            |
 | 0x38 | payload[51]             | bits 3:2 = speaker (binary on these bikes), other flags | `set_speaker_enable`                                      |
-| 0x3C | separate poll           | speed limit value in km/h                     | `set_speed_limit` (paired with bit 5 ADDR 0x27)           |
+| 0x39 | payload[52]             | bit 3 = auto_screen_off, bit 1 = ring; only bits 4..0 cached, write masks bits 7..5 and uses the J0 (0xFF) frame | `set_auto_screen_off_enable`, `set_ring_enable`          |
+| 0x3C | separate poll (SPEEDLIM) | speed limit value in km/h                    | `set_speed_limit` (paired with bit 5 ADDR 0x27)           |
+| 0x52 | separate poll (BOOST)   | PAS boost level                               | `set_boost`                                              |
+| 0x57, 0x58 | separate poll (DISPLAY) | brightness (0x57), guard time (0x58)      | `set_brightness`, `set_guard_time`                       |
 
 Each cache has a `_valid` flag. Setters reject writes (and re-publish the old state
 to HA) when their cache byte is not yet valid; the next STATS frame populates it.
@@ -518,9 +596,12 @@ The full poll rotation:
 | STATS     | 0x05 | 53  | `46 64 55 35 05 47`      | speed/km/gear/SOC + every flag byte 0x05..0x39 |
 | METER     | 0x60 | 13  | `46 64 55 0D 60 1A`      | meter HW/SW/mode                               |
 | SPEEDLIM  | 0x3C | 1   | `46 64 55 01 3C 4A`      | current speed-limit value in km/h              |
+| BOOST     | 0x52 | 1   | `46 64 55 01 52 24`      | PAS boost level                                |
+| DISPLAY   | 0x57 | 2   | `46 64 55 02 57 22`      | display brightness (0x57) + guard time (0x58)  |
 
-STATS is the only poll that is always issued; CTRL and METER are skipped from the
-rotation when `expose_dev_sensors` is false.
+STATS and SPEEDLIM are always issued; CTRL and METER are skipped from the rotation
+when `expose_dev_sensors` is false; BOOST and DISPLAY only run when the matching
+number entity (`boost`, or `brightness` / `guard_time`) is configured.
 
 ### Adding a new entity
 
@@ -553,7 +634,9 @@ shape. Walking through a new switch on, say, bit 0 ADDR 0x39:
      }
      uint8_t b = addr_39_cache_;
      b = on ? (b | 0x01) : (b & ~0x01);
-     if (send_raw_write(FRAME_TYPE_WRITE_L0, 0x39, std::vector<uint8_t>{b})) {
+     // ADDR 0x39 latches only via the J0 (0xFF) frame and only bits 4..0 are valid.
+     b &= 0x1F;
+     if (send_raw_write(FRAME_TYPE_WRITE_J0, 0x39, std::vector<uint8_t>{b})) {
        addr_39_cache_ = b;
        force_poll_stats_ = true;
      }
@@ -561,7 +644,9 @@ shape. Walking through a new switch on, say, bit 0 ADDR 0x39:
    ```
 
    Invert the polarity (`on ? & ~0x01 : | 0x01`) when the bit is inverted at the
-   BMS (key_sound, throttle).
+   BMS (key_sound, throttle). Most single-bit writes reuse the shared
+   `write_flag_bit_(addr, mask, on, &cache, valid, name)` helper, which applies the
+   ADDR 0x39 mask and J0 frame automatically; the expanded form above shows the steps.
 
 4. **Add a switch class**: add one line to `fiido_bool_switch.h`:
    `class FiidoMyThingSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_my_thing_enable> {};`.
@@ -590,7 +675,7 @@ to `DEV_SENSOR_KEYS` if it should be off by default.
 ### Testing
 
 Unit tests under `tests/test_protocol/` build with PlatformIO + Unity. They link
-only `fiido_protocol.{h,cpp}` and run on the host (no ESP32 required). 39 tests
+only `fiido_protocol.{h,cpp}` and run on the host (no ESP32 required). 43 tests
 cover CRC, the poll and write frame builders, validate, and the decode of every
 poll's payload via static fixtures in `fixtures.h`.
 
@@ -613,3 +698,6 @@ pio test -d tests -e native
 | Throttle (bit 1 ADDR 0x2B) is inverted                                                     | bit = 0 means handle is active, bit = 1 means disabled. Same shape as key sound.                                                   |
 | WRITE is fire-and-forget                                                                   | No NOTIFY confirms a WRITE (except ADDR 0x25 mode change). Verify by force-polling STATS afterwards and checking the bit.          |
 | Bike will not sleep while the BLE link is held                                             | The BMS only enters low-power state after the central disconnects. With `auto_shutdown` OFF the component never drops the link, so the bike keeps draining standby current indefinitely. Leave `auto_shutdown` ON unless you have an external reason to keep the link up. |
+| Experimental controls are capability-gated                                                 | `cruise`, `start_mode`, `insensitivity`, `show_total_km`, `auto_screen_off`, `ring`, `double_speed`, `bike_guard`, `brightness`, `boost`, `guard_time`, and `pair_watch` write real registers, but the C11 / M1 report them as unsupported and toggling them had no observable effect. They ship `disabled_by_default` (except `bike_guard` and `guard_time`). See Experimental controls. |
+| Frame CRC is a plain XOR, so a corrupted frame can still validate                          | STATS samples outside plausible bounds are dropped and the last good value kept: total <= 200000 km, trip <= 1000 km, speed <= 100 km/h, SOC <= 100%, motor temperature -40..125 C. |
+| A fragmented BLE stream can reject every frame                                             | Invalid and unhandled-address NOTIFY frames are logged at most once per 5 s per category, each line carrying the count dropped since the previous log, so the log cannot flood. |

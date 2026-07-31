@@ -44,3 +44,11 @@ select:
 switch:
   - platform: fiido_bms
     fiido_bms_id: hub_test
+
+number:
+  - platform: fiido_bms
+    fiido_bms_id: hub_test
+
+button:
+  - platform: fiido_bms
+    fiido_bms_id: hub_test

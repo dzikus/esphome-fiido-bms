@@ -12,16 +12,21 @@ esp32:
     type: esp-idf
 
 logger:
+
 api:
+  encryption:
+    key: !secret api_encryption_key
+
 ota:
   - platform: esphome
+    password: !secret ota_password
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
 
 external_components:
-  - source: github://dzikus/esphome-fiido-bms@v1.2.0
+  - source: github://dzikus/esphome-fiido-bms
 
 esp32_ble_tracker:
 
