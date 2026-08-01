@@ -117,7 +117,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void enable_boost_poll() { this->poll_enabled_boost_ = true; }
   void enable_display_poll() { this->poll_enabled_display_ = true; }
 
-  void set_auto_shutdown_enabled(bool en) { this->auto_shutdown_enabled_ = en; }
+  void set_auto_shutdown_enabled(bool en);
 
   void set_update_interval_on_ms(uint32_t ms) { this->update_interval_on_ms_ = ms; }
   void set_update_interval_off_ms(uint32_t ms) { this->update_interval_off_ms_ = ms; }
@@ -231,9 +231,11 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void parse_speed_limit_(const uint8_t *payload, size_t len);
   void parse_boost_(const uint8_t *payload, size_t len);
   void parse_display_(const uint8_t *payload, size_t len);
-  // Read-modify-write a single bit of a cached flag byte, then publish-verify.
+  bool defer_flag_write_(bool cache_valid, const char *name, std::function<void()> retry);
+  void write_masked_bits_(uint8_t addr, uint8_t mask, uint8_t bits, uint8_t *cache,
+                          const char *name);
   void write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache,
-                       bool cache_valid, const char *name);
+                       const char *name);
   // Raw 1-byte value write (no bit-masking) for number entities.
   void write_value_byte_(uint8_t type, uint8_t addr, uint8_t value, const char *name);
 

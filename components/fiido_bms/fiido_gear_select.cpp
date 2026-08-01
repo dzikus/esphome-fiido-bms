@@ -26,37 +26,22 @@ void FiidoGearSelect::control(const std::string &value) {
       return;
     }
   }
-  // Fallback hierarchy: 3-gear list is a subset of 5-gear list with order
-  // preserved. Map the clicked label to its index in names_5_, then pick the
-  // largest active entry whose names_5_ index is <= clicked. Example with
-  // active=3-gear: "turbo+" -> "turbo", "normal" -> "eco". Avoids strict
-  // reject when HA UI caches the 5-gear options but runtime mode is 3-gear.
-  int picked_idx_full = -1;
-  for (size_t i = 0; i < this->names_5_.size(); i++) {
-    if (this->names_5_[i] == value) {
-      picked_idx_full = static_cast<int>(i);
-      break;
-    }
-  }
-  if (picked_idx_full >= 0) {
-    int best_active = -1;
-    for (size_t j = 0; j < active.size(); j++) {
-      int idx_full = -1;
-      for (size_t k = 0; k < this->names_5_.size(); k++) {
-        if (this->names_5_[k] == active[j]) {
-          idx_full = static_cast<int>(k);
-          break;
-        }
-      }
-      if (idx_full >= 0 && idx_full <= picked_idx_full) {
-        best_active = static_cast<int>(j);
-      }
-    }
-    if (best_active >= 0) {
+  // HA keeps offering the 5-gear labels it cached at setup even when the active
+  // list is 3-gear. The active list is a subsequence of names_5_ in order, so one
+  // walk finds the last active entry at or before the clicked label:
+  // "turbo+" -> "turbo", "normal" -> "eco".
+  int fallback = -1;
+  size_t next_active = 0;
+  for (const auto &name : this->names_5_) {
+    if (name == value) {
+      if (fallback < 0) break;
       ESP_LOGI("fiido_gear_select", "value '%s' not valid in %u-gear mode - falling back to '%s'",
-               value.c_str(), this->gear_count_, active[best_active].c_str());
-      this->parent_->set_gear(static_cast<uint8_t>(best_active));
+               value.c_str(), this->gear_count_, active[fallback].c_str());
+      this->parent_->set_gear(static_cast<uint8_t>(fallback));
       return;
+    }
+    if (next_active < active.size() && name == active[next_active]) {
+      fallback = static_cast<int>(next_active++);
     }
   }
   ESP_LOGW("fiido_gear_select", "value '%s' is not valid in current gear mode (count=%u) - rejected",

@@ -554,9 +554,15 @@ void FiidoBMSHub::ensure_enabled_for_write_() {
   }
 }
 
+void FiidoBMSHub::set_auto_shutdown_enabled(bool en) {
+  this->auto_shutdown_enabled_ = en;
+  if (this->autoshutdown_switch_ != nullptr) this->autoshutdown_switch_->publish_state(en);
+}
+
 void FiidoBMSHub::set_ble_user_enabled(bool en) {
   if (en == this->ble_user_enabled_) return;
   this->ble_user_enabled_ = en;
+  if (this->ble_switch_ != nullptr) this->ble_switch_->publish_state(en);
   if (!en) {
     this->pending_writes_.clear();
     this->cancel_timeout("burst");
@@ -1210,156 +1216,27 @@ void FiidoBMSHub::set_speed_unit(const std::string &option) {
   }
 }
 
-void FiidoBMSHub::set_speaker_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] SPEAKER %s rejected: BLE user-disabled",
-             this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->speaker_switch_ != nullptr) this->speaker_switch_->publish_state(!on);
-    return;
-  }
+bool FiidoBMSHub::defer_flag_write_(bool cache_valid, const char *name,
+                                    std::function<void()> retry) {
   if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_speaker_enable(on); });
+    ESP_LOGI(TAG, "[%s] %s queued (disconnected)", this->parent_->address_str(), name);
+    this->enqueue_pending_write_(std::move(retry));
     this->ensure_enabled_for_write_();
-    return;
+    return true;
   }
-  if (!this->addr_38_valid_) {
-    ESP_LOGI(TAG, "[%s] SPEAKER %s deferred: ADDR 0x38 cache cold",
-             this->parent_->address_str(), on ? "ON" : "OFF");
-    this->enqueue_pending_write_([this, on]() { this->set_speaker_enable(on); });
-    return;
-  }
-  // bits 3:2: 00 = audible, 01 = silent.
-  uint8_t b = this->addr_38_cache_ & ~0x0C;
-  if (!on) b |= 0x04;
-  ESP_LOGI(TAG, "[%s] SPEAKER %s ADDR 0x38: 0x%02X -> 0x%02X (bits 3:2)",
-           this->parent_->address_str(), on ? "ON" : "OFF",
-           this->addr_38_cache_, b);
-  if (this->send_raw_write(0xAA, 0x38, std::vector<uint8_t>{b})) {
-    this->addr_38_cache_ = b;
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
-  } else {
-    ESP_LOGW(TAG, "[%s] WRITE 0x38 (speaker) failed - cache not updated",
-             this->parent_->address_str());
-  }
-}
-
-void FiidoBMSHub::set_key_sound_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] KEY_SOUND %s rejected: BLE user-disabled",
-             this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->key_sound_switch_ != nullptr) this->key_sound_switch_->publish_state(!on);
-    return;
-  }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_key_sound_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_2C_valid_) {
-    ESP_LOGI(TAG, "[%s] KEY_SOUND %s deferred: ADDR 0x2C cache cold",
-             this->parent_->address_str(), on ? "ON" : "OFF");
-    this->enqueue_pending_write_([this, on]() { this->set_key_sound_enable(on); });
-    return;
-  }
-  // bit 4 inverted: 0 = beep, 1 = silent.
-  uint8_t b = this->addr_2C_cache_ & ~0x10;
-  if (!on) b |= 0x10;
-  ESP_LOGI(TAG, "[%s] KEY_SOUND %s ADDR 0x2C: 0x%02X -> 0x%02X (bit 4)",
-           this->parent_->address_str(), on ? "ON" : "OFF",
-           this->addr_2C_cache_, b);
-  if (this->send_raw_write(0xAA, 0x2C, std::vector<uint8_t>{b})) {
-    this->addr_2C_cache_ = b;
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
-  } else {
-    ESP_LOGW(TAG, "[%s] WRITE 0x2C (key_sound) failed - cache not updated",
-             this->parent_->address_str());
-  }
-}
-
-void FiidoBMSHub::set_throttle_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] THROTTLE %s rejected: BLE user-disabled",
-             this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->throttle_switch_ != nullptr) this->throttle_switch_->publish_state(!on);
-    return;
-  }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_throttle_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_2B_valid_) {
-    ESP_LOGI(TAG, "[%s] THROTTLE %s deferred: ADDR 0x2B cache cold",
-             this->parent_->address_str(), on ? "ON" : "OFF");
-    this->enqueue_pending_write_([this, on]() { this->set_throttle_enable(on); });
-    return;
-  }
-  // bit 1 inverted: 0 = throttle active, 1 = disabled.
-  uint8_t b = this->addr_2B_cache_ & ~0x02;
-  if (!on) b |= 0x02;
-  ESP_LOGI(TAG, "[%s] THROTTLE %s ADDR 0x2B: 0x%02X -> 0x%02X (bit 1)",
-           this->parent_->address_str(), on ? "ON" : "OFF",
-           this->addr_2B_cache_, b);
-  if (this->send_raw_write(0xAA, 0x2B, std::vector<uint8_t>{b})) {
-    this->addr_2B_cache_ = b;
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
-  } else {
-    ESP_LOGW(TAG, "[%s] WRITE 0x2B (throttle) failed - cache not updated",
-             this->parent_->address_str());
-  }
-}
-
-void FiidoBMSHub::set_slow_mode_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] SLOW_MODE %s rejected: BLE user-disabled",
-             this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->slow_mode_switch_ != nullptr) this->slow_mode_switch_->publish_state(!on);
-    return;
-  }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_slow_mode_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_2C_valid_) {
-    ESP_LOGI(TAG, "[%s] SLOW_MODE %s deferred: ADDR 0x2C cache cold",
-             this->parent_->address_str(), on ? "ON" : "OFF");
-    this->enqueue_pending_write_([this, on]() { this->set_slow_mode_enable(on); });
-    return;
-  }
-  // bit 6: 1 = reset speed limit on next power cycle, 0 = persist.
-  uint8_t b = this->addr_2C_cache_ & ~0x40;
-  if (on) b |= 0x40;
-  ESP_LOGI(TAG, "[%s] SLOW_MODE %s ADDR 0x2C: 0x%02X -> 0x%02X (bit 6)",
-           this->parent_->address_str(), on ? "ON" : "OFF",
-           this->addr_2C_cache_, b);
-  if (this->send_raw_write(0xAA, 0x2C, std::vector<uint8_t>{b})) {
-    this->addr_2C_cache_ = b;
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
-  } else {
-    ESP_LOGW(TAG, "[%s] WRITE 0x2C (slow_mode) failed - cache not updated",
-             this->parent_->address_str());
-  }
-}
-
-// Generic single-bit read-modify-write on a cached flag byte (L0 frame).
-// Caller passes a pointer to the cache field plus its current valid flag so this
-// can defer until the next STATS refresh when the base byte is unknown.
-void FiidoBMSHub::write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache,
-                                  bool cache_valid, const char *name) {
   if (!cache_valid) {
-    ESP_LOGW(TAG, "[%s] %s skipped: ADDR 0x%02X cache cold",
-             this->parent_->address_str(), name, addr);
-    return;
+    ESP_LOGI(TAG, "[%s] %s deferred: cache cold", this->parent_->address_str(), name);
+    this->enqueue_pending_write_(std::move(retry));
+    return true;
   }
-  uint8_t b = *cache;
-  if (set) b |= mask; else b &= ~mask;
-  // Byte 0x39 carries only bits 4..0; force the upper three bits to 0 on write.
-  // addr 0x39 also uses the 0xFF frame type; 0xAA writes are ack'd but not applied.
+  return false;
+}
+
+void FiidoBMSHub::write_masked_bits_(uint8_t addr, uint8_t mask, uint8_t bits,
+                                     uint8_t *cache, const char *name) {
+  uint8_t b = (*cache & ~mask) | (bits & mask);
+  // Byte 0x39 carries only bits 4..0 and latches only via the 0xFF frame type;
+  // 0xAA writes are ack'd but not applied.
   uint8_t frame_type = 0xAA;
   if (addr == 0x39) {
     b &= 0x1F;
@@ -1377,140 +1254,157 @@ void FiidoBMSHub::write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t 
   }
 }
 
+void FiidoBMSHub::write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache,
+                                  const char *name) {
+  this->write_masked_bits_(addr, mask, set ? mask : 0x00, cache, name);
+}
+
+void FiidoBMSHub::set_speaker_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] SPEAKER %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
+    if (this->speaker_switch_ != nullptr) this->speaker_switch_->publish_state(!on);
+    return;
+  }
+  if (this->defer_flag_write_(this->addr_38_valid_, "SPEAKER",
+                              [this, on]() { this->set_speaker_enable(on); })) return;
+  // bits 3:2: 00 = audible, 01 = silent.
+  this->write_masked_bits_(0x38, 0x0C, on ? 0x00 : 0x04, &this->addr_38_cache_, "SPEAKER");
+}
+
+void FiidoBMSHub::set_key_sound_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] KEY_SOUND %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
+    if (this->key_sound_switch_ != nullptr) this->key_sound_switch_->publish_state(!on);
+    return;
+  }
+  if (this->defer_flag_write_(this->addr_2C_valid_, "KEY_SOUND",
+                              [this, on]() { this->set_key_sound_enable(on); })) return;
+  // bit 4 inverted: 0 = beep, 1 = silent.
+  this->write_flag_bit_(0x2C, 0x10, !on, &this->addr_2C_cache_, "KEY_SOUND");
+}
+
+void FiidoBMSHub::set_throttle_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] THROTTLE %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
+    if (this->throttle_switch_ != nullptr) this->throttle_switch_->publish_state(!on);
+    return;
+  }
+  if (this->defer_flag_write_(this->addr_2B_valid_, "THROTTLE",
+                              [this, on]() { this->set_throttle_enable(on); })) return;
+  // bit 1 inverted: 0 = throttle active, 1 = disabled.
+  this->write_flag_bit_(0x2B, 0x02, !on, &this->addr_2B_cache_, "THROTTLE");
+}
+
+void FiidoBMSHub::set_slow_mode_enable(bool on) {
+  if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] SLOW_MODE %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
+    if (this->slow_mode_switch_ != nullptr) this->slow_mode_switch_->publish_state(!on);
+    return;
+  }
+  if (this->defer_flag_write_(this->addr_2C_valid_, "SLOW_MODE",
+                              [this, on]() { this->set_slow_mode_enable(on); })) return;
+  // bit 6: 1 = reset speed limit on next power cycle, 0 = persist.
+  this->write_flag_bit_(0x2C, 0x40, on, &this->addr_2C_cache_, "SLOW_MODE");
+}
+
 void FiidoBMSHub::set_cruise_enable(bool on) {
   if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] CRUISE %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
     if (this->cruise_switch_ != nullptr) this->cruise_switch_->publish_state(!on);
     return;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_cruise_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_27_valid_) {
-    this->enqueue_pending_write_([this, on]() { this->set_cruise_enable(on); });
-    return;
-  }
-  this->write_flag_bit_(0x27, 0x40, on, &this->addr_27_cache_, this->addr_27_valid_, "CRUISE");
+  if (this->defer_flag_write_(this->addr_27_valid_, "CRUISE",
+                              [this, on]() { this->set_cruise_enable(on); })) return;
+  this->write_flag_bit_(0x27, 0x40, on, &this->addr_27_cache_, "CRUISE");
 }
 
 void FiidoBMSHub::set_start_mode_enable(bool on) {
   if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] START_MODE %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
     if (this->start_mode_switch_ != nullptr) this->start_mode_switch_->publish_state(!on);
     return;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_start_mode_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_27_valid_) {
-    this->enqueue_pending_write_([this, on]() { this->set_start_mode_enable(on); });
-    return;
-  }
-  this->write_flag_bit_(0x27, 0x02, on, &this->addr_27_cache_, this->addr_27_valid_, "START_MODE");
+  if (this->defer_flag_write_(this->addr_27_valid_, "START_MODE",
+                              [this, on]() { this->set_start_mode_enable(on); })) return;
+  this->write_flag_bit_(0x27, 0x02, on, &this->addr_27_cache_, "START_MODE");
 }
 
 void FiidoBMSHub::set_insensitivity_enable(bool on) {
   if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] INSENS %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
     if (this->insensitivity_switch_ != nullptr) this->insensitivity_switch_->publish_state(!on);
     return;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_insensitivity_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_27_valid_) {
-    this->enqueue_pending_write_([this, on]() { this->set_insensitivity_enable(on); });
-    return;
-  }
-  this->write_flag_bit_(0x27, 0x01, on, &this->addr_27_cache_, this->addr_27_valid_, "INSENS");
+  if (this->defer_flag_write_(this->addr_27_valid_, "INSENS",
+                              [this, on]() { this->set_insensitivity_enable(on); })) return;
+  this->write_flag_bit_(0x27, 0x01, on, &this->addr_27_cache_, "INSENS");
 }
 
 void FiidoBMSHub::set_show_total_km_enable(bool on) {
   if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] SHOW_TOTAL_KM %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
     if (this->show_total_km_switch_ != nullptr) this->show_total_km_switch_->publish_state(!on);
     return;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_show_total_km_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_28_valid_) {
-    this->enqueue_pending_write_([this, on]() { this->set_show_total_km_enable(on); });
-    return;
-  }
-  this->write_flag_bit_(0x28, 0x40, on, &this->addr_28_cache_, this->addr_28_valid_, "SHOW_TOTAL_KM");
+  if (this->defer_flag_write_(this->addr_28_valid_, "SHOW_TOTAL_KM",
+                              [this, on]() { this->set_show_total_km_enable(on); })) return;
+  this->write_flag_bit_(0x28, 0x40, on, &this->addr_28_cache_, "SHOW_TOTAL_KM");
 }
 
 void FiidoBMSHub::set_auto_screen_off_enable(bool on) {
   if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] AUTO_SCREEN_OFF %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
     if (this->auto_screen_off_switch_ != nullptr) this->auto_screen_off_switch_->publish_state(!on);
     return;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_auto_screen_off_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_39_valid_) {
-    this->enqueue_pending_write_([this, on]() { this->set_auto_screen_off_enable(on); });
-    return;
-  }
-  this->write_flag_bit_(0x39, 0x08, on, &this->addr_39_cache_, this->addr_39_valid_, "AUTO_SCREEN_OFF");
+  if (this->defer_flag_write_(this->addr_39_valid_, "AUTO_SCREEN_OFF",
+                              [this, on]() { this->set_auto_screen_off_enable(on); })) return;
+  this->write_flag_bit_(0x39, 0x08, on, &this->addr_39_cache_, "AUTO_SCREEN_OFF");
 }
 
 void FiidoBMSHub::set_ring_enable(bool on) {
   if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] RING %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
     if (this->ring_switch_ != nullptr) this->ring_switch_->publish_state(!on);
     return;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_ring_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_39_valid_) {
-    this->enqueue_pending_write_([this, on]() { this->set_ring_enable(on); });
-    return;
-  }
-  this->write_flag_bit_(0x39, 0x02, on, &this->addr_39_cache_, this->addr_39_valid_, "RING");
+  if (this->defer_flag_write_(this->addr_39_valid_, "RING",
+                              [this, on]() { this->set_ring_enable(on); })) return;
+  this->write_flag_bit_(0x39, 0x02, on, &this->addr_39_cache_, "RING");
 }
 
 void FiidoBMSHub::set_double_speed_enable(bool on) {
   if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] DOUBLE_SPEED %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
     if (this->double_speed_switch_ != nullptr) this->double_speed_switch_->publish_state(!on);
     return;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_double_speed_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_2B_valid_) {
-    this->enqueue_pending_write_([this, on]() { this->set_double_speed_enable(on); });
-    return;
-  }
-  this->write_flag_bit_(0x2B, 0x20, on, &this->addr_2B_cache_, this->addr_2B_valid_, "DOUBLE_SPEED");
+  if (this->defer_flag_write_(this->addr_2B_valid_, "DOUBLE_SPEED",
+                              [this, on]() { this->set_double_speed_enable(on); })) return;
+  this->write_flag_bit_(0x2B, 0x20, on, &this->addr_2B_cache_, "DOUBLE_SPEED");
 }
 
 void FiidoBMSHub::set_bike_guard_enable(bool on) {
   if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] BIKE_GUARD %s rejected: BLE user-disabled",
+             this->parent_->address_str(), on ? "ON" : "OFF");
     if (this->bike_guard_switch_ != nullptr) this->bike_guard_switch_->publish_state(!on);
     return;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, on]() { this->set_bike_guard_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->addr_2B_valid_) {
-    this->enqueue_pending_write_([this, on]() { this->set_bike_guard_enable(on); });
-    return;
-  }
-  this->write_flag_bit_(0x2B, 0x40, on, &this->addr_2B_cache_, this->addr_2B_valid_, "BIKE_GUARD");
+  if (this->defer_flag_write_(this->addr_2B_valid_, "BIKE_GUARD",
+                              [this, on]() { this->set_bike_guard_enable(on); })) return;
+  this->write_flag_bit_(0x2B, 0x40, on, &this->addr_2B_cache_, "BIKE_GUARD");
 }
 
 // Raw 1-byte value write for number entities. Clamps to 0..255 then sends.
