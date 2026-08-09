@@ -110,8 +110,9 @@ entity-category cards:
 
 ### Minimum config
 
-This component uses the ESPHome sub-device API, so it needs **ESPHome 2025.7.0 or
-newer**. Pin it with `esphome: { min_version: 2025.7.0 }` so an older install fails
+This component uses the ESPHome sub-device API and the device-aware
+duplicate-name check, so it needs **ESPHome 2025.8.0 or newer**. Pin it with
+`esphome: { min_version: 2025.8.0 }` so an older install fails
 fast instead of erroring deep in code generation.
 
 Two declarations per bike. Replace the MAC with the bike's MAC.

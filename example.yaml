@@ -3,8 +3,8 @@
 
 esphome:
   name: fiido-bms
-  # Sub-device API (per-entity device_id) requires ESPHome 2025.7.0 or newer.
-  min_version: 2025.7.0
+  # Sub-device API plus the device-aware duplicate-name check (2025.8.0).
+  min_version: 2025.8.0
 
 esp32:
   board: esp32dev

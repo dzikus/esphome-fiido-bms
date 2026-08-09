@@ -96,7 +96,7 @@ jobs:
           python-version: "3.12"
       # Pin to the declared floor so min_version is actually exercised.
       - name: Install ESPHome (component floor)
-        run: pip install "esphome==2025.7.0"
+        run: pip install "esphome==2025.8.0"
       - name: Validate CI and IntelliSense configs
         run: |
           set -euo pipefail

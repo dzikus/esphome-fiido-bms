@@ -166,7 +166,7 @@ FIIDO_BMS_COMPONENT_SCHEMA = cv.Schema(
     }
 )
 
-# Platform schemas use cv.sub_device_id (ESPHome 2025.7.0+).
+# Platform schemas use cv.sub_device_id (ESPHome 2025.8.0+).
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -196,7 +196,7 @@ CONFIG_SCHEMA = cv.All(
     # to update_interval_off (default 15s) when bit 7 ADDR 0x27 clears.
     # 15s is fast enough to catch physical motor ON in the idle window.
     .extend(cv.polling_component_schema("1s")),
-    cv.require_esphome_version(2025, 7, 0),
+    cv.require_esphome_version(2025, 8, 0),
 )
 
 
