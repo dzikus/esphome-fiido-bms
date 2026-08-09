@@ -3,19 +3,18 @@ import esphome.config_validation as cv
 from esphome.components import binary_sensor
 from esphome.const import (
     CONF_DEVICE_ID,
-    CONF_DISABLED_BY_DEFAULT,
     DEVICE_CLASS_CONNECTIVITY,
     ENTITY_CATEGORY_DIAGNOSTIC,
 )
 
 from . import (
-    CONF_EXPOSE_DEV_SENSORS,
     CONF_FIIDO_BMS_ID,
     DEV_BINARY_SENSOR_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
-    HUB_CONFIGS,
-    apply_name_prefix,
+    apply_entity_prefix,
+    hub_expose_dev,
     hub_name_prefix,
+    inject_entity_defaults,
 )
 
 DEPENDENCIES = ["fiido_bms"]
@@ -57,21 +56,11 @@ def _bs_schema(device_class, icon, entity_category):
     return binary_sensor.binary_sensor_schema(**kwargs)
 
 
+_DEFAULT_NAMES = [(key, name) for key, *_row, name in BINARY_SENSORS]
+
+
 def _inject_defaults(config):
-    platform_dev = config.get(CONF_DEVICE_ID)
-    for key, *_, default_name in BINARY_SENSORS:
-        sub = config.get(key)
-        if sub is None:
-            sub = {}
-            config[key] = sub
-        if not isinstance(sub, dict):
-            continue
-        sub.setdefault("name", default_name)
-        if platform_dev is not None and CONF_DEVICE_ID not in sub:
-            sub[CONF_DEVICE_ID] = platform_dev
-        if key in DEV_BINARY_SENSOR_KEYS and CONF_DISABLED_BY_DEFAULT not in sub:
-            sub[CONF_DISABLED_BY_DEFAULT] = True
-    return config
+    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_BINARY_SENSOR_KEYS)
 
 
 CONFIG_SCHEMA = cv.All(
@@ -90,17 +79,15 @@ CONFIG_SCHEMA = cv.All(
 
 async def to_code(config):
     hub = await cg.get_variable(config[CONF_FIIDO_BMS_ID])
-    prefix = hub_name_prefix(config[CONF_FIIDO_BMS_ID])
-    platform_device_id = config.get(CONF_DEVICE_ID)
-    hub_id_str = str(config[CONF_FIIDO_BMS_ID])
-    hub_config = HUB_CONFIGS.get(hub_id_str, {})
-    expose_dev = hub_config.get(CONF_EXPOSE_DEV_SENSORS, False)
+    config = apply_entity_prefix(
+        config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
+    )
+    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
 
-    for key, setter, *_, default_name in BINARY_SENSORS:
+    for key, setter, *_row in BINARY_SENSORS:
+        if key not in config:
+            continue
         if key in DEV_BINARY_SENSOR_KEYS and not expose_dev:
             continue
-        sub_config = apply_name_prefix(config[key], default_name, prefix)
-        if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
-            sub_config = {**sub_config, CONF_DEVICE_ID: platform_device_id}
-        bs = await binary_sensor.new_binary_sensor(sub_config)
+        bs = await binary_sensor.new_binary_sensor(config[key])
         cg.add(getattr(hub, setter)(bs))
