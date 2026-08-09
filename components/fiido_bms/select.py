@@ -8,7 +8,9 @@ from . import (
     CONF_UI_GEAR_MODE_3,
     FIIDO_BMS_COMPONENT_SCHEMA,
     HUB_CONFIGS,
+    apply_name_prefix,
     fiido_bms_ns,
+    hub_name_prefix,
 )
 
 DEPENDENCIES = ["fiido_bms"]
@@ -100,13 +102,18 @@ CONFIG_SCHEMA = cv.All(
 )
 
 
+def _prefixed(config, key, prefix):
+    return apply_name_prefix(config[key], SELECT_DEFAULT_NAMES[key], prefix)
+
+
 async def to_code(config):
     hub = await cg.get_variable(config[CONF_FIIDO_BMS_ID])
+    prefix = hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     platform_device_id = config.get(CONF_DEVICE_ID)
     hub_id_str = str(config[CONF_FIIDO_BMS_ID])
     hub_config = HUB_CONFIGS.get(hub_id_str, {})
     ui_gear_3 = hub_config.get(CONF_UI_GEAR_MODE_3, False)
-    sub_config = dict(config[CONF_GEAR])
+    sub_config = dict(_prefixed(config, CONF_GEAR, prefix))
     if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
         sub_config[CONF_DEVICE_ID] = platform_device_id
     count = sub_config.pop(CONF_COUNT)
@@ -122,19 +129,19 @@ async def to_code(config):
     cg.add(sel_var.set_gear_count(count))
     cg.add(hub.set_gear_select(sel_var))
     if not ui_gear_3:
-        sub_config = dict(config[CONF_MODE])
+        sub_config = dict(_prefixed(config, CONF_MODE, prefix))
         if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
             sub_config[CONF_DEVICE_ID] = platform_device_id
         sel_var = await select.new_select(sub_config, options=MODE_OPTIONS)
         await cg.register_parented(sel_var, hub)
         cg.add(hub.set_mode_select(sel_var))
-    sub_config = dict(config[CONF_SPEED_LIMIT])
+    sub_config = dict(_prefixed(config, CONF_SPEED_LIMIT, prefix))
     if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
         sub_config[CONF_DEVICE_ID] = platform_device_id
     sel_var = await select.new_select(sub_config, options=SPEED_LIMIT_OPTIONS)
     await cg.register_parented(sel_var, hub)
     cg.add(hub.set_speed_limit_select(sel_var))
-    sub_config = dict(config[CONF_SPEED_UNIT])
+    sub_config = dict(_prefixed(config, CONF_SPEED_UNIT, prefix))
     if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
         sub_config[CONF_DEVICE_ID] = platform_device_id
     sel_var = await select.new_select(sub_config, options=SPEED_UNIT_OPTIONS)

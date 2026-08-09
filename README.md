@@ -172,6 +172,7 @@ Set on the `fiido_bms:` entry, not on the platforms.
 | `update_interval_off` | time     | `15s`   | Burst rotation period while motor controller is OFF. Fast enough to catch a physical power-on.  |
 | `idle_disconnect`     | time     | `15min` | After motor has been OFF this long with no pending writes, the BLE link is dropped.             |
 | `expose_dev_sensors`  | bool     | `false` | When true, dev sensors and dev binary sensors are created (disabled in HA).                     |
+| `name_prefix`         | string   | unset   | Prepended to the **default** name of every entity of this hub, so two bikes on one node stop sharing entity names. A name you set yourself is never touched. Set to `""` to keep the defaults and silence the multi-hub warning. See **Entity names with two bikes**. |
 | `ui_gear_mode_3`      | bool     | `false` | HA UI only: hides the `mode` select and shrinks `gear` to 4 options. Does not change BMS state. |
 | `enforce_gear_mode_3` | bool     | `false` | Runtime: writes mode 3 to BMS when STATS reports 5-gear while the motor controller is ON (60s cooldown, ble_user_enabled). |
 | `update_interval`     | time     | `1s`    | PollingComponent baseline tick. The component runs an adaptive gate on top.                     |
@@ -366,7 +367,8 @@ switch:
 ```
 
 Schema defaults are injected before validation, so omitted fields keep their
-defaults. If you do not set `name`, the default in the tables above is used.
+defaults. If you do not set `name`, the default in the tables above is used, and
+only that injected default is subject to the hub's `name_prefix`.
 
 ### Two bikes on one ESP32
 
@@ -450,6 +452,86 @@ button:
     device_id: dev_m1
 ```
 
+### Entity names with two bikes
+
+`device_id` is not optional for a second bike: it is what makes the config valid at
+all. ESPHome requires an entity name to be unique per device and platform, so two
+hubs on the built-in defaults, both on the main device, fail validation outright:
+
+```text
+Duplicate sensor entity with name 'Battery Voltage' found. Conflicts with entity
+'Battery Voltage' (id: ) from component 'sensor.fiido_bms'. Each entity on a
+device must have a unique name within its platform.
+```
+
+Putting each hub's entities under its own sub-device satisfies that rule, because
+the check is per device. What it does **not** do is separate the names themselves,
+and in ESPHome the name is the identity of an entity:
+
+- the API key an entity is addressed by is a hash of the name alone, with no device
+  in it (`EntityBase::calc_object_id_`),
+- MQTT has no concept of sub-devices at all, and builds its state topic, its command
+  topic and its `unique_id` from the name,
+- `object_id` is the slug of the name; the sub-device name is only used as a fallback
+  when an entity has no name of its own.
+
+So two hubs on the defaults produce two entities called `Battery Voltage`, two called
+`Power`, and so on, all the way down. Two hubs on stock options generate 72 entities
+of which **36 names and 36 API keys are duplicated** - every single one of them. That
+is legal and it compiles, with these consequences:
+
+| Transport | Effect of the duplicate |
+|-----------|-------------------------|
+| Native API + HA | Fine. The API sends `device_id` alongside `key`, and HA builds `entity_id` from the sub-device name plus the entity name, so the two bikes stay apart in the UI. |
+| Native API, client addressing by name / `object_id` / key | The two bikes are indistinguishable. A client has to read `device_id` off every entity to know whose value it holds, and pass it back on every command. |
+| MQTT | Both bikes share one state topic, one `unique_id` and one **command topic**. They collapse into a single entity that flips between the two values, and one command goes to both bikes. |
+
+Set `name_prefix` per hub to give each bike its own names:
+
+```yaml
+fiido_bms:
+  - id: hub_c11
+    ble_client_id: ble_c11
+    name_prefix: "C11"
+  - id: hub_m1
+    ble_client_id: ble_m1
+    name_prefix: "M1"
+```
+
+`Battery Voltage` becomes `C11 Battery Voltage` and `M1 Battery Voltage`, the
+`object_id` behind the API and the MQTT topic becomes `c11_battery_voltage` and
+`m1_battery_voltage`, and the duplicate count drops to zero.
+
+Whether that is worth doing depends on how you consume the data:
+
+- **MQTT, or your own API client**: yes. It is the difference between two bikes and
+  one bike that flickers.
+- **Native API into HA and nothing else**: optional. HA already keeps the bikes
+  apart, and since it composes `entity_id` from the sub-device name plus the entity
+  name, the prefix lands there twice: `sensor.fiido_c11_pro_c11_battery_voltage`.
+  Keep the prefix short (`C11`, not `Fiido C11 Pro`), or leave the option unset.
+
+Two rules of the option:
+
+- It applies only to the names this component injects. If you set `name:` on an
+  entity yourself, that name is used verbatim, prefix or no prefix.
+- It is applied at code generation, after config validation. It therefore cannot
+  substitute for `device_id`: two hubs on one device fail the duplicate-name check
+  before the prefix is ever applied.
+
+It is opt-in. With more than one hub and no `name_prefix`, validation warns and the
+names stay exactly as they were:
+
+```text
+WARNING fiido_bms hub 'hub_c11' has no name_prefix and 2 hubs are configured. Their
+entities keep the same default names, so they share api keys and mqtt topics, and
+only a client that reads device_id can tell the bikes apart. Set name_prefix per hub
+to give each bike its own names, or name_prefix: '' to keep the current ones and
+silence this.
+```
+
+Adding the option to a running installation renames entities; see **Upgrading**.
+
 ### Charging behaviour
 
 - **C11 Pro**: BMS shuts the BLE radio off completely while the charger is plugged
@@ -469,6 +551,51 @@ the official app cannot pair. To use the app:
 3. Re-enable the `bluetooth` switch (or power the ESP32 back on).
 
 ESPHome will reconnect and start polling again on the next tick.
+
+---
+
+## Upgrading
+
+### Adding `name_prefix` renames entities (breaking)
+
+`name_prefix` is new. Nothing renames itself: a config without the option keeps the
+entity names it has today, single bike or not, and a single-hub setup has nothing to
+gain from the option in the first place. But the moment you add it to a hub that is
+already running, **every entity of that hub that still carries a default name gets a
+new name, and therefore a new `entity_id` and a new API key**. HA treats that as a
+new entity and leaves the old one behind as unavailable.
+
+Multi-bike setups on MQTT, or with a client that addresses entities by name, are the
+ones that want the rename; see **Entity names with two bikes** for why, and for the
+case where it buys you nothing. Doing it in the order below keeps the history:
+
+1. Decide the prefixes first, and keep them short (`C11`, `M1`). Under a sub-device
+   HA already puts the device name in front, so a long prefix reads twice.
+2. Add `name_prefix` to every hub in one edit and flash once, so you go through the
+   rename cycle a single time.
+3. In HA, **Settings > Devices & services > ESPHome > the node**, the new entities
+   appear alongside the old ones. Delete the old (unavailable) entities, then rename
+   the new ones back to the old `entity_id` if you want dashboards, automations,
+   scripts, and long-term statistics to keep working untouched. Renaming an entity
+   back to a freed `entity_id` also carries its recorder history over.
+4. If you skip the rename, update every reference by hand: Lovelace cards, automation
+   and script triggers/conditions/actions, template sensors, `recorder`/`influxdb`
+   include and exclude lists, energy dashboard, and REST/webhook consumers.
+5. On MQTT, the old topics keep their retained payload. Clear the retained discovery
+   and state topics of the old names, or HA keeps showing ghost entities.
+6. If you drive the node over the native API from your own scripts, the entity `key`
+   changed with the name. Anything that cached keys has to re-read the entity list.
+
+To keep the current names and silence the multi-hub warning, set `name_prefix: ""`
+explicitly on each hub. That is a supported, permanent choice, not a temporary
+workaround.
+
+### Entity names set in yaml are never touched
+
+An entity you named yourself is out of scope of all of the above, in both directions:
+it is not prefixed when you add `name_prefix`, and it does not change when you remove
+it. If you already worked around the collision by naming every entity by hand, this
+release changes nothing for you.
 
 ---
 

@@ -14,6 +14,8 @@ from . import (
     DEV_BINARY_SENSOR_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
     HUB_CONFIGS,
+    apply_name_prefix,
+    hub_name_prefix,
 )
 
 DEPENDENCIES = ["fiido_bms"]
@@ -88,15 +90,16 @@ CONFIG_SCHEMA = cv.All(
 
 async def to_code(config):
     hub = await cg.get_variable(config[CONF_FIIDO_BMS_ID])
+    prefix = hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     platform_device_id = config.get(CONF_DEVICE_ID)
     hub_id_str = str(config[CONF_FIIDO_BMS_ID])
     hub_config = HUB_CONFIGS.get(hub_id_str, {})
     expose_dev = hub_config.get(CONF_EXPOSE_DEV_SENSORS, False)
 
-    for key, setter, *_ in BINARY_SENSORS:
+    for key, setter, *_, default_name in BINARY_SENSORS:
         if key in DEV_BINARY_SENSOR_KEYS and not expose_dev:
             continue
-        sub_config = config[key]
+        sub_config = apply_name_prefix(config[key], default_name, prefix)
         if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
             sub_config = {**sub_config, CONF_DEVICE_ID: platform_device_id}
         bs = await binary_sensor.new_binary_sensor(sub_config)

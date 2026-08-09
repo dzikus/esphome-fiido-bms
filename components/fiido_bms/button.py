@@ -3,7 +3,13 @@ import esphome.config_validation as cv
 from esphome.components import button
 from esphome.const import CONF_DEVICE_ID, ENTITY_CATEGORY_CONFIG
 
-from . import CONF_FIIDO_BMS_ID, FIIDO_BMS_COMPONENT_SCHEMA, fiido_bms_ns
+from . import (
+    CONF_FIIDO_BMS_ID,
+    FIIDO_BMS_COMPONENT_SCHEMA,
+    apply_name_prefix,
+    fiido_bms_ns,
+    hub_name_prefix,
+)
 
 DEPENDENCIES = ["fiido_bms"]
 CODEOWNERS = ["@dzikus"]
@@ -63,9 +69,10 @@ CONFIG_SCHEMA = cv.All(
 
 async def to_code(config):
     hub = await cg.get_variable(config[CONF_FIIDO_BMS_ID])
+    prefix = hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     platform_device_id = config.get(CONF_DEVICE_ID)
-    for key, _cls, setter, _icon, _default_name in BUTTONS:
-        sub_config = config[key]
+    for key, _cls, setter, _icon, default_name in BUTTONS:
+        sub_config = apply_name_prefix(config[key], default_name, prefix)
         if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
             sub_config = {**sub_config, CONF_DEVICE_ID: platform_device_id}
         btn_var = await button.new_button(sub_config)

@@ -1,14 +1,22 @@
+import logging
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome.components import ble_client
-from esphome.const import CONF_ID
+from esphome.const import CONF_ID, CONF_NAME
+
+_LOGGER = logging.getLogger(__name__)
 
 CODEOWNERS = ["@dzikus"]
 DEPENDENCIES = ["ble_client"]
 AUTO_LOAD = ["sensor", "binary_sensor", "switch", "select", "number", "button"]
 MULTI_CONF = True
 
+DOMAIN = "fiido_bms"
+
 CONF_FIIDO_BMS_ID = "fiido_bms_id"
+CONF_NAME_PREFIX = "name_prefix"
 CONF_STARTUP_DELAY = "startup_delay"
 CONF_UPDATE_INTERVAL_ON = "update_interval_on"
 CONF_UPDATE_INTERVAL_OFF = "update_interval_off"
@@ -72,9 +80,26 @@ HIDDEN_SENSOR_KEYS = frozenset(
     }
 )
 
-# Filled in by __init__ to_code per hub_id so sensor.py / binary_sensor.py
-# to_code can decide whether to create dev entities and which polls to enable.
+# Filled in by __init__ to_code per hub_id, before any platform to_code runs, so
+# a platform can resolve hub options from its fiido_bms_id: dev entities and
+# enabled polls in sensor.py / binary_sensor.py, name_prefix everywhere.
 HUB_CONFIGS = {}
+
+
+def hub_name_prefix(hub_id):
+    # Entity names are node-wide: the api key is a hash of the name alone and
+    # mqtt derives topic and unique_id from it, so two hubs left on the default
+    # names produce colliding entities. name_prefix separates them. Opt-in, so
+    # a single-hub setup and every config written before it keep their names.
+    return HUB_CONFIGS.get(str(hub_id), {}).get(CONF_NAME_PREFIX, "").strip()
+
+
+def apply_name_prefix(sub_config, default_name, prefix):
+    # Prefix the injected default only. A name set in yaml is used verbatim.
+    if not prefix or sub_config.get(CONF_NAME) != default_name:
+        return sub_config
+    return {**sub_config, CONF_NAME: f"{prefix} {default_name}"}
+
 
 fiido_bms_ns = cg.esphome_ns.namespace("fiido_bms")
 FiidoBMSHub = fiido_bms_ns.class_(
@@ -105,6 +130,7 @@ CONFIG_SCHEMA = cv.All(
                 CONF_IDLE_DISCONNECT, default="15min"
             ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_EXPOSE_DEV_SENSORS, default=False): cv.boolean,
+            cv.Optional(CONF_NAME_PREFIX): cv.All(cv.string_strict, cv.Length(max=48)),
             cv.Optional(CONF_UI_GEAR_MODE_3, default=False): cv.boolean,
             cv.Optional(CONF_ENFORCE_GEAR_MODE_3, default=False): cv.boolean,
         }
@@ -119,6 +145,24 @@ CONFIG_SCHEMA = cv.All(
     cv.require_esphome_version(2025, 7, 0),
 )
 
+
+def _warn_on_shared_default_names(config):
+    hub_count = len(fv.full_config.get().get(DOMAIN, []))
+    if hub_count > 1 and CONF_NAME_PREFIX not in config:
+        _LOGGER.warning(
+            "fiido_bms hub '%s' has no name_prefix and %d hubs are configured. "
+            "Their entities keep the same default names, so they share api "
+            "keys and mqtt topics, and only a client that reads device_id can "
+            "tell the bikes apart. Set name_prefix per hub to give each bike "
+            "its own names, or name_prefix: '' to keep the current ones and "
+            "silence this.",
+            config[CONF_ID],
+            hub_count,
+        )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _warn_on_shared_default_names
 
 _ALL_HUBS = []
 
@@ -141,5 +185,6 @@ async def to_code(config):
     for hub in _ALL_HUBS:
         cg.add(hub.set_total_hubs(total))
     # Stash full hub config under its yaml id so platform to_code (sensor.py /
-    # binary_sensor.py) can resolve expose_dev_sensors via fiido_bms_id.
+    # binary_sensor.py) can resolve expose_dev_sensors and name_prefix via
+    # fiido_bms_id.
     HUB_CONFIGS[str(config[CONF_ID])] = config
