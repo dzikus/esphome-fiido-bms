@@ -6,9 +6,10 @@ from esphome.const import CONF_DEVICE_ID, ENTITY_CATEGORY_CONFIG
 from . import (
     CONF_FIIDO_BMS_ID,
     FIIDO_BMS_COMPONENT_SCHEMA,
-    apply_name_prefix,
+    apply_entity_prefix,
     fiido_bms_ns,
     hub_name_prefix,
+    inject_entity_defaults,
 )
 
 DEPENDENCIES = ["fiido_bms"]
@@ -33,20 +34,13 @@ BUTTONS = [
 ]
 
 
+_DEFAULT_NAMES = [(key, name) for key, *_row, name in BUTTONS]
+
+HIDDEN_BUTTON_KEYS = frozenset({key for key, *_row in BUTTONS})
+
+
 def _inject_defaults(config):
-    platform_dev = config.get(CONF_DEVICE_ID)
-    for key, _cls, _setter, _icon, default_name in BUTTONS:
-        sub = config.get(key)
-        if sub is None:
-            sub = {}
-            config[key] = sub
-        if not isinstance(sub, dict):
-            continue
-        sub.setdefault("name", default_name)
-        sub.setdefault("disabled_by_default", True)
-        if platform_dev is not None and CONF_DEVICE_ID not in sub:
-            sub[CONF_DEVICE_ID] = platform_dev
-    return config
+    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=HIDDEN_BUTTON_KEYS)
 
 
 CONFIG_SCHEMA = cv.All(
@@ -69,12 +63,12 @@ CONFIG_SCHEMA = cv.All(
 
 async def to_code(config):
     hub = await cg.get_variable(config[CONF_FIIDO_BMS_ID])
-    prefix = hub_name_prefix(config[CONF_FIIDO_BMS_ID])
-    platform_device_id = config.get(CONF_DEVICE_ID)
-    for key, _cls, setter, _icon, default_name in BUTTONS:
-        sub_config = apply_name_prefix(config[key], default_name, prefix)
-        if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
-            sub_config = {**sub_config, CONF_DEVICE_ID: platform_device_id}
-        btn_var = await button.new_button(sub_config)
+    config = apply_entity_prefix(
+        config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
+    )
+    for key, _cls, setter, _icon, _default_name in BUTTONS:
+        if key not in config:
+            continue
+        btn_var = await button.new_button(config[key])
         await cg.register_parented(btn_var, hub)
         cg.add(getattr(hub, setter)(btn_var))

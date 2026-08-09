@@ -5,12 +5,12 @@ from esphome.const import CONF_DEVICE_ID, ENTITY_CATEGORY_CONFIG
 
 from . import (
     CONF_FIIDO_BMS_ID,
-    CONF_UI_GEAR_MODE_3,
     FIIDO_BMS_COMPONENT_SCHEMA,
-    HUB_CONFIGS,
-    apply_name_prefix,
+    apply_entity_prefix,
     fiido_bms_ns,
     hub_name_prefix,
+    hub_ui_gear_mode_3,
+    inject_entity_defaults,
 )
 
 DEPENDENCIES = ["fiido_bms"]
@@ -73,19 +73,11 @@ SELECT_DEFAULT_NAMES = {
 }
 
 
+_DEFAULT_NAMES = list(SELECT_DEFAULT_NAMES.items())
+
+
 def _inject_defaults(config):
-    platform_dev = config.get(CONF_DEVICE_ID)
-    for key, default_name in SELECT_DEFAULT_NAMES.items():
-        sub = config.get(key)
-        if sub is None:
-            sub = {}
-            config[key] = sub
-        if not isinstance(sub, dict):
-            continue
-        sub.setdefault("name", default_name)
-        if platform_dev is not None and CONF_DEVICE_ID not in sub:
-            sub[CONF_DEVICE_ID] = platform_dev
-    return config
+    return inject_entity_defaults(config, _DEFAULT_NAMES)
 
 
 CONFIG_SCHEMA = cv.All(
@@ -102,48 +94,43 @@ CONFIG_SCHEMA = cv.All(
 )
 
 
-def _prefixed(config, key, prefix):
-    return apply_name_prefix(config[key], SELECT_DEFAULT_NAMES[key], prefix)
-
-
 async def to_code(config):
     hub = await cg.get_variable(config[CONF_FIIDO_BMS_ID])
-    prefix = hub_name_prefix(config[CONF_FIIDO_BMS_ID])
-    platform_device_id = config.get(CONF_DEVICE_ID)
-    hub_id_str = str(config[CONF_FIIDO_BMS_ID])
-    hub_config = HUB_CONFIGS.get(hub_id_str, {})
-    ui_gear_3 = hub_config.get(CONF_UI_GEAR_MODE_3, False)
-    sub_config = dict(_prefixed(config, CONF_GEAR, prefix))
-    if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
-        sub_config[CONF_DEVICE_ID] = platform_device_id
-    count = sub_config.pop(CONF_COUNT)
-    if ui_gear_3:
-        gear_options = GEAR_NAMES_3
-        count = 3
-    else:
-        gear_options = GEAR_NAMES_5
-    sel_var = await select.new_select(sub_config, options=gear_options)
-    await cg.register_parented(sel_var, hub)
-    cg.add(sel_var.set_names_3(GEAR_NAMES_3))
-    cg.add(sel_var.set_names_5(GEAR_NAMES_5))
-    cg.add(sel_var.set_gear_count(count))
-    cg.add(hub.set_gear_select(sel_var))
-    if not ui_gear_3:
-        sub_config = dict(_prefixed(config, CONF_MODE, prefix))
-        if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
-            sub_config[CONF_DEVICE_ID] = platform_device_id
+    config = apply_entity_prefix(
+        config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
+    )
+    ui_gear_3 = hub_ui_gear_mode_3(config[CONF_FIIDO_BMS_ID])
+
+    sub_config = config.get(CONF_GEAR)
+    if sub_config is not None:
+        sub_config = dict(sub_config)
+        count = sub_config.pop(CONF_COUNT)
+        if ui_gear_3:
+            gear_options = GEAR_NAMES_3
+            count = 3
+        else:
+            gear_options = GEAR_NAMES_5
+        sel_var = await select.new_select(sub_config, options=gear_options)
+        await cg.register_parented(sel_var, hub)
+        cg.add(sel_var.set_names_3(GEAR_NAMES_3))
+        cg.add(sel_var.set_names_5(GEAR_NAMES_5))
+        cg.add(sel_var.set_gear_count(count))
+        cg.add(hub.set_gear_select(sel_var))
+
+    sub_config = config.get(CONF_MODE)
+    if sub_config is not None and not ui_gear_3:
         sel_var = await select.new_select(sub_config, options=MODE_OPTIONS)
         await cg.register_parented(sel_var, hub)
         cg.add(hub.set_mode_select(sel_var))
-    sub_config = dict(_prefixed(config, CONF_SPEED_LIMIT, prefix))
-    if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
-        sub_config[CONF_DEVICE_ID] = platform_device_id
-    sel_var = await select.new_select(sub_config, options=SPEED_LIMIT_OPTIONS)
-    await cg.register_parented(sel_var, hub)
-    cg.add(hub.set_speed_limit_select(sel_var))
-    sub_config = dict(_prefixed(config, CONF_SPEED_UNIT, prefix))
-    if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
-        sub_config[CONF_DEVICE_ID] = platform_device_id
-    sel_var = await select.new_select(sub_config, options=SPEED_UNIT_OPTIONS)
-    await cg.register_parented(sel_var, hub)
-    cg.add(hub.set_speed_unit_select(sel_var))
+
+    sub_config = config.get(CONF_SPEED_LIMIT)
+    if sub_config is not None:
+        sel_var = await select.new_select(sub_config, options=SPEED_LIMIT_OPTIONS)
+        await cg.register_parented(sel_var, hub)
+        cg.add(hub.set_speed_limit_select(sel_var))
+
+    sub_config = config.get(CONF_SPEED_UNIT)
+    if sub_config is not None:
+        sel_var = await select.new_select(sub_config, options=SPEED_UNIT_OPTIONS)
+        await cg.register_parented(sel_var, hub)
+        cg.add(hub.set_speed_unit_select(sel_var))

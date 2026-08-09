@@ -2,9 +2,9 @@ name: tests
 on:
   push:
     branches: [main]
-    paths: ["components/fiido_bms/**", "tests/**", ".github/**", "pyproject.toml", ".pre-commit-config.yaml"]
+    paths: ["components/fiido_bms/**", "tests/**", ".github/**", "example.yaml", ".intellisense.yaml", "pyproject.toml", ".pre-commit-config.yaml"]
   pull_request:
-    paths: ["components/fiido_bms/**", "tests/**", ".github/**", "pyproject.toml", ".pre-commit-config.yaml"]
+    paths: ["components/fiido_bms/**", "tests/**", ".github/**", "example.yaml", ".intellisense.yaml", "pyproject.toml", ".pre-commit-config.yaml"]
 permissions:
   contents: read
 concurrency:
@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.12"
@@ -37,6 +39,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.12"
@@ -61,6 +65,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.12"
@@ -76,3 +82,23 @@ jobs:
         run: |
           set -euo pipefail
           esphome compile .github/ci-build.yaml
+  config-floor:
+    name: config check at the ESPHome floor
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12"
+      # Pin to the declared floor so min_version is actually exercised.
+      - name: Install ESPHome (component floor)
+        run: pip install "esphome==2025.8.0"
+      - name: Validate CI and IntelliSense configs
+        run: |
+          set -euo pipefail
+          esphome config .github/ci-build.yaml
+          esphome config .intellisense.yaml

@@ -3,7 +3,6 @@ import esphome.config_validation as cv
 from esphome.components import sensor
 from esphome.const import (
     CONF_DEVICE_ID,
-    CONF_DISABLED_BY_DEFAULT,
     DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_DISTANCE,
@@ -19,6 +18,7 @@ from esphome.const import (
     UNIT_AMPERE,
     UNIT_CELSIUS,
     UNIT_EMPTY,
+    UNIT_KILOMETER,
     UNIT_KILOMETER_PER_HOUR,
     UNIT_PERCENT,
     UNIT_SECOND,
@@ -28,14 +28,14 @@ from esphome.const import (
 )
 
 from . import (
-    CONF_EXPOSE_DEV_SENSORS,
     CONF_FIIDO_BMS_ID,
     DEV_SENSOR_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
     HIDDEN_SENSOR_KEYS,
-    HUB_CONFIGS,
-    apply_name_prefix,
+    apply_entity_prefix,
+    hub_expose_dev,
     hub_name_prefix,
+    inject_entity_defaults,
 )
 
 DEPENDENCIES = ["fiido_bms"]
@@ -43,7 +43,6 @@ CODEOWNERS = ["@dzikus"]
 
 UNIT_INCH = "in"
 UNIT_AMP_HOUR = "Ah"
-UNIT_KILOMETER = "km"
 UNIT_NEWTON_METER = "Nm"
 UNIT_RPM = "rpm"
 
@@ -505,24 +504,13 @@ def _sensor_schema(unit, decimals, device_class, state_class, icon, entity_categ
     return sensor.sensor_schema(**kwargs)
 
 
+_DEFAULT_NAMES = [(key, name) for key, *_row, name in SENSORS]
+
+
 def _inject_defaults(config):
-    platform_dev = config.get(CONF_DEVICE_ID)
-    for key, *_, default_name in SENSORS:
-        sub = config.get(key)
-        if sub is None:
-            sub = {}
-            config[key] = sub
-        if not isinstance(sub, dict):
-            continue
-        sub.setdefault("name", default_name)
-        if platform_dev is not None and CONF_DEVICE_ID not in sub:
-            sub[CONF_DEVICE_ID] = platform_dev
-        if (
-            key in (DEV_SENSOR_KEYS | HIDDEN_SENSOR_KEYS)
-            and CONF_DISABLED_BY_DEFAULT not in sub
-        ):
-            sub[CONF_DISABLED_BY_DEFAULT] = True
-    return config
+    return inject_entity_defaults(
+        config, _DEFAULT_NAMES, hidden=DEV_SENSOR_KEYS | HIDDEN_SENSOR_KEYS
+    )
 
 
 CONFIG_SCHEMA = cv.All(
@@ -551,20 +539,18 @@ CONFIG_SCHEMA = cv.All(
 
 async def to_code(config):
     hub = await cg.get_variable(config[CONF_FIIDO_BMS_ID])
-    prefix = hub_name_prefix(config[CONF_FIIDO_BMS_ID])
-    platform_device_id = config.get(CONF_DEVICE_ID)
-    hub_id_str = str(config[CONF_FIIDO_BMS_ID])
-    hub_config = HUB_CONFIGS.get(hub_id_str, {})
-    expose_dev = hub_config.get(CONF_EXPOSE_DEV_SENSORS, False)
+    config = apply_entity_prefix(
+        config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
+    )
+    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
 
     pollers_used = set()
-    for key, setter, *_, default_name in SENSORS:
+    for key, setter, *_row in SENSORS:
+        if key not in config:
+            continue
         if key in DEV_SENSOR_KEYS and not expose_dev:
             continue
-        sub_config = apply_name_prefix(config[key], default_name, prefix)
-        if platform_device_id is not None and CONF_DEVICE_ID not in sub_config:
-            sub_config = {**sub_config, CONF_DEVICE_ID: platform_device_id}
-        sens = await sensor.new_sensor(sub_config)
+        sens = await sensor.new_sensor(config[key])
         cg.add(getattr(hub, setter)(sens))
         group = SENSOR_POLL_GROUP.get(key)
         if group is not None:

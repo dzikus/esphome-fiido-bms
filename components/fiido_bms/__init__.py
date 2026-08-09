@@ -4,7 +4,13 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 import esphome.final_validate as fv
 from esphome.components import ble_client
-from esphome.const import CONF_ID, CONF_NAME
+from esphome.const import (
+    CONF_DEVICE_ID,
+    CONF_DISABLED_BY_DEFAULT,
+    CONF_ID,
+    CONF_NAME,
+)
+from esphome.core import CORE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,10 +86,26 @@ HIDDEN_SENSOR_KEYS = frozenset(
     }
 )
 
-# Filled in by __init__ to_code per hub_id, before any platform to_code runs, so
-# a platform can resolve hub options from its fiido_bms_id: dev entities and
-# enabled polls in sensor.py / binary_sensor.py, name_prefix everywhere.
 HUB_CONFIGS = {}
+
+
+def _hub_conf(hub_id):
+    # Must not depend on to_code order: under MULTI_CONF a platform's to_code can
+    # run before the hub fills HUB_CONFIGS, which silently dropped dev entities.
+    # CORE.config is complete before any to_code runs.
+    target = str(hub_id)
+    for hub_conf in CORE.config.get(DOMAIN, []):
+        if str(hub_conf.get(CONF_ID)) == target:
+            return hub_conf
+    return HUB_CONFIGS.get(target, {})
+
+
+def hub_expose_dev(hub_id):
+    return bool(_hub_conf(hub_id).get(CONF_EXPOSE_DEV_SENSORS, False))
+
+
+def hub_ui_gear_mode_3(hub_id):
+    return bool(_hub_conf(hub_id).get(CONF_UI_GEAR_MODE_3, False))
 
 
 def hub_name_prefix(hub_id):
@@ -91,14 +113,46 @@ def hub_name_prefix(hub_id):
     # mqtt derives topic and unique_id from it, so two hubs left on the default
     # names produce colliding entities. name_prefix separates them. Opt-in, so
     # a single-hub setup and every config written before it keep their names.
-    return HUB_CONFIGS.get(str(hub_id), {}).get(CONF_NAME_PREFIX, "").strip()
+    return _hub_conf(hub_id).get(CONF_NAME_PREFIX, "").strip()
 
 
-def apply_name_prefix(sub_config, default_name, prefix):
+def inject_entity_defaults(config, rows, hidden=frozenset(), opt_in=frozenset()):
+    # Copy before mutating: the validator may run against a shared dict.
+    config = dict(config)
+    platform_device = config.get(CONF_DEVICE_ID)
+    for key, default_name in rows:
+        want = config.get(key, ...)
+        if want is False or (want is ... and key in opt_in):
+            config.pop(key, None)
+            continue
+        # is, not ==: a stray 'speed: 1' equals True and must not read as one.
+        sub = {} if (want is ... or want is None or want is True) else want
+        if not isinstance(sub, dict):
+            raise cv.Invalid(
+                f"'{key}' takes true, false, or the options for one entity. "
+                f"To rename it write 'name: {sub}' under it.",
+                path=[key],
+            )
+        sub = dict(sub)
+        sub.setdefault(CONF_NAME, default_name)
+        if platform_device is not None and CONF_DEVICE_ID not in sub:
+            sub[CONF_DEVICE_ID] = platform_device
+        if key in hidden:
+            sub.setdefault(CONF_DISABLED_BY_DEFAULT, True)
+        config[key] = sub
+    return config
+
+
+def apply_entity_prefix(config, rows, prefix):
     # Prefix the injected default only. A name set in yaml is used verbatim.
-    if not prefix or sub_config.get(CONF_NAME) != default_name:
-        return sub_config
-    return {**sub_config, CONF_NAME: f"{prefix} {default_name}"}
+    if not prefix:
+        return config
+    config = dict(config)
+    for key, default_name in rows:
+        sub = config.get(key)
+        if isinstance(sub, dict) and sub.get(CONF_NAME) == default_name:
+            config[key] = {**sub, CONF_NAME: f"{prefix} {default_name}"}
+    return config
 
 
 fiido_bms_ns = cg.esphome_ns.namespace("fiido_bms")
@@ -112,7 +166,7 @@ FIIDO_BMS_COMPONENT_SCHEMA = cv.Schema(
     }
 )
 
-# Platform schemas use cv.sub_device_id (ESPHome 2025.7.0+).
+# Platform schemas use cv.sub_device_id (ESPHome 2025.8.0+).
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -142,7 +196,7 @@ CONFIG_SCHEMA = cv.All(
     # to update_interval_off (default 15s) when bit 7 ADDR 0x27 clears.
     # 15s is fast enough to catch physical motor ON in the idle window.
     .extend(cv.polling_component_schema("1s")),
-    cv.require_esphome_version(2025, 7, 0),
+    cv.require_esphome_version(2025, 8, 0),
 )
 
 
@@ -162,12 +216,46 @@ def _warn_on_shared_default_names(config):
     return config
 
 
-FINAL_VALIDATE_SCHEMA = _warn_on_shared_default_names
+def _one_hub_per_ble_client(config):
+    claimed = {}
+    for hub in fv.full_config.get().get(DOMAIN, []):
+        ble_id = str(hub[ble_client.CONF_BLE_CLIENT_ID])
+        hub_id = str(hub[CONF_ID])
+        if ble_id in claimed:
+            raise cv.Invalid(
+                f"fiido_bms '{hub_id}' and '{claimed[ble_id]}' both use "
+                f"ble_client '{ble_id}'. Give each bike its own ble_client."
+            )
+        claimed[ble_id] = hub_id
+    return config
+
+
+def _final_validate(config):
+    _one_hub_per_ble_client(config)
+    return _warn_on_shared_default_names(config)
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 _ALL_HUBS = []
 
+_RUN_CONFIG_ID = None
+
+
+def _reset_run_state():
+    # The dashboard keeps this module loaded across compiles, so hub_index and
+    # total_hubs would climb run to run. CORE.config is rebuilt per run, so its
+    # identity marks the boundary.
+    global _RUN_CONFIG_ID
+    current = id(CORE.config)
+    if current != _RUN_CONFIG_ID:
+        _RUN_CONFIG_ID = current
+        HUB_CONFIGS.clear()
+        _ALL_HUBS.clear()
+
 
 async def to_code(config):
+    _reset_run_state()
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await ble_client.register_ble_node(var, config)
