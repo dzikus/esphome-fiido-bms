@@ -95,7 +95,9 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
-          python-version: "3.14"
+          # Contemporary with the floor below: the 2025.8.0 dependency set has no
+          # wheels for 3.14, so pip falls back to building Pillow from source.
+          python-version: "3.12"
       # Pin to the declared floor so min_version is actually exercised.
       - name: Install ESPHome (component floor)
         run: pip install "esphome==2025.8.0"
