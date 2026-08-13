@@ -168,7 +168,7 @@ Set on the `fiido_bms:` entry, not on the platforms.
 | Option                | Type     | Default | Effect                                                                                          |
 |-----------------------|----------|---------|-------------------------------------------------------------------------------------------------|
 | `ble_client_id`       | id       | -       | Required. Points to the `ble_client` entry for this bike's MAC.                                 |
-| `startup_delay`       | time     | `0s`    | Hub waits this long after boot before its first poll. Auto-derived from `hub_index` if omitted. |
+| `startup_delay`       | time     | `0s`    | Delays the first poll after connect, and sets this hub's burst phase for the whole uptime. Auto-derived from `hub_index` if omitted; set the same value on two hubs and their bursts collide. |
 | `update_interval_on`  | time     | `3s`    | Burst rotation period while motor controller is ON (bit 7 ADDR 0x27 set).                       |
 | `update_interval_off` | time     | `15s`   | Burst rotation period while motor controller is OFF. Fast enough to catch a physical power-on.  |
 | `idle_disconnect`     | time     | `15min` | After motor has been OFF this long with no pending writes, the BLE link is dropped.             |
@@ -269,9 +269,11 @@ cosmetic; physical BMS state can still be flipped to 5 by other apps. Use
 
 ### Entities (switch)
 
-All switches default to `RESTORE_DEFAULT_ON` except `motor`, `light`, `ring`,
-`double_speed`, and `bike_guard`, which default to `RESTORE_DEFAULT_OFF`. Restore mode
-is overridable per entity.
+`auto_shutdown` and `bluetooth` default to `RESTORE_DEFAULT_ON`. Every other switch
+defaults to `DISABLED`: a restored state is only read back in the entity's `setup()`,
+which ESPHome calls only for switches that are also components, and those two are the
+only ones that are. The rest take their state from the BMS on the next STATS poll.
+Restore mode is overridable per entity.
 
 | Key                  | Default name        | Source              | Write                                |
 |----------------------|---------------------|---------------------|--------------------------------------|
@@ -643,11 +645,20 @@ PlatformIO unit tests link against. Everything else needs the ESPHome runtime.
 tick `update()` checks a gate:
 
 ```
-if (now - last_burst_ms_) < desired_interval_ms_:
+interval = desired_interval_ms_
+slot     = (now - startup_delay_ms_ % interval) / interval
+if slot == last_burst_slot_ or (now - last_burst_ms_) < interval:
     return
-last_burst_ms_ = now
+last_burst_slot_ = slot
+last_burst_ms_   = now
 send_burst_poll_()
 ```
+
+Two gates. The slot fixes the phase to a clock both hubs read, so their
+`startup_delay` separation holds for the whole uptime instead of decaying into the
+random phase ESPHome gives each component's poller tick. The elapsed check keeps a
+minimum spacing, which matters because a write-verification poll bypasses both gates
+and can land just before a slot boundary.
 
 `desired_interval_ms_` flips between `update_interval_on_ms_` (default 3s, motor on)
 and `update_interval_off_ms_` (default 15s, motor off) inside `parse_stats_`, based
@@ -812,7 +823,7 @@ shape. Walking through a new switch on, say, bit 0 ADDR 0x39:
      b = on ? (b | 0x01) : (b & ~0x01);
      // ADDR 0x39 latches only via the J0 (0xFF) frame and only bits 4..0 are valid.
      b &= 0x1F;
-     if (send_raw_write(FRAME_TYPE_WRITE_J0, 0x39, std::vector<uint8_t>{b})) {
+     if (send_raw_write(FrameType::WriteJ0, 0x39, std::vector<uint8_t>{b})) {
        addr_39_cache_ = b;
        force_poll_stats_ = true;
      }

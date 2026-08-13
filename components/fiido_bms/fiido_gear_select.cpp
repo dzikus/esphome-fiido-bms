@@ -2,6 +2,8 @@
 
 #include "esphome/core/log.h"
 
+#include "fiido_bms.h"
+
 #ifdef USE_ESP32
 
 namespace esphome {
@@ -35,7 +37,7 @@ void FiidoGearSelect::control(const std::string &value) {
   for (const auto &name : this->names_5_) {
     if (name == value) {
       if (fallback < 0) break;
-      ESP_LOGI("fiido_gear_select", "value '%s' not valid in %u-gear mode - falling back to '%s'",
+      ESP_LOGI(FIIDO_BMS_TAG, "value '%s' not valid in %u-gear mode - falling back to '%s'",
                value.c_str(), this->gear_count_, active[fallback].c_str());
       this->parent_->set_gear(static_cast<uint8_t>(fallback));
       return;
@@ -44,7 +46,7 @@ void FiidoGearSelect::control(const std::string &value) {
       fallback = static_cast<int>(next_active++);
     }
   }
-  ESP_LOGW("fiido_gear_select", "value '%s' is not valid in current gear mode (count=%u) - rejected",
+  ESP_LOGW(FIIDO_BMS_TAG, "value '%s' is not valid in current gear mode (count=%u) - rejected",
            value.c_str(), this->gear_count_);
   auto opt = this->current_option();
   if (!opt.empty()) {

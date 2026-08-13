@@ -7,3 +7,7 @@ secrets.yaml
 .ruff_cache/
 .vscode/c_cpp_properties.json
 .vscode/compile_commands.json
+
+# ESPHome writes these into .github when the CI config is built there
+.github/.esphome/
+.github/.gitignore

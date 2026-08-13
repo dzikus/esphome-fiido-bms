@@ -2,6 +2,8 @@
 
 #include "esphome/core/log.h"
 
+#include "fiido_bms.h"
+
 #ifdef USE_ESP32
 
 namespace esphome {
@@ -16,7 +18,7 @@ void FiidoSpeedUnitSelect::control(const std::string &value) {
       return;
     }
   }
-  ESP_LOGW("fiido_speed_unit_select", "value '%s' not in options - rejected",
+  ESP_LOGW(FIIDO_BMS_TAG, "value '%s' not in options - rejected",
            value.c_str());
   auto opt = this->current_option();
   if (!opt.empty()) {

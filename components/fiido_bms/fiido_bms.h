@@ -10,12 +10,16 @@
 #include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/number/number.h"
+#include "esphome/components/select/select.h"
 #include <esp_gattc_api.h>
 
 #include "fiido_protocol.h"
 
 namespace esphome {
 namespace fiido_bms {
+
+constexpr const char *FIIDO_BMS_TAG = "fiido_bms";
 
 namespace espbt = esphome::esp32_ble_tracker;
 
@@ -47,8 +51,10 @@ class FiidoPairWatchButton;
 class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
  public:
   void setup() override;
-  // No per-loop work; polling cadence handled by update() + BLE callbacks dispatched by parent BLEClient.
-  void loop() override {}
+  // Cadence comes from update() and from BLE callbacks. Dropping the override
+  // would not help: BLEClientNode declares loop() too, so the trait that puts a
+  // component in the main loop still resolves to true.
+  void loop() override { this->disable_loop(); }
   void update() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::DATA; }
@@ -206,11 +212,15 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr int16_t MAX_MOTOR_TEMP_C = 125;
   // Rate limit for rejected-frame logs; a fragmented stream rejects every frame.
   static constexpr uint32_t BAD_NOTIFY_LOG_INTERVAL_MS = 5000;
+  // Ambiguous speed limit is a resting state, not an event, and SPEEDLIM is
+  // polled once per burst. Must exceed update_interval_off or it never throttles.
+  static constexpr uint32_t AMBIGUOUS_LIMIT_LOG_INTERVAL_MS = 60000;
   static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
 
-  bool send_raw_write(uint8_t type, uint8_t addr, const std::vector<uint8_t> &payload);
+  [[nodiscard]] bool send_raw_write(FrameType type, uint8_t addr,
+                                    const std::vector<uint8_t> &payload);
   void send_handshake_();
-  bool send_poll_(size_t idx, bool warn_on_fail);
+  [[nodiscard]] bool send_poll_(size_t idx, bool warn_on_fail);
   void send_burst_poll_();
   bool send_frame_(const uint8_t *frame, size_t len, const char *name,
                    bool warn_on_fail = true);
@@ -231,16 +241,25 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void parse_speed_limit_(const uint8_t *payload, size_t len);
   void parse_boost_(const uint8_t *payload, size_t len);
   void parse_display_(const uint8_t *payload, size_t len);
-  bool defer_flag_write_(bool cache_valid, const char *name, std::function<void()> retry);
+  [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name,
+                                       std::function<void()> retry);
   void write_masked_bits_(uint8_t addr, uint8_t mask, uint8_t bits, uint8_t *cache,
                           const char *name);
   void write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache,
                        const char *name);
-  // Raw 1-byte value write (no bit-masking) for number entities.
-  void write_value_byte_(uint8_t type, uint8_t addr, uint8_t value, const char *name);
+  // Raw 1-byte value write (no bit-masking) for number entities. False when the
+  // frame did not go out, so the caller keeps its cache and entity unchanged.
+  [[nodiscard]] bool write_value_byte_(FrameType type, uint8_t addr, uint8_t value,
+                                       const char *name);
+  // Republish the last shown value, undoing an optimistic UI change.
+  static void revert_number_(number::Number *n);
 
+  // Drop a publish that repeats the current value. switch and binary_sensor do
+  // this in their base class; sensor, select and number do not.
   static void publish_(sensor::Sensor *s, float value);
   static void publish_(binary_sensor::BinarySensor *s, bool value);
+  static void publish_(select::Select *s, const char *option);
+  static void publish_(number::Number *n, float value);
 
   uint32_t startup_delay_ms_{0};
   uint32_t connect_time_ms_{0};
@@ -256,6 +275,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint32_t bad_notify_count_{0};
   uint32_t last_unknown_addr_log_ms_{0};
   uint32_t unknown_addr_count_{0};
+  uint32_t last_ambiguous_limit_log_ms_{0};
+  uint32_t ambiguous_limit_count_{0};
 
   sensor::Sensor *battery_voltage_sensor_{nullptr};
   sensor::Sensor *battery_current_voltage_sensor_{nullptr};
@@ -381,6 +402,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint32_t last_enforce_gear_3_ms_{0};
   uint32_t desired_interval_ms_{3000};
   uint32_t last_burst_ms_{0};
+  uint32_t last_burst_slot_{0};
+  bool burst_started_{false};
 
   int hub_index_{0};
   int total_hubs_{1};
