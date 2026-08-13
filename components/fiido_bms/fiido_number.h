@@ -12,8 +12,9 @@ namespace fiido_bms {
 
 using FiidoHubFloatSetter = void (FiidoBMSHub::*)(float);
 
-// control() forwards to the hub setter. The hub clamps, writes the raw byte and
-// publishes back the optimistic value; STATS/DISPLAY polls reconcile later.
+// control() forwards to the hub setter. The hub clamps and writes the raw byte,
+// publishing the new value only once the frame went out; a rejected write
+// republishes the previous one. BOOST/DISPLAY polls reconcile later.
 template<FiidoHubFloatSetter Setter>
 class FiidoNumber : public number::Number, public Parented<FiidoBMSHub> {
  public:
