@@ -7,7 +7,7 @@
   "containerEnv": {
     "UV_LINK_MODE": "copy"
   },
-  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.platformio && platformio settings set enable_telemetry No && pre-commit install",
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.platformio /home/vscode/.cache && platformio settings set enable_telemetry No && pre-commit install",
   "postStartCommand": "esphome compile .intellisense.yaml && python3 .devcontainer/gen-cpp-properties.py || echo 'WARN: IntelliSense setup failed; C++ error-checking degraded until it succeeds'",
   "customizations": {
     "vscode": {
@@ -17,7 +17,8 @@
         "charliermarsh.ruff",
         "ms-vscode.cpptools",
         "redhat.vscode-yaml",
-        "github.vscode-github-actions"
+        "github.vscode-github-actions",
+        "tamasfe.even-better-toml"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
@@ -32,6 +33,11 @@
           }
         },
         "yaml.customTags": ["!secret scalar", "!lambda scalar"],
+        "yaml.schemaStore.enable": true,
+        "yaml.schemas": {
+          "https://json.schemastore.org/dependabot-2.0.json": ".github/dependabot.yml",
+          "https://json.schemastore.org/pre-commit-config.json": ".pre-commit-config.yaml"
+        },
         "files.associations": {
           ".pre-commit-config.yaml": "yaml",
           "**/.github/**/*.yml": "yaml",
@@ -49,6 +55,7 @@
     }
   },
   "mounts": [
-    "source=fiido-bms-platformio,target=/home/vscode/.platformio,type=volume"
+    "source=fiido-bms-platformio,target=/home/vscode/.platformio,type=volume",
+    "source=fiido-bms-esphome-cache,target=/home/vscode/.cache/esphome,type=volume"
   ]
 }

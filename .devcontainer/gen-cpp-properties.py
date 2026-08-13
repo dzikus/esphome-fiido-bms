@@ -52,16 +52,24 @@ WS_COMPONENT = os.path.join(WORKSPACE, "components", COMPONENT)
 
 
 def _resolve_compiler(raw):
+    if os.path.isabs(raw) and os.path.exists(raw):
+        return raw
     found = shutil.which(raw)
-    if found or os.path.isabs(raw):
-        return found or raw
-    pkgs = os.path.join(os.path.expanduser("~"), ".platformio", "packages")
+    if found:
+        return found
+    name = os.path.basename(raw)
+    home = os.path.expanduser("~")
+    pkgs = os.path.join(home, ".platformio", "packages")
     if os.path.isdir(pkgs):
         for pkg in sorted(os.listdir(pkgs)):
-            c = os.path.join(pkgs, pkg, "bin", raw)
+            c = os.path.join(pkgs, pkg, "bin", name)
             if "toolchain" in pkg and os.path.exists(c):
                 return c
-    return raw
+    idf = os.path.join(home, ".cache", "esphome", "idf", "tools")
+    hits = sorted(glob.glob(os.path.join(idf, "**", "bin", name), recursive=True))
+    if hits:
+        return hits[0]
+    return shutil.which(name) or ""
 
 
 def _component_entries(db):
@@ -79,6 +87,30 @@ def _component_entries(db):
         elif f.startswith(WS_COMPONENT + os.sep):
             out.append(e)
     return out
+
+
+def _header_entries(entries):
+    if not entries:
+        return []
+    tmpl = entries[0]
+    args = tmpl.get("arguments") or shlex.split(tmpl.get("command", ""))
+    src = os.path.basename(tmpl["file"])
+    kept, skip = [], False
+    for tok in args:
+        if skip:
+            skip = False
+        elif tok in ("-o", "-MF", "-MT"):
+            skip = True
+        elif tok != "-c" and not tok.endswith(src):
+            kept.append(tok)
+    return [
+        {
+            "directory": tmpl.get("directory", WORKSPACE),
+            "file": h,
+            "arguments": [*kept, "-c", h],
+        }
+        for h in sorted(glob.glob(os.path.join(WS_COMPONENT, "*.h")))
+    ]
 
 
 def _unity_src(tests_dir):
@@ -172,9 +204,10 @@ def main():
 
     cmd = entries[0].get("command", "")
     argv0 = shlex.split(cmd)[0] if cmd else (entries[0].get("arguments") or [""])[0]
+    entries += _header_entries(entries)
+    compiler = _resolve_compiler(argv0)
     config = {
         "name": "ESP32",
-        "compilerPath": _resolve_compiler(argv0),
         "compilerArgs": ["-mlongcalls"],
         "cStandard": "gnu17",
         "cppStandard": "gnu++20",
@@ -183,8 +216,12 @@ def main():
             "path": ["${workspaceFolder}/components/**"],
             "limitSymbolsToIncludedHeaders": True,
         },
-        "compileCommands": os.path.join(DEST_DIR, "compile_commands.json"),
+        "compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
     }
+    if compiler:
+        config["compilerPath"] = compiler
+    else:
+        print(f"gen-cpp-properties: no compiler found for {argv0}")
     # force-include the esphome defines per component TU, not globally, so it
     # never reaches the native test entries whose files have no esphome includes
     if os.path.exists(DEFINES_H):
