@@ -25,6 +25,8 @@ jobs:
           pio test -d tests -e native < /dev/null
           echo "--- re-run built binary as source of truth ---"
           tests/.pio/build/native/program
+      - name: Run codegen unit tests (release gate)
+        run: python -m unittest discover -s tests/python -v
       - name: Compile full component (release gate)
         run: |
           set -euo pipefail
