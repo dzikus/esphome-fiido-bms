@@ -73,13 +73,13 @@ void revert_select(select::Select *s) {
 static const char *const TAG = FIIDO_BMS_TAG;
 
 void FiidoBMSHub::setup() {
-  // Stagger hubs across one ON-interval so parallel bikes do not collide on BLE airtime.
-  if (this->startup_delay_ms_ == 0 && this->total_hubs_ > 1) {
-    uint64_t product = static_cast<uint64_t>(this->hub_index_) * this->update_interval_on_ms_;
-    this->startup_delay_ms_ = static_cast<uint32_t>(product / this->total_hubs_);
-    ESP_LOGI(TAG, "[%s] AUTO startup_delay=%ums (hub %d of %d, interval_on=%ums)", this->parent_->address_str(),
-             (unsigned)this->startup_delay_ms_, this->hub_index_, this->total_hubs_,
-             (unsigned)this->update_interval_on_ms_);
+  if (this->startup_delay_ms_ == 0) {
+    this->startup_delay_ms_ = auto_startup_delay(this->hub_index_, this->total_hubs_, this->update_interval_on_ms_);
+    if (this->startup_delay_ms_ != 0) {
+      ESP_LOGI(TAG, "[%s] AUTO startup_delay=%ums (hub %d of %d, interval_on=%ums)", this->parent_->address_str(),
+               (unsigned)this->startup_delay_ms_, this->hub_index_, this->total_hubs_,
+               (unsigned)this->update_interval_on_ms_);
+    }
   }
   this->desired_interval_ms_ = this->update_interval_off_ms_;
   // Baseline so periodic-probe branch can fire if first BLE connect never lands.

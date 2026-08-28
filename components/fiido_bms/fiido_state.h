@@ -159,6 +159,9 @@ struct ActivitySignals {
 // 0 while the motor is on, otherwise the timestamp the OFF window opened.
 [[nodiscard]] uint32_t track_motor_off(uint32_t since_ms, bool motor_on, uint32_t now);
 
+// 0 for a lone hub.
+[[nodiscard]] uint32_t auto_startup_delay(int hub_index, int total_hubs, uint32_t interval_on_ms);
+
 // Registers cached for read-modify-write.
 inline constexpr std::array<Addr, 11> CACHED_REGISTERS{
     Addr::GEAR_RANGE, Addr::FLAGS_27,    Addr::FLAGS_28,  Addr::FLAGS_2B, Addr::FLAGS_2C,   Addr::FLAGS_38,

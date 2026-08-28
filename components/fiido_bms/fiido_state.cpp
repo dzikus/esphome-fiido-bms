@@ -28,6 +28,14 @@ ActivitySignals detect_activity(const RideState &prev, const RideState &now, uin
   };
 }
 
+uint32_t auto_startup_delay(int hub_index, int total_hubs, uint32_t interval_on_ms) {
+  if (total_hubs <= 1 || hub_index <= 0)
+    return 0;
+  // 64-bit: index * interval overflows uint32 well inside the allowed interval range.
+  const uint64_t product = static_cast<uint64_t>(hub_index) * interval_on_ms;
+  return static_cast<uint32_t>(product / static_cast<uint64_t>(total_hubs));
+}
+
 uint32_t track_motor_off(uint32_t since_ms, bool motor_on, uint32_t now) {
   if (motor_on)
     return 0;

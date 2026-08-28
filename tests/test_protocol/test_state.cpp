@@ -104,6 +104,16 @@ static void test_activity_reports_every_signal_independently() {
   TEST_ASSERT_FALSE(detect_activity(off, off, 0).moving);
 }
 
+static void test_auto_startup_delay_spreads_hubs_over_one_interval() {
+  TEST_ASSERT_EQUAL_UINT32(0, auto_startup_delay(0, 1, 3000));
+  TEST_ASSERT_EQUAL_UINT32(0, auto_startup_delay(0, 2, 3000));
+  TEST_ASSERT_EQUAL_UINT32(1500, auto_startup_delay(1, 2, 3000));
+  TEST_ASSERT_EQUAL_UINT32(1000, auto_startup_delay(1, 3, 3000));
+  TEST_ASSERT_EQUAL_UINT32(2000, auto_startup_delay(2, 3, 3000));
+  // index * interval passes 32 bits here; the 64-bit product is why this is right.
+  TEST_ASSERT_EQUAL_UINT32(0x7FFFFFFFu, auto_startup_delay(1, 2, 0xFFFFFFFFu));
+}
+
 static void test_motor_off_window_opens_once_and_clears_on_motor_on() {
   TEST_ASSERT_EQUAL_UINT32(5000, track_motor_off(0, false, 5000));
   // Second frame with the motor still off keeps the original timestamp.
@@ -346,6 +356,7 @@ void run_state_tests() {
   RUN_TEST(test_lifecycle_disconnected_probes_on_its_period);
   RUN_TEST(test_lifecycle_survives_the_millis_wrap);
   RUN_TEST(test_activity_reports_every_signal_independently);
+  RUN_TEST(test_auto_startup_delay_spreads_hubs_over_one_interval);
   RUN_TEST(test_motor_off_window_opens_once_and_clears_on_motor_on);
   RUN_TEST(test_should_log_now_lets_the_first_one_through);
   RUN_TEST(test_auto_shutdown_only_with_the_motor_on_and_enabled);
