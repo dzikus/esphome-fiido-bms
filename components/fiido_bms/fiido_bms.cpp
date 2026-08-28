@@ -1065,18 +1065,8 @@ void FiidoBMSHub::parse_speed_limit_(std::span<const uint8_t> p) {
 }
 
 void FiidoBMSHub::set_speed_limit(const std::string &option) {
-  uint8_t target_value;
-  bool target_bit5;
-  if (option == "6 km/h") {
-    target_value = 6;
-    target_bit5 = true;
-  } else if (option == "25 km/h") {
-    target_value = 25;
-    target_bit5 = true;
-  } else if (option == "No limit") {
-    target_value = 100;
-    target_bit5 = false;
-  } else {
+  const SpeedLimitPlan plan = plan_speed_limit(option, this->addr_2c_cache_);
+  if (!plan.valid) {
     ESP_LOGW(TAG, "[%s] set_speed_limit('%s') REJECTED - unknown option", this->parent_->address_str(), option.c_str());
     if (this->speed_limit_select_ != nullptr) {
       auto opt = this->speed_limit_select_->current_option();
@@ -1108,26 +1098,19 @@ void FiidoBMSHub::set_speed_limit(const std::string &option) {
     return;
   }
   // PAS limit: bit 7 ADDR 0x2C. ON = limited to 25 km/h, OFF = unlimited.
-  bool current_pas = (this->addr_2c_cache_ & 0x80) != 0;
-  bool need_pas_change = (current_pas != target_bit5);
-  if (need_pas_change) {
-    uint8_t b2c = this->addr_2c_cache_;
-    if (target_bit5) {
-      b2c |= 0x80;
-    } else {
-      b2c &= ~0x80;
-    }
+  if (plan.needs_pas_write) {
     ESP_LOGI(TAG, "[%s] SPEED_LIMIT phase1: PAS %s ADDR 0x2C 0x%02X->0x%02X (bit 7)", this->parent_->address_str(),
-             target_bit5 ? "ON" : "OFF", this->addr_2c_cache_, b2c);
-    if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_2C, std::vector<uint8_t>{b2c})) {
-      this->addr_2c_cache_ = b2c;
+             plan.limit_on ? "ON" : "OFF", this->addr_2c_cache_, plan.pas_byte);
+    if (WriteError::NONE ==
+        this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_2C, std::vector<uint8_t>{plan.pas_byte})) {
+      this->addr_2c_cache_ = plan.pas_byte;
     } else {
       ESP_LOGW(TAG, "[%s] WRITE 0x2C (speed_limit PAS) failed - cache not updated", this->parent_->address_str());
     }
   }
   // Phase 2: speed limit value + enable flag.
   // When clearing PAS limit, BMS side-effects 0x3C=25 - delay to override.
-  auto phase2 = [this, option, target_value, target_bit5]() {
+  auto phase2 = [this, option, plan]() {
     // The 50ms delay opens a window for disconnect or a transient reconnect
     // before this runs. Bail if the link or cache base is no longer trustworthy
     // to avoid writing preserve-bits onto a stale ADDR 0x27.
@@ -1136,21 +1119,16 @@ void FiidoBMSHub::set_speed_limit(const std::string &option) {
                this->parent_->address_str());
       return;
     }
-    uint8_t b27 = this->addr_27_cache_;
-    if (target_bit5) {
-      b27 |= 0x20;
-    } else {
-      b27 &= ~0x20;
-    }
+    const uint8_t b27 = apply_speed_limit_bit(this->addr_27_cache_, plan.limit_on);
     ESP_LOGI(TAG, "[%s] SPEED_LIMIT phase2: '%s' WRITE 0x3C=%u + 0x27 0x%02X->0x%02X (bit5=%u)",
-             this->parent_->address_str(), option.c_str(), target_value, this->addr_27_cache_, b27,
-             target_bit5 ? 1 : 0);
-    const bool ok_3c = WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::SPEED_LIMIT,
-                                                                 std::vector<uint8_t>{target_value});
+             this->parent_->address_str(), option.c_str(), plan.value, this->addr_27_cache_, b27,
+             plan.limit_on ? 1 : 0);
+    const bool ok_3c = WriteError::NONE ==
+                       this->send_raw_write_(FrameType::WRITE_L0, Addr::SPEED_LIMIT, std::vector<uint8_t>{plan.value});
     const bool ok_27 =
         WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::vector<uint8_t>{b27});
     if (ok_3c) {
-      this->addr_3c_cache_ = target_value;
+      this->addr_3c_cache_ = plan.value;
     } else {
       ESP_LOGW(TAG, "[%s] WRITE 0x3C (speed_limit value) failed - cache not updated", this->parent_->address_str());
     }
@@ -1164,7 +1142,7 @@ void FiidoBMSHub::set_speed_limit(const std::string &option) {
       this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
     }
   };
-  if (!target_bit5) {
+  if (plan.delay_phase2) {
     // "No limit": BMS may side-effect 0x3C=25 after PAS bit clears.
     // Always delay phase2 to override, even if PAS was already OFF
     // (previous side-effect might still be pending in BMS firmware).

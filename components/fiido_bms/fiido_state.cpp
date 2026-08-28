@@ -59,6 +59,32 @@ uint8_t clamp_gear(uint8_t gear, uint8_t max_gear) {
   return gear > max_gear ? max_gear : gear;
 }
 
+SpeedLimitPlan plan_speed_limit(std::string_view option, uint8_t cache_2c) {
+  SpeedLimitPlan plan{};
+  if (option == "6 km/h") {
+    plan.value = 6;
+    plan.limit_on = true;
+  } else if (option == "25 km/h") {
+    plan.value = 25;
+    plan.limit_on = true;
+  } else if (option == "No limit") {
+    plan.value = 100;
+    plan.limit_on = false;
+  } else {
+    return plan;
+  }
+  plan.valid = true;
+  const bool pas_on = (cache_2c & 0x80) != 0;
+  plan.needs_pas_write = pas_on != plan.limit_on;
+  plan.pas_byte = plan.limit_on ? static_cast<uint8_t>(cache_2c | 0x80) : static_cast<uint8_t>(cache_2c & ~0x80);
+  plan.delay_phase2 = !plan.limit_on;
+  return plan;
+}
+
+uint8_t apply_speed_limit_bit(uint8_t cache_27, bool limit_on) {
+  return limit_on ? static_cast<uint8_t>(cache_27 | 0x20) : static_cast<uint8_t>(cache_27 & ~0x20);
+}
+
 ProbeOutcome decide_probe_outcome(bool motor_on, uint32_t now, uint32_t last_dispatch_ms,
                                   uint32_t write_verify_window_ms) {
   if (motor_on)
