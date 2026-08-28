@@ -452,69 +452,53 @@ WriteError FiidoBMSHub::send_frame_(std::span<const uint8_t> frame, const char *
 
 // === Parse helpers ===
 
+void FiidoBMSHub::publish_fields_(std::span<const uint8_t> p, std::span<const SensorField> fields) {
+  for (const SensorField &field : fields) {
+    sensor::Sensor *entity = this->*(field.entity);
+    if (entity == nullptr)
+      continue;
+    float raw = 0.0f;
+    switch (field.width) {
+      case FieldWidth::U8:
+        raw = p[field.offset];
+        break;
+      case FieldWidth::U16BE:
+        raw = u16be(p, field.offset);
+        break;
+      case FieldWidth::U32BE:
+        raw = static_cast<float>(u32be(p, field.offset));
+        break;
+    }
+    publish_changed(entity, raw / field.divisor);
+  }
+}
+
 void FiidoBMSHub::parse_battery_(std::span<const uint8_t> p) {
   if (p.size() != battery::PAYLOAD_LEN)
     return;
-  publish_changed(this->battery_hw_version_sensor_, p[battery::HW_VERSION]);
-  publish_changed(this->battery_sw_version_sensor_, p[battery::SW_VERSION]);
-  publish_changed(this->battery_capacity_sensor_, u16be(p, battery::CAPACITY_AH) / 10.0f);
-  publish_changed(this->battery_voltage_sensor_, u16be(p, battery::VOLTAGE_V) / 10.0f);
-  publish_changed(this->battery_current_voltage_sensor_, u16be(p, battery::CURRENT_VOLTAGE_V) / 10.0f);
-  publish_changed(this->battery_current_sensor_, u16be(p, battery::CURRENT_A) / 10.0f);
-  publish_changed(this->battery_manufacturer_sensor_, p[battery::MANUFACTURER]);
-  ESP_LOGV(TAG, "[%s] BATTERY V=%.1f I=%.1f Ah=%.1f", this->parent_->address_str(), u16be(p, battery::VOLTAGE_V) / 10.0,
-           u16be(p, battery::CURRENT_A) / 10.0, u16be(p, battery::CAPACITY_AH) / 10.0);
+  this->publish_fields_(p, BATTERY_FIELDS);
 }
 
 void FiidoBMSHub::parse_ctrl_(std::span<const uint8_t> p) {
   if (p.size() != ctrl::PAYLOAD_LEN)
     return;
-  const uint16_t current = u16be(p, ctrl::CURRENT_A);
-  publish_changed(this->ctrl_hw_version_sensor_, p[ctrl::HW_VERSION]);
-  publish_changed(this->ctrl_sw_version_sensor_, p[ctrl::SW_VERSION]);
-  publish_changed(this->ctrl_upper_voltage_sensor_, u16be(p, ctrl::UPPER_VOLTAGE_V) / 10.0f);
-  publish_changed(this->ctrl_lower_voltage_sensor_, u16be(p, ctrl::LOWER_VOLTAGE_V) / 10.0f);
-  publish_changed(this->ctrl_current_sensor_, current / 10.0f);
-  publish_changed(this->ctrl_temperature_sensor_, p[ctrl::TEMPERATURE_C]);
-  publish_changed(this->ctrl_version_sensor_, p[ctrl::VERSION]);
-  publish_changed(this->ctrl_manufacturer_sensor_, p[ctrl::MANUFACTURER]);
-  ESP_LOGV(TAG, "[%s] CTRL upper=%.1fV lower=%.1fV I=%.1fA T=%uC ver=%u", this->parent_->address_str(),
-           u16be(p, ctrl::UPPER_VOLTAGE_V) / 10.0, u16be(p, ctrl::LOWER_VOLTAGE_V) / 10.0, current / 10.0,
-           p[ctrl::TEMPERATURE_C], p[ctrl::VERSION]);
+  this->publish_fields_(p, CTRL_FIELDS);
 }
 
 void FiidoBMSHub::parse_motor_(std::span<const uint8_t> p) {
   if (p.size() != motor::PAYLOAD_LEN)
     return;
-  publish_changed(this->motor_version_sensor_, p[motor::VERSION]);
-  publish_changed(this->motor_magnetic_sensor_, p[motor::MAGNETIC]);
-  publish_changed(this->motor_wire_count_sensor_, p[motor::WIRE_COUNT]);
-  publish_changed(this->motor_steel_count_sensor_, p[motor::STEEL_COUNT]);
-  publish_changed(this->motor_reduction_ratio_sensor_, p[motor::REDUCTION_RATIO] / 10.0f);
-  publish_changed(this->motor_wheel_diameter_sensor_, u16be(p, motor::WHEEL_DIAMETER_IN) / 10.0f);
-  // Two's complement signed 16-bit.
+  this->publish_fields_(p, MOTOR_FIELDS);
+  // Two's complement signed 16-bit, and the only field with a plausibility range.
   const int16_t temp_c = static_cast<int16_t>(u16be(p, motor::TEMPERATURE_C));
-  if (temp_c >= motor::MIN_TEMPERATURE_C && temp_c <= motor::MAX_TEMPERATURE_C) {
+  if (temp_c >= motor::MIN_TEMPERATURE_C && temp_c <= motor::MAX_TEMPERATURE_C)
     publish_changed(this->motor_temperature_sensor_, temp_c);
-  }
-  publish_changed(this->motor_capacity_sensor_, u16be(p, motor::CAPACITY_W));
-  ESP_LOGV(TAG, "[%s] MOTOR ver=%u T=%dC wheel=%.1f cap=%u", this->parent_->address_str(), p[motor::VERSION], temp_c,
-           u16be(p, motor::WHEEL_DIAMETER_IN) / 10.0, u16be(p, motor::CAPACITY_W));
 }
 
 void FiidoBMSHub::parse_energy_(std::span<const uint8_t> p) {
   if (p.size() != energy::PAYLOAD_LEN)
     return;
-  const uint16_t torque = u16be(p, energy::CRANK_TORQUE_NM);
-  const uint16_t rpm = u16be(p, energy::CRANK_RPM);
-  publish_changed(this->crank_torque_sensor_, torque / 10.0f);
-  publish_changed(this->crank_rpm_sensor_, rpm);
-  publish_changed(this->this_take_energy_sensor_, u16be(p, energy::THIS_TAKE_WH) / 10.0f);
-  publish_changed(this->total_take_energy_sensor_, u32be(p, energy::TOTAL_TAKE_WH) / 10.0f);
-  publish_changed(this->startup_time_sensor_, u16be(p, energy::STARTUP_TIME_S));
-  ESP_LOGV(TAG, "[%s] ENERGY torque=%.1fNm rpm=%u this=%.1fWh total=%.1fWh up=%us", this->parent_->address_str(),
-           torque / 10.0, rpm, u16be(p, energy::THIS_TAKE_WH) / 10.0, u32be(p, energy::TOTAL_TAKE_WH) / 10.0,
-           u16be(p, energy::STARTUP_TIME_S));
+  this->publish_fields_(p, ENERGY_FIELDS);
 }
 
 void FiidoBMSHub::manage_lifecycle_() {
