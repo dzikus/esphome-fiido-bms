@@ -11,10 +11,12 @@
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/ble_client/ble_client.h"
+#include "esphome/components/button/button.h"
 #include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
+#include "esphome/components/switch/switch.h"
 #include "fiido_protocol.h"
 
 namespace esphome::fiido_bms {
@@ -23,30 +25,7 @@ constexpr const char *FIIDO_BMS_TAG = "fiido_bms";
 
 namespace espbt = esphome::esp32_ble_tracker;
 
-class FiidoMotorSwitch;
-class FiidoLightSwitch;
-class FiidoAutoshutdownSwitch;
 class FiidoGearSelect;
-class FiidoModeSelect;
-class FiidoSpeedLimitSelect;
-class FiidoSpeedUnitSelect;
-class FiidoSpeakerSwitch;
-class FiidoKeySoundSwitch;
-class FiidoThrottleSwitch;
-class FiidoSlowModeSwitch;
-class FiidoBleSwitch;
-class FiidoCruiseSwitch;
-class FiidoStartModeSwitch;
-class FiidoInsensitivitySwitch;
-class FiidoShowTotalKmSwitch;
-class FiidoAutoScreenOffSwitch;
-class FiidoRingSwitch;
-class FiidoDoubleSpeedSwitch;
-class FiidoBikeGuardSwitch;
-class FiidoBrightnessNumber;
-class FiidoBoostNumber;
-class FiidoGuardTimeNumber;
-class FiidoPairWatchButton;
 
 class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
  public:
@@ -93,31 +72,75 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void set_guard_time(float value);
   void pair_watch();
 
-  void set_motor_switch(FiidoMotorSwitch *sw) { motor_switch_ = sw; }
-  void set_light_switch(FiidoLightSwitch *sw) { light_switch_ = sw; }
-  void set_autoshutdown_switch(FiidoAutoshutdownSwitch *sw) { autoshutdown_switch_ = sw; }
-  void set_gear_select(FiidoGearSelect *s) { gear_select_ = s; }
-  void set_mode_select(FiidoModeSelect *s) { mode_select_ = s; }
-  void set_speed_limit_select(FiidoSpeedLimitSelect *s) { speed_limit_select_ = s; }
-  void set_speed_unit_select(FiidoSpeedUnitSelect *s) { speed_unit_select_ = s; }
-  void set_speaker_switch(FiidoSpeakerSwitch *sw) { speaker_switch_ = sw; }
-  void set_key_sound_switch(FiidoKeySoundSwitch *sw) { key_sound_switch_ = sw; }
-  void set_throttle_switch(FiidoThrottleSwitch *sw) { throttle_switch_ = sw; }
-  void set_slow_mode_switch(FiidoSlowModeSwitch *sw) { slow_mode_switch_ = sw; }
-  void set_ble_switch(FiidoBleSwitch *sw) { ble_switch_ = sw; }
-  void set_cruise_switch(FiidoCruiseSwitch *sw) { cruise_switch_ = sw; }
-  void set_start_mode_switch(FiidoStartModeSwitch *sw) { start_mode_switch_ = sw; }
-  void set_insensitivity_switch(FiidoInsensitivitySwitch *sw) { insensitivity_switch_ = sw; }
-  void set_show_total_km_switch(FiidoShowTotalKmSwitch *sw) { show_total_km_switch_ = sw; }
-  void set_auto_screen_off_switch(FiidoAutoScreenOffSwitch *sw) { auto_screen_off_switch_ = sw; }
-  void set_ring_switch(FiidoRingSwitch *sw) { ring_switch_ = sw; }
-  void set_double_speed_switch(FiidoDoubleSpeedSwitch *sw) { double_speed_switch_ = sw; }
-  void set_bike_guard_switch(FiidoBikeGuardSwitch *sw) { bike_guard_switch_ = sw; }
+  SUB_SENSOR(battery_voltage)
+  SUB_SENSOR(battery_current_voltage)
+  SUB_SENSOR(battery_current)
+  SUB_SENSOR(battery_capacity)
+  SUB_SENSOR(battery_manufacturer)
+  SUB_SENSOR(battery_hw_version)
+  SUB_SENSOR(battery_sw_version)
+  SUB_SENSOR(ctrl_upper_voltage)
+  SUB_SENSOR(ctrl_lower_voltage)
+  SUB_SENSOR(ctrl_current)
+  SUB_SENSOR(ctrl_temperature)
+  SUB_SENSOR(ctrl_hw_version)
+  SUB_SENSOR(ctrl_sw_version)
+  SUB_SENSOR(ctrl_version)
+  SUB_SENSOR(ctrl_manufacturer)
+  SUB_SENSOR(motor_version)
+  SUB_SENSOR(motor_magnetic)
+  SUB_SENSOR(motor_wire_count)
+  SUB_SENSOR(motor_steel_count)
+  SUB_SENSOR(motor_reduction_ratio)
+  SUB_SENSOR(motor_wheel_diameter)
+  SUB_SENSOR(motor_temperature)
+  SUB_SENSOR(motor_capacity)
+  SUB_SENSOR(crank_torque)
+  SUB_SENSOR(crank_rpm)
+  SUB_SENSOR(this_take_energy)
+  SUB_SENSOR(total_take_energy)
+  SUB_SENSOR(startup_time)
+  SUB_SENSOR(bicycle_speed)
+  SUB_SENSOR(current_kilometers)
+  SUB_SENSOR(total_kilometers)
+  SUB_SENSOR(battery_soc)
+  SUB_SENSOR(bicycle_gear_start)
+  SUB_SENSOR(meter_hw_version)
+  SUB_SENSOR(meter_sw_version)
+  SUB_SENSOR(meter_mode_data)
 
-  void set_brightness_number(FiidoBrightnessNumber *n) { brightness_number_ = n; }
-  void set_boost_number(FiidoBoostNumber *n) { boost_number_ = n; }
-  void set_guard_time_number(FiidoGuardTimeNumber *n) { guard_time_number_ = n; }
-  void set_pair_watch_button(FiidoPairWatchButton *b) { pair_watch_button_ = b; }
+  SUB_BINARY_SENSOR(connected)
+  SUB_BINARY_SENSOR(brake)
+  SUB_BINARY_SENSOR(pas_limit)
+
+  SUB_SWITCH(motor)
+  SUB_SWITCH(light)
+  SUB_SWITCH(autoshutdown)
+  SUB_SWITCH(speaker)
+  SUB_SWITCH(key_sound)
+  SUB_SWITCH(throttle)
+  SUB_SWITCH(slow_mode)
+  SUB_SWITCH(ble)
+  SUB_SWITCH(cruise)
+  SUB_SWITCH(start_mode)
+  SUB_SWITCH(insensitivity)
+  SUB_SWITCH(show_total_km)
+  SUB_SWITCH(auto_screen_off)
+  SUB_SWITCH(ring)
+  SUB_SWITCH(double_speed)
+  SUB_SWITCH(bike_guard)
+
+  SUB_SELECT(mode)
+  SUB_SELECT(speed_limit)
+  SUB_SELECT(speed_unit)
+
+  SUB_NUMBER(brightness)
+  SUB_NUMBER(boost)
+  SUB_NUMBER(guard_time)
+
+  SUB_BUTTON(pair_watch)
+
+  void set_gear_select(FiidoGearSelect *s) { this->gear_select_ = s; }
 
   void enable_boost_poll() { this->poll_enabled_boost_ = true; }
   void enable_display_poll() { this->poll_enabled_display_ = true; }
@@ -134,52 +157,6 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void enable_motor_poll() { this->poll_enabled_motor_ = true; }
   void enable_energy_poll() { this->poll_enabled_energy_ = true; }
   void enable_meter_poll() { this->poll_enabled_meter_ = true; }
-
-  void set_battery_voltage_sensor(sensor::Sensor *s) { battery_voltage_sensor_ = s; }
-  void set_battery_current_voltage_sensor(sensor::Sensor *s) { battery_current_voltage_sensor_ = s; }
-  void set_battery_current_sensor(sensor::Sensor *s) { battery_current_sensor_ = s; }
-  void set_battery_capacity_sensor(sensor::Sensor *s) { battery_capacity_sensor_ = s; }
-  void set_battery_manufacturer_sensor(sensor::Sensor *s) { battery_manufacturer_sensor_ = s; }
-  void set_battery_hw_version_sensor(sensor::Sensor *s) { battery_hw_version_sensor_ = s; }
-  void set_battery_sw_version_sensor(sensor::Sensor *s) { battery_sw_version_sensor_ = s; }
-
-  void set_ctrl_upper_voltage_sensor(sensor::Sensor *s) { ctrl_upper_voltage_sensor_ = s; }
-  void set_ctrl_lower_voltage_sensor(sensor::Sensor *s) { ctrl_lower_voltage_sensor_ = s; }
-  void set_ctrl_current_sensor(sensor::Sensor *s) { ctrl_current_sensor_ = s; }
-  void set_ctrl_temperature_sensor(sensor::Sensor *s) { ctrl_temperature_sensor_ = s; }
-  void set_ctrl_hw_version_sensor(sensor::Sensor *s) { ctrl_hw_version_sensor_ = s; }
-  void set_ctrl_sw_version_sensor(sensor::Sensor *s) { ctrl_sw_version_sensor_ = s; }
-  void set_ctrl_version_sensor(sensor::Sensor *s) { ctrl_version_sensor_ = s; }
-  void set_ctrl_manufacturer_sensor(sensor::Sensor *s) { ctrl_manufacturer_sensor_ = s; }
-
-  void set_motor_version_sensor(sensor::Sensor *s) { motor_version_sensor_ = s; }
-  void set_motor_magnetic_sensor(sensor::Sensor *s) { motor_magnetic_sensor_ = s; }
-  void set_motor_wire_count_sensor(sensor::Sensor *s) { motor_wire_count_sensor_ = s; }
-  void set_motor_steel_count_sensor(sensor::Sensor *s) { motor_steel_count_sensor_ = s; }
-  void set_motor_reduction_ratio_sensor(sensor::Sensor *s) { motor_reduction_ratio_sensor_ = s; }
-  void set_motor_wheel_diameter_sensor(sensor::Sensor *s) { motor_wheel_diameter_sensor_ = s; }
-  void set_motor_temperature_sensor(sensor::Sensor *s) { motor_temperature_sensor_ = s; }
-  void set_motor_capacity_sensor(sensor::Sensor *s) { motor_capacity_sensor_ = s; }
-
-  void set_crank_torque_sensor(sensor::Sensor *s) { crank_torque_sensor_ = s; }
-  void set_crank_rpm_sensor(sensor::Sensor *s) { crank_rpm_sensor_ = s; }
-  void set_this_take_energy_sensor(sensor::Sensor *s) { this_take_energy_sensor_ = s; }
-  void set_total_take_energy_sensor(sensor::Sensor *s) { total_take_energy_sensor_ = s; }
-  void set_startup_time_sensor(sensor::Sensor *s) { startup_time_sensor_ = s; }
-
-  void set_bicycle_speed_sensor(sensor::Sensor *s) { bicycle_speed_sensor_ = s; }
-  void set_current_kilometers_sensor(sensor::Sensor *s) { current_kilometers_sensor_ = s; }
-  void set_total_kilometers_sensor(sensor::Sensor *s) { total_kilometers_sensor_ = s; }
-  void set_battery_soc_sensor(sensor::Sensor *s) { battery_soc_sensor_ = s; }
-  void set_bicycle_gear_start_sensor(sensor::Sensor *s) { bicycle_gear_start_sensor_ = s; }
-
-  void set_meter_hw_version_sensor(sensor::Sensor *s) { meter_hw_version_sensor_ = s; }
-  void set_meter_sw_version_sensor(sensor::Sensor *s) { meter_sw_version_sensor_ = s; }
-  void set_meter_mode_data_sensor(sensor::Sensor *s) { meter_mode_data_sensor_ = s; }
-
-  void set_connected_binary_sensor(binary_sensor::BinarySensor *s) { connected_binary_sensor_ = s; }
-  void set_brake_binary_sensor(binary_sensor::BinarySensor *s) { brake_binary_sensor_ = s; }
-  void set_pas_limit_binary_sensor(binary_sensor::BinarySensor *s) { pas_limit_binary_sensor_ = s; }
 
  protected:
   static constexpr uint32_t BURST_INTERVAL_MS = 5;
@@ -265,78 +242,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint32_t last_ambiguous_limit_log_ms_{0};
   uint32_t ambiguous_limit_count_{0};
 
-  sensor::Sensor *battery_voltage_sensor_{nullptr};
-  sensor::Sensor *battery_current_voltage_sensor_{nullptr};
-  sensor::Sensor *battery_current_sensor_{nullptr};
-  sensor::Sensor *battery_capacity_sensor_{nullptr};
-  sensor::Sensor *battery_manufacturer_sensor_{nullptr};
-  sensor::Sensor *battery_hw_version_sensor_{nullptr};
-  sensor::Sensor *battery_sw_version_sensor_{nullptr};
-
-  sensor::Sensor *ctrl_upper_voltage_sensor_{nullptr};
-  sensor::Sensor *ctrl_lower_voltage_sensor_{nullptr};
-  sensor::Sensor *ctrl_current_sensor_{nullptr};
-  sensor::Sensor *ctrl_temperature_sensor_{nullptr};
-  sensor::Sensor *ctrl_hw_version_sensor_{nullptr};
-  sensor::Sensor *ctrl_sw_version_sensor_{nullptr};
-  sensor::Sensor *ctrl_version_sensor_{nullptr};
-  sensor::Sensor *ctrl_manufacturer_sensor_{nullptr};
-
-  sensor::Sensor *motor_version_sensor_{nullptr};
-  sensor::Sensor *motor_magnetic_sensor_{nullptr};
-  sensor::Sensor *motor_wire_count_sensor_{nullptr};
-  sensor::Sensor *motor_steel_count_sensor_{nullptr};
-  sensor::Sensor *motor_reduction_ratio_sensor_{nullptr};
-  sensor::Sensor *motor_wheel_diameter_sensor_{nullptr};
-  sensor::Sensor *motor_temperature_sensor_{nullptr};
-  sensor::Sensor *motor_capacity_sensor_{nullptr};
-
-  sensor::Sensor *crank_torque_sensor_{nullptr};
-  sensor::Sensor *crank_rpm_sensor_{nullptr};
-  sensor::Sensor *this_take_energy_sensor_{nullptr};
-  sensor::Sensor *total_take_energy_sensor_{nullptr};
-  sensor::Sensor *startup_time_sensor_{nullptr};
-
-  sensor::Sensor *bicycle_speed_sensor_{nullptr};
-  sensor::Sensor *current_kilometers_sensor_{nullptr};
-  sensor::Sensor *total_kilometers_sensor_{nullptr};
-  sensor::Sensor *battery_soc_sensor_{nullptr};
-  sensor::Sensor *bicycle_gear_start_sensor_{nullptr};
-
-  sensor::Sensor *meter_hw_version_sensor_{nullptr};
-  sensor::Sensor *meter_sw_version_sensor_{nullptr};
-  sensor::Sensor *meter_mode_data_sensor_{nullptr};
-
-  binary_sensor::BinarySensor *connected_binary_sensor_{nullptr};
-  binary_sensor::BinarySensor *brake_binary_sensor_{nullptr};
-  binary_sensor::BinarySensor *pas_limit_binary_sensor_{nullptr};
-
-  FiidoMotorSwitch *motor_switch_{nullptr};
-  FiidoLightSwitch *light_switch_{nullptr};
-  FiidoAutoshutdownSwitch *autoshutdown_switch_{nullptr};
-
   FiidoGearSelect *gear_select_{nullptr};
-  FiidoModeSelect *mode_select_{nullptr};
-  FiidoSpeedLimitSelect *speed_limit_select_{nullptr};
-  FiidoSpeedUnitSelect *speed_unit_select_{nullptr};
-  FiidoSpeakerSwitch *speaker_switch_{nullptr};
-  FiidoKeySoundSwitch *key_sound_switch_{nullptr};
-  FiidoThrottleSwitch *throttle_switch_{nullptr};
-  FiidoSlowModeSwitch *slow_mode_switch_{nullptr};
-  FiidoBleSwitch *ble_switch_{nullptr};
-  FiidoCruiseSwitch *cruise_switch_{nullptr};
-  FiidoStartModeSwitch *start_mode_switch_{nullptr};
-  FiidoInsensitivitySwitch *insensitivity_switch_{nullptr};
-  FiidoShowTotalKmSwitch *show_total_km_switch_{nullptr};
-  FiidoAutoScreenOffSwitch *auto_screen_off_switch_{nullptr};
-  FiidoRingSwitch *ring_switch_{nullptr};
-  FiidoDoubleSpeedSwitch *double_speed_switch_{nullptr};
-  FiidoBikeGuardSwitch *bike_guard_switch_{nullptr};
-
-  FiidoBrightnessNumber *brightness_number_{nullptr};
-  FiidoBoostNumber *boost_number_{nullptr};
-  FiidoGuardTimeNumber *guard_time_number_{nullptr};
-  FiidoPairWatchButton *pair_watch_button_{nullptr};
 
   bool ble_user_enabled_{true};
 
