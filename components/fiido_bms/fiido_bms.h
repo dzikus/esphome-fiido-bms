@@ -18,6 +18,7 @@
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
+#include "fiido_link.h"
 #include "fiido_protocol.h"
 #include "fiido_state.h"
 
@@ -312,15 +313,16 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   // frame did not go out, so the caller keeps its cache and entity unchanged.
   [[nodiscard]] bool write_value_byte_(FrameType type, Addr addr, uint8_t value, const char *name);
 
+  // Everything the session has to forget when the link drops.
+  void reset_session_state_();
+
   uint32_t startup_delay_ms_{0};
   uint32_t connect_time_ms_{0};
   size_t burst_idx_{0};
   size_t burst_remaining_{0};
   uint8_t burst_retry_{0};
-  bool link_congested_{false};
-  uint16_t char_write_handle_{0};
-  uint16_t char_notify_handle_{0};
   bool handshake_sent_{false};
+  FiidoLink link_;
 
   uint32_t last_bad_notify_log_ms_{0};
   uint32_t bad_notify_count_{0};

@@ -72,13 +72,6 @@ void revert_select(select::Select *s) {
 
 static const char *const TAG = FIIDO_BMS_TAG;
 
-// Custom Fiido service (FFE0 base): write to FFE2, notify from FFE1.
-static const auto FIIDO_SERVICE_UUID = esp32_ble_tracker::ESPBTUUID::from_raw("00010203-0405-0607-0809-0a0b0c0dffe0");
-static const auto FIIDO_NOTIFY_CHAR_UUID =
-    esp32_ble_tracker::ESPBTUUID::from_raw("00010203-0405-0607-0809-0a0b0c0dffe1");
-static const auto FIIDO_WRITE_CHAR_UUID =
-    esp32_ble_tracker::ESPBTUUID::from_raw("00010203-0405-0607-0809-0a0b0c0dffe2");
-
 void FiidoBMSHub::setup() {
   // Stagger hubs across one ON-interval so parallel bikes do not collide on BLE airtime.
   if (this->startup_delay_ms_ == 0 && this->total_hubs_ > 1) {
@@ -169,6 +162,27 @@ void FiidoBMSHub::dump_config() {
   LOG_SELECT("  ", "Gear", this->gear_select_);
 }
 
+void FiidoBMSHub::reset_session_state_() {
+  this->link_.reset();
+  this->handshake_sent_ = false;
+  this->cancel_timeout("burst");
+  this->burst_remaining_ = 0;
+  this->burst_idx_ = 0;
+  this->burst_retry_ = 0;
+  // The bike can change while the link is down.
+  this->registers_.clear();
+  this->prev_motor_on_ = false;
+  this->prev_light_on_ = false;
+  this->prev_gear_ = 0xFF;
+  this->last_dispatch_ms_ = 0;
+  this->last_bad_notify_log_ms_ = 0;
+  this->bad_notify_count_ = 0;
+  this->last_unknown_addr_log_ms_ = 0;
+  this->unknown_addr_count_ = 0;
+  this->last_ambiguous_limit_log_ms_ = 0;
+  this->ambiguous_limit_count_ = 0;
+}
+
 void FiidoBMSHub::publish_connected_(bool state) {
   publish_changed(this->connected_binary_sensor_, state);
 }
@@ -185,15 +199,15 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       ESP_LOGI(TAG, "[%s] Connection opened", this->parent_->address_str());
       this->connect_time_ms_ = millis();
       this->handshake_sent_ = false;
-      this->link_congested_ = false;
+      this->link_.set_congested(false);
       break;
     }
     case ESP_GATTC_CONGEST_EVT: {
       if (param->congest.conn_id != this->parent_->get_conn_id())
         break;
-      this->link_congested_ = param->congest.congested;
-      ESP_LOGD(TAG, "[%s] l2cap %scongested", this->parent_->address_str(), this->link_congested_ ? "" : "un");
-      if (!this->link_congested_ && this->burst_remaining_ > 0) {
+      this->link_.set_congested(param->congest.congested);
+      ESP_LOGD(TAG, "[%s] l2cap %scongested", this->parent_->address_str(), this->link_.congested() ? "" : "un");
+      if (!this->link_.congested() && this->burst_remaining_ > 0) {
         this->cancel_timeout("burst");
         this->send_burst_poll_();
       }
@@ -202,53 +216,19 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
     case ESP_GATTC_DISCONNECT_EVT: {
       ESP_LOGW(TAG, "[%s] Disconnected", this->parent_->address_str());
       this->node_state = espbt::ClientState::IDLE;
-      this->link_congested_ = false;
-      if (this->char_notify_handle_ != 0) {
-        auto unreg = esp_ble_gattc_unregister_for_notify(this->parent()->get_gattc_if(),
-                                                         this->parent()->get_remote_bda(), this->char_notify_handle_);
-        if (unreg) {
-          ESP_LOGW(TAG, "[%s] unregister_for_notify failed, status=%d", this->parent_->address_str(), unreg);
-        }
-      }
-      this->char_write_handle_ = 0;
-      this->char_notify_handle_ = 0;
-      this->handshake_sent_ = false;
-      this->cancel_timeout("burst");
-      this->burst_remaining_ = 0;
-      this->burst_idx_ = 0;
-      this->burst_retry_ = 0;
+      this->link_.unsubscribe(this->parent_);
+      this->reset_session_state_();
       this->publish_connected_(false);
-      // Bike state may change while disconnected; need fresh STATS post-reconnect.
-      this->registers_.clear();
-      this->prev_motor_on_ = false;
-      this->prev_light_on_ = false;
-      this->prev_gear_ = 0xFF;
-      this->last_dispatch_ms_ = 0;
-      this->last_bad_notify_log_ms_ = 0;
-      this->bad_notify_count_ = 0;
-      this->last_unknown_addr_log_ms_ = 0;
-      this->unknown_addr_count_ = 0;
-      this->last_ambiguous_limit_log_ms_ = 0;
-      this->ambiguous_limit_count_ = 0;
       break;
     }
     case ESP_GATTC_SEARCH_CMPL_EVT: {
-      auto *notify_chr = this->parent_->get_characteristic(FIIDO_SERVICE_UUID, FIIDO_NOTIFY_CHAR_UUID);
-      auto *write_chr = this->parent_->get_characteristic(FIIDO_SERVICE_UUID, FIIDO_WRITE_CHAR_UUID);
-      if (notify_chr == nullptr || write_chr == nullptr) {
+      if (!this->link_.resolve(this->parent_)) {
         ESP_LOGE(TAG, "[%s] FFE1/FFE2 not found, not a Fiido BMS?", this->parent_->address_str());
         break;
       }
-      this->char_notify_handle_ = notify_chr->handle;
-      this->char_write_handle_ = write_chr->handle;
       ESP_LOGD(TAG, "[%s] FFE2 (write)=0x%02X  FFE1 (notify)=0x%02X", this->parent_->address_str(),
-               this->char_write_handle_, this->char_notify_handle_);
-
-      auto status = esp_ble_gattc_register_for_notify(this->parent()->get_gattc_if(), this->parent()->get_remote_bda(),
-                                                      this->char_notify_handle_);
-      if (status) {
-        ESP_LOGW(TAG, "register_for_notify failed, status=%d", status);
-      }
+               this->link_.write_handle(), this->link_.notify_handle());
+      this->link_.subscribe(this->parent_);
       break;
     }
     case ESP_GATTC_REG_FOR_NOTIFY_EVT: {
@@ -264,7 +244,7 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       break;
     }
     case ESP_GATTC_NOTIFY_EVT: {
-      if (param->notify.handle != this->char_notify_handle_)
+      if (!this->link_.owns_notify(param->notify.handle))
         break;
       const uint8_t *buf = param->notify.value;
       const size_t len = param->notify.value_len;
@@ -414,7 +394,7 @@ void FiidoBMSHub::send_burst_poll_() {
   this->burst_remaining_ = cursor.remaining;
   if (this->burst_remaining_ == 0)
     return;
-  if (this->link_congested_) {
+  if (this->link_.congested()) {
     this->set_timeout("burst", BURST_RETRY_MS, [this]() { this->send_burst_poll_(); });
     return;
   }
@@ -455,24 +435,21 @@ WriteError FiidoBMSHub::send_raw_write_(FrameType type, Addr addr, std::span<con
 }
 
 WriteError FiidoBMSHub::send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail) {
-  if (this->char_write_handle_ == 0) {
+  if (!this->link_.ready()) {
     ESP_LOGW(TAG, "[%s] send %s skipped, FFE2 handle not yet known", this->parent_->address_str(), name);
     return WriteError::NO_HANDLE;
   }
   ESP_LOGV(TAG, "[%s] POLL %-9s -> %s", this->parent_->address_str(), name,
-           format_hex_pretty(frame.bytes.data(), frame.size).c_str());
-  auto status = esp_ble_gattc_write_char(this->parent_->get_gattc_if(), this->parent_->get_conn_id(),
-                                         this->char_write_handle_, frame.size(), const_cast<uint8_t *>(frame.data()),
-                                         ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
-  if (status) {
+           format_hex_pretty(frame.data(), frame.size()).c_str());
+  const WriteError result = this->link_.send(this->parent_, frame);
+  if (result != WriteError::NONE) {
     if (warn_on_fail) {
-      ESP_LOGW(TAG, "[%s] write %s failed, status=%d", this->parent_->address_str(), name, status);
+      ESP_LOGW(TAG, "[%s] write %s failed", this->parent_->address_str(), name);
     } else {
-      ESP_LOGD(TAG, "[%s] write %s failed, status=%d, will retry", this->parent_->address_str(), name, status);
+      ESP_LOGD(TAG, "[%s] write %s failed, will retry", this->parent_->address_str(), name);
     }
-    return WriteError::GATT_WRITE_FAILED;
   }
-  return WriteError::NONE;
+  return result;
 }
 
 // === Parse helpers ===
