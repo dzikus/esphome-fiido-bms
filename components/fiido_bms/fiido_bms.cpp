@@ -618,8 +618,8 @@ void FiidoBMSHub::manage_lifecycle_() {
   }
 }
 
-void FiidoBMSHub::enqueue_pending_write_(std::function<void()> fn) {
-  if (!this->pending_writes_.push(std::move(fn))) {
+void FiidoBMSHub::enqueue_pending_write_(PendingWrite fn) {
+  if (!this->pending_writes_.push(fn)) {
     ESP_LOGW(TAG, "[%s] pending_writes_ at cap %u - dropping oldest", this->parent_->address_str(),
              (unsigned)MAX_PENDING_WRITES);
   }
@@ -630,10 +630,11 @@ void FiidoBMSHub::dispatch_pending_writes_() {
     return;
   ESP_LOGD(TAG, "[%s] LIFECYCLE: dispatching %u pending writes", this->parent_->address_str(),
            (unsigned)this->pending_writes_.size());
-  std::vector<std::function<void()>> writes = this->pending_writes_.drain();
+  size_t count = 0;
+  const auto writes = this->pending_writes_.drain(count);
   this->last_dispatch_ms_ = millis();
-  for (auto &fn : writes)
-    fn();
+  for (size_t i = 0; i < count; i++)
+    writes[i]();
 }
 
 void FiidoBMSHub::ensure_enabled_for_write_() {
@@ -1223,70 +1224,53 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
 }
 
 void FiidoBMSHub::set_speed_unit(const std::string &option) {
-  bool mile;
-  if (option == "km/h") {
-    {
-      mile = false;
-    }
-  } else if (option == "mph") {
-    {
-      mile = true;
-    }
-  } else {
+  if (option != "km/h" && option != "mph") {
     ESP_LOGW(TAG, "[%s] set_speed_unit('%s') unknown option", this->parent_->address_str(), option.c_str());
-    if (this->speed_unit_select_ != nullptr) {
-      auto opt = this->speed_unit_select_->current_option();
-      if (!opt.empty())
-        this->speed_unit_select_->publish_state(opt.c_str());
-    }
+    this->republish_speed_unit_();
     return;
   }
+  this->apply_speed_unit_(option == "mph");
+}
+
+void FiidoBMSHub::republish_speed_unit_() {
+  if (this->speed_unit_select_ == nullptr)
+    return;
+  const auto shown = this->speed_unit_select_->current_option();
+  if (!shown.empty())
+    this->speed_unit_select_->publish_state(shown.c_str());
+}
+
+void FiidoBMSHub::apply_speed_unit_(bool mile) {
+  const char *name = mile ? "mph" : "km/h";
   if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] SPEED_UNIT '%s' rejected: BLE user-disabled", this->parent_->address_str(), option.c_str());
-    if (this->speed_unit_select_ != nullptr) {
-      auto opt = this->speed_unit_select_->current_option();
-      if (!opt.empty())
-        this->speed_unit_select_->publish_state(opt.c_str());
-    }
+    ESP_LOGW(TAG, "[%s] SPEED_UNIT '%s' rejected: BLE user-disabled", this->parent_->address_str(), name);
+    this->republish_speed_unit_();
     return;
   }
   if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, opt_copy = option]() { this->set_speed_unit(opt_copy); });
+    ESP_LOGI(TAG, "[%s] SPEED_UNIT '%s' queued (disconnected)", this->parent_->address_str(), name);
+    this->enqueue_pending_write_([this, mile]() { this->apply_speed_unit_(mile); });
     this->ensure_enabled_for_write_();
     return;
   }
   if (!this->addr_28_.has_value()) {
-    ESP_LOGI(TAG, "[%s] SPEED_UNIT '%s' deferred: ADDR 0x28 cache cold", this->parent_->address_str(), option.c_str());
-    this->enqueue_pending_write_([this, opt_copy = option]() { this->set_speed_unit(opt_copy); });
+    ESP_LOGI(TAG, "[%s] SPEED_UNIT '%s' deferred: cache cold", this->parent_->address_str(), name);
+    this->enqueue_pending_write_([this, mile]() { this->apply_speed_unit_(mile); });
     return;
   }
-  uint8_t b = *this->addr_28_;
-  if (mile) {
-    b |= 0x80;
-  } else {
-    b &= ~0x80;
-  }
-  ESP_LOGI(TAG, "[%s] SPEED_UNIT %s ADDR 0x28: 0x%02X -> 0x%02X (bit7)", this->parent_->address_str(), option.c_str(),
-           *this->addr_28_, b);
-  if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_28, std::array<uint8_t, 1>{b})) {
-    this->addr_28_ = b;
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
-  } else {
-    ESP_LOGW(TAG, "[%s] WRITE 0x28 (speed_unit) failed - cache not updated", this->parent_->address_str());
-  }
+  this->write_flag_bit_(Addr::FLAGS_28, 0x80, mile, this->addr_28_, "SPEED_UNIT");
 }
 
-bool FiidoBMSHub::defer_flag_write_(bool cache_valid, const char *name, std::function<void()> retry) {
+bool FiidoBMSHub::defer_flag_write_(bool cache_valid, const char *name, PendingWrite retry) {
   if (this->node_state != espbt::ClientState::ESTABLISHED) {
     ESP_LOGI(TAG, "[%s] %s queued (disconnected)", this->parent_->address_str(), name);
-    this->enqueue_pending_write_(std::move(retry));
+    this->enqueue_pending_write_(retry);
     this->ensure_enabled_for_write_();
     return true;
   }
   if (!cache_valid) {
     ESP_LOGI(TAG, "[%s] %s deferred: cache cold", this->parent_->address_str(), name);
-    this->enqueue_pending_write_(std::move(retry));
+    this->enqueue_pending_write_(retry);
     return true;
   }
   return false;

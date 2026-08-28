@@ -747,45 +747,56 @@ void test_clamp_gear_holds_the_ceiling() {
   TEST_ASSERT_EQUAL_UINT8(0, clamp_gear(0, 3));
 }
 
+static std::vector<int> g_ran;
+static PendingWrites g_queue;
+
 void test_pending_writes_drops_the_oldest_at_capacity() {
-  PendingWrites q(3);
-  std::vector<int> ran;
-  for (int i = 0; i < 3; i++)
-    TEST_ASSERT_TRUE(q.push([&ran, i]() { ran.push_back(i); }));
-  TEST_ASSERT_FALSE(q.push([&ran]() { ran.push_back(99); }));
-  TEST_ASSERT_EQUAL_UINT(3, q.size());
-  for (auto &fn : q.drain())
-    fn();
-  TEST_ASSERT_EQUAL_INT(3, (int)ran.size());
-  TEST_ASSERT_EQUAL_INT(1, ran[0]);
-  TEST_ASSERT_EQUAL_INT(2, ran[1]);
-  TEST_ASSERT_EQUAL_INT(99, ran[2]);
+  g_ran.clear();
+  g_queue.clear();
+  for (size_t i = 0; i < PENDING_WRITE_SLOTS; i++)
+    TEST_ASSERT_TRUE(g_queue.push([i]() { g_ran.push_back((int)i); }));
+  TEST_ASSERT_FALSE(g_queue.push([]() { g_ran.push_back(99); }));
+  TEST_ASSERT_EQUAL_UINT(PENDING_WRITE_SLOTS, g_queue.size());
+  size_t count = 0;
+  const auto taken = g_queue.drain(count);
+  for (size_t i = 0; i < count; i++)
+    taken[i]();
+  TEST_ASSERT_EQUAL_UINT(PENDING_WRITE_SLOTS, g_ran.size());
+  // The first push fell out. The run starts at 1 and ends with the newest.
+  TEST_ASSERT_EQUAL_INT(1, g_ran.front());
+  TEST_ASSERT_EQUAL_INT(99, g_ran.back());
 }
 
 void test_pending_writes_drain_empties_the_queue() {
-  PendingWrites q(4);
-  (void)q.push([]() {});
-  TEST_ASSERT_FALSE(q.empty());
-  auto taken = q.drain();
-  TEST_ASSERT_EQUAL_UINT(1, taken.size());
-  TEST_ASSERT_TRUE(q.empty());
-  TEST_ASSERT_EQUAL_UINT(0, q.drain().size());
+  g_queue.clear();
+  (void)g_queue.push([]() {});
+  TEST_ASSERT_FALSE(g_queue.empty());
+  size_t count = 0;
+  (void)g_queue.drain(count);
+  TEST_ASSERT_EQUAL_UINT(1, count);
+  TEST_ASSERT_TRUE(g_queue.empty());
+  (void)g_queue.drain(count);
+  TEST_ASSERT_EQUAL_UINT(0, count);
 }
 
 void test_pending_writes_requeue_during_drain_waits_for_the_next_one() {
-  PendingWrites q(4);
-  int ran = 0;
-  (void)q.push([&q, &ran]() {
-    ran++;
-    (void)q.push([&ran]() { ran += 10; });
+  g_ran.clear();
+  g_queue.clear();
+  (void)g_queue.push([]() {
+    g_ran.push_back(1);
+    (void)g_queue.push([]() { g_ran.push_back(2); });
   });
-  for (auto &fn : q.drain())
-    fn();
-  TEST_ASSERT_EQUAL_INT(1, ran);
-  TEST_ASSERT_EQUAL_UINT(1, q.size());
-  for (auto &fn : q.drain())
-    fn();
-  TEST_ASSERT_EQUAL_INT(11, ran);
+  size_t count = 0;
+  auto taken = g_queue.drain(count);
+  for (size_t i = 0; i < count; i++)
+    taken[i]();
+  TEST_ASSERT_EQUAL_UINT(1, g_ran.size());
+  TEST_ASSERT_EQUAL_UINT(1, g_queue.size());
+  taken = g_queue.drain(count);
+  for (size_t i = 0; i < count; i++)
+    taken[i]();
+  TEST_ASSERT_EQUAL_UINT(2, g_ran.size());
+  TEST_ASSERT_EQUAL_INT(2, g_ran.back());
 }
 
 void test_should_retry_send_stops_at_the_retry_cap() {

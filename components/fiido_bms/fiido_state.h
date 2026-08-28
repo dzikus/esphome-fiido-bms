@@ -3,9 +3,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
+#include <new>
 #include <optional>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -135,22 +136,47 @@ enum class ProbeOutcome : uint8_t {
 
 [[nodiscard]] bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok);
 
+// A capture is this plus one small value.
+class PendingWrite {
+ public:
+  static constexpr size_t CAPACITY = 24;
+
+  PendingWrite() = default;
+
+  template <typename F>
+  PendingWrite(F callable) {  // NOLINT(google-explicit-constructor)
+    static_assert(sizeof(F) <= CAPACITY, "queued write captures too much");
+    static_assert(std::is_trivially_copyable_v<F>, "queued write must be trivially copyable");
+    static_assert(std::is_trivially_destructible_v<F>, "queued write must be trivially destructible");
+    new (this->storage_.data()) F(callable);
+    this->invoke_ = [](const std::byte *storage) { (*std::launder(reinterpret_cast<const F *>(storage)))(); };
+  }
+
+  void operator()() const { this->invoke_(this->storage_.data()); }
+  [[nodiscard]] explicit operator bool() const { return this->invoke_ != nullptr; }
+
+ private:
+  alignas(std::max_align_t) std::array<std::byte, CAPACITY> storage_{};
+  void (*invoke_)(const std::byte *){nullptr};
+};
+
+inline constexpr size_t PENDING_WRITE_SLOTS = 32;
+
 // At capacity the oldest entry is dropped.
 class PendingWrites {
  public:
-  explicit PendingWrites(size_t capacity) : capacity_(capacity) {}
-
   // false when the oldest was dropped.
-  [[nodiscard]] bool push(std::function<void()> fn);
-  [[nodiscard]] size_t size() const { return queue_.size(); }
-  [[nodiscard]] bool empty() const { return queue_.empty(); }
+  bool push(PendingWrite fn);
+  [[nodiscard]] size_t size() const { return this->size_; }
+  [[nodiscard]] bool empty() const { return this->size_ == 0; }
 
-  [[nodiscard]] std::vector<std::function<void()>> drain();
-  void clear() { this->queue_.clear(); }
+  // Hands the queue over; anything queued while these run waits for the next drain.
+  [[nodiscard]] std::array<PendingWrite, PENDING_WRITE_SLOTS> drain(size_t &count);
+  void clear() { this->size_ = 0; }
 
  private:
-  size_t capacity_;
-  std::vector<std::function<void()>> queue_;
+  std::array<PendingWrite, PENDING_WRITE_SLOTS> queue_{};
+  size_t size_{0};
 };
 
 }  // namespace esphome::fiido_bms

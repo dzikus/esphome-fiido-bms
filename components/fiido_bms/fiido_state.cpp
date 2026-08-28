@@ -159,17 +159,21 @@ bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok) {
   return !send_ok && retry_count < max_retries;
 }
 
-bool PendingWrites::push(std::function<void()> fn) {
-  const bool dropped = this->queue_.size() >= this->capacity_;
-  if (dropped)
-    this->queue_.erase(this->queue_.begin());
-  this->queue_.push_back(std::move(fn));
+bool PendingWrites::push(PendingWrite fn) {
+  const bool dropped = this->size_ >= PENDING_WRITE_SLOTS;
+  if (dropped) {
+    for (size_t i = 1; i < PENDING_WRITE_SLOTS; i++)
+      this->queue_[i - 1] = this->queue_[i];
+    this->size_ = PENDING_WRITE_SLOTS - 1;
+  }
+  this->queue_[this->size_++] = fn;
   return !dropped;
 }
 
-std::vector<std::function<void()>> PendingWrites::drain() {
-  std::vector<std::function<void()>> taken;
-  taken.swap(this->queue_);
+std::array<PendingWrite, PENDING_WRITE_SLOTS> PendingWrites::drain(size_t &count) {
+  std::array<PendingWrite, PENDING_WRITE_SLOTS> taken = this->queue_;
+  count = this->size_;
+  this->size_ = 0;
   return taken;
 }
 

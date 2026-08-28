@@ -196,7 +196,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void mark_activity_(const char *reason);
 
   void manage_lifecycle_();
-  void enqueue_pending_write_(std::function<void()> fn);
+  void enqueue_pending_write_(PendingWrite fn);
   void dispatch_pending_writes_();
   void ensure_enabled_for_write_();
 
@@ -210,8 +210,10 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void parse_boost_(std::span<const uint8_t> payload);
   void parse_display_(std::span<const uint8_t> payload);
   void apply_speed_limit_(SpeedLimitOption option);
+  void apply_speed_unit_(bool mile);
+  void republish_speed_unit_();
   void republish_speed_limit_();
-  [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name, std::function<void()> retry);
+  [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name, PendingWrite retry);
   void write_masked_bits_(Addr addr, uint8_t mask, uint8_t bits, std::optional<uint8_t> &cache, const char *name);
   void write_flag_bit_(Addr addr, uint8_t mask, bool set, std::optional<uint8_t> &cache, const char *name);
   // Raw 1-byte value write (no bit-masking) for number entities. False when the
@@ -280,7 +282,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint32_t disconnected_since_ms_{0};
   uint32_t probe_started_ms_{0};
   uint32_t last_dispatch_ms_{0};
-  PendingWrites pending_writes_{MAX_PENDING_WRITES};
+  PendingWrites pending_writes_;
 
   bool poll_enabled_battery_{false};
   bool poll_enabled_ctrl_{false};
