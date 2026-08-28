@@ -185,11 +185,11 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t AMBIGUOUS_LIMIT_LOG_INTERVAL_MS = 60000;
   static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
 
-  [[nodiscard]] bool send_raw_write(FrameType type, Addr addr, std::span<const uint8_t> payload);
+  WriteError send_raw_write(FrameType type, Addr addr, std::span<const uint8_t> payload);
   void send_handshake_();
-  [[nodiscard]] bool send_poll_(size_t idx, bool warn_on_fail);
+  WriteError send_poll_(size_t idx, bool warn_on_fail);
   void send_burst_poll_();
-  bool send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail = true);
+  WriteError send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail = true);
   void publish_connected_(bool state);
   void mark_activity_(const char *reason);
 

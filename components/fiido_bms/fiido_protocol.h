@@ -46,6 +46,13 @@ enum class Addr : uint8_t {
   FLAGS_39 = 0x39,
 };
 
+enum class [[nodiscard]] WriteError : uint8_t {
+  NONE = 0,
+  NO_HANDLE,
+  PAYLOAD_TOO_LONG,
+  GATT_WRITE_FAILED,
+};
+
 struct MaskedWrite {
   FrameType type;
   uint8_t value;
