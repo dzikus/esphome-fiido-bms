@@ -71,7 +71,7 @@ class PendingWrites {
   explicit PendingWrites(size_t capacity) : capacity_(capacity) {}
 
   // false when the oldest was dropped.
-  bool push(std::function<void()> fn);
+  [[nodiscard]] bool push(std::function<void()> fn);
   [[nodiscard]] size_t size() const { return queue_.size(); }
   [[nodiscard]] bool empty() const { return queue_.empty(); }
 

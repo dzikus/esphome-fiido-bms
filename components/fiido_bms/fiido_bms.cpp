@@ -313,9 +313,10 @@ void FiidoBMSHub::update() {
     }
   }
   const uint32_t now = millis();
-  const BurstGate gate =
-      evaluate_burst_gate(now, this->desired_interval_ms_, this->startup_delay_ms_,
-                          {this->last_burst_ms_, this->last_burst_slot_, this->burst_started_}, start_with_stats);
+  const BurstGate gate = evaluate_burst_gate(
+      now, this->desired_interval_ms_, this->startup_delay_ms_,
+      {.last_ms = this->last_burst_ms_, .last_slot = this->last_burst_slot_, .started = this->burst_started_},
+      start_with_stats);
   if (!gate.start)
     return;
   if (this->burst_remaining_ > 0) {
@@ -371,7 +372,8 @@ void FiidoBMSHub::send_burst_poll_() {
         enabled[i] = true;
     }
   }
-  const PollCursor cursor = skip_disabled_polls({this->burst_idx_, this->burst_remaining_}, enabled);
+  const PollCursor cursor =
+      skip_disabled_polls({.index = this->burst_idx_, .remaining = this->burst_remaining_}, enabled);
   this->burst_idx_ = cursor.index;
   this->burst_remaining_ = cursor.remaining;
   if (this->burst_remaining_ == 0)
@@ -507,18 +509,20 @@ void FiidoBMSHub::manage_lifecycle_() {
   if (!this->ble_user_enabled_)
     return;
   const uint32_t now = millis();
-  const LifecycleInput in{now,
-                          this->parent_->enabled,
-                          this->node_state == espbt::ClientState::ESTABLISHED,
-                          this->motor_off_since_ms_,
-                          this->disconnected_since_ms_,
-                          this->probe_started_ms_,
-                          this->last_dispatch_ms_,
-                          !this->pending_writes_.empty(),
-                          this->idle_disconnect_ms_,
-                          PROBE_WINDOW_MS,
-                          PERIODIC_PROBE_MS,
-                          WRITE_VERIFY_WINDOW_MS};
+  const LifecycleInput in{
+      .now = now,
+      .enabled = this->parent_->enabled,
+      .connected = this->node_state == espbt::ClientState::ESTABLISHED,
+      .motor_off_since_ms = this->motor_off_since_ms_,
+      .disconnected_since_ms = this->disconnected_since_ms_,
+      .probe_started_ms = this->probe_started_ms_,
+      .last_dispatch_ms = this->last_dispatch_ms_,
+      .pending_writes = !this->pending_writes_.empty(),
+      .idle_disconnect_ms = this->idle_disconnect_ms_,
+      .probe_window_ms = PROBE_WINDOW_MS,
+      .periodic_probe_ms = PERIODIC_PROBE_MS,
+      .write_verify_window_ms = WRITE_VERIFY_WINDOW_MS,
+  };
 
   switch (decide_lifecycle(in)) {
     case LifecycleAction::IDLE_DISCONNECT:
