@@ -209,62 +209,73 @@ void FiidoBMSHub::mark_activity_(const char *reason) {
 void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                                       esp_ble_gattc_cb_param_t *param) {
   switch (event) {
-    case ESP_GATTC_OPEN_EVT: {
-      ESP_LOGI(TAG, "[%s] Connection opened", this->parent_->address_str());
-      this->connect_time_ms_ = millis();
-      this->handshake_sent_ = false;
-      this->link_.set_congested(false);
+    case ESP_GATTC_OPEN_EVT:
+      this->on_open_();
       break;
-    }
-    case ESP_GATTC_CONGEST_EVT: {
-      if (param->congest.conn_id != this->parent_->get_conn_id())
-        break;
-      this->link_.set_congested(param->congest.congested);
-      ESP_LOGD(TAG, "[%s] l2cap %scongested", this->parent_->address_str(), this->link_.congested() ? "" : "un");
-      if (!this->link_.congested() && this->burst_remaining_ > 0) {
-        this->cancel_timeout("burst");
-        this->send_burst_poll_();
-      }
+    case ESP_GATTC_CONGEST_EVT:
+      if (param->congest.conn_id == this->parent_->get_conn_id())
+        this->on_congestion_(param->congest.congested);
       break;
-    }
-    case ESP_GATTC_DISCONNECT_EVT: {
-      ESP_LOGW(TAG, "[%s] Disconnected", this->parent_->address_str());
-      this->node_state = espbt::ClientState::IDLE;
-      this->link_.unsubscribe(this->parent_);
-      this->reset_session_state_();
-      this->publish_connected_(false);
+    case ESP_GATTC_DISCONNECT_EVT:
+      this->on_disconnect_();
       break;
-    }
-    case ESP_GATTC_SEARCH_CMPL_EVT: {
-      if (!this->link_.resolve(this->parent_)) {
-        ESP_LOGE(TAG, "[%s] FFE1/FFE2 not found, not a Fiido BMS?", this->parent_->address_str());
-        break;
-      }
-      ESP_LOGD(TAG, "[%s] FFE2 (write)=0x%02X  FFE1 (notify)=0x%02X", this->parent_->address_str(),
-               this->link_.write_handle(), this->link_.notify_handle());
-      this->link_.subscribe(this->parent_);
+    case ESP_GATTC_SEARCH_CMPL_EVT:
+      this->on_services_resolved_();
       break;
-    }
-    case ESP_GATTC_REG_FOR_NOTIFY_EVT: {
-      this->node_state = espbt::ClientState::ESTABLISHED;
-      this->publish_connected_(true);
-      ESP_LOGI(TAG, "[%s] READY (FFE1 notify enabled)", this->parent_->address_str());
-      // Reset burst gate on (re)connect: a stale desired_interval_ms_ (e.g. 5min
-      // OFF window) would otherwise stall the first poll for minutes after a
-      // HA-triggered reconnect with pending writes.
-      this->burst_started_ = false;
-      this->desired_interval_ms_ = this->update_interval_on_ms_;
-      // Handshake sent on first update() after startup_delay
+    case ESP_GATTC_REG_FOR_NOTIFY_EVT:
+      this->on_notify_registered_();
       break;
-    }
-    case ESP_GATTC_NOTIFY_EVT: {
+    case ESP_GATTC_NOTIFY_EVT:
       if (this->link_.owns_notify(param->notify.handle))
         this->handle_notify_(std::span<const uint8_t>(param->notify.value, param->notify.value_len));
       break;
-    }
     default:
       break;
   }
+}
+
+void FiidoBMSHub::on_open_() {
+  ESP_LOGI(TAG, "[%s] Connection opened", this->parent_->address_str());
+  this->connect_time_ms_ = millis();
+  this->handshake_sent_ = false;
+  this->link_.set_congested(false);
+}
+
+void FiidoBMSHub::on_congestion_(bool congested) {
+  this->link_.set_congested(congested);
+  ESP_LOGD(TAG, "[%s] l2cap %scongested", this->parent_->address_str(), congested ? "" : "un");
+  if (!congested && this->burst_remaining_ > 0) {
+    this->cancel_timeout("burst");
+    this->send_burst_poll_();
+  }
+}
+
+void FiidoBMSHub::on_disconnect_() {
+  ESP_LOGW(TAG, "[%s] Disconnected", this->parent_->address_str());
+  this->node_state = espbt::ClientState::IDLE;
+  this->link_.unsubscribe(this->parent_);
+  this->reset_session_state_();
+  this->publish_connected_(false);
+}
+
+void FiidoBMSHub::on_services_resolved_() {
+  if (!this->link_.resolve(this->parent_)) {
+    ESP_LOGE(TAG, "[%s] FFE1/FFE2 not found, not a Fiido BMS?", this->parent_->address_str());
+    return;
+  }
+  ESP_LOGD(TAG, "[%s] FFE2 (write)=0x%02X  FFE1 (notify)=0x%02X", this->parent_->address_str(),
+           this->link_.write_handle(), this->link_.notify_handle());
+  this->link_.subscribe(this->parent_);
+}
+
+void FiidoBMSHub::on_notify_registered_() {
+  this->node_state = espbt::ClientState::ESTABLISHED;
+  this->publish_connected_(true);
+  ESP_LOGI(TAG, "[%s] READY (FFE1 notify enabled)", this->parent_->address_str());
+  // A stale desired_interval_ms_ (e.g. the 15 s OFF window) would stall the first
+  // poll after a HA-triggered reconnect that carries pending writes.
+  this->burst_started_ = false;
+  this->desired_interval_ms_ = this->update_interval_on_ms_;
 }
 
 void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
