@@ -32,10 +32,6 @@ jobs:
         run: pip install "pre-commit==4.6.0"
       - name: Run pre-commit (ruff lint + format + hygiene)
         run: pre-commit run --all-files --show-diff-on-failure
-      - name: Install clang-tidy
-        run: pip install "clang-tidy==22.1.8"
-      - name: Run clang-tidy over the host-buildable sources
-        run: bash tests/run_clang_tidy.sh
   unit-tests:
     name: protocol unit tests (native)
     needs: lint
@@ -62,6 +58,29 @@ jobs:
           pio test -d tests -e native < /dev/null
           echo "--- re-run built binary as source of truth ---"
           tests/.pio/build/native/program
+  clang-tidy:
+    name: clang-tidy (esp32 compile database)
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Cache PlatformIO
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-esphome-esp32-c3-devkitm-1-${{ hashFiles('.github/ci-build.yaml') }}
+          restore-keys: ${{ runner.os }}-esphome-esp32-c3-devkitm-1-
+      - name: Install ESPHome and clang-tidy
+        run: pip install "esphome==2026.7.4" "clang-tidy==22.1.8"
+      - name: Run clang-tidy
+        run: bash tests/run_clang_tidy.sh
+
   esphome-build:
     name: esphome compile (${{ matrix.board }})
     needs: unit-tests

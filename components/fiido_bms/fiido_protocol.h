@@ -286,7 +286,7 @@ struct StatsView {
   uint8_t gear_start;
   uint8_t max_gear;  // 3 or 5 when the nibble pair is meaningful, else 0
   bool brake;
-  uint8_t b25, b27, b28, b2B, b2C, b38, b39;
+  uint8_t b25, b27, b28, b2b, b2c, b38, b39;
 };
 
 [[nodiscard]] StatsView decode_stats(std::span<const uint8_t> payload);

@@ -1,9 +1,12 @@
+substitutions:
+  board: esp32dev
+
 esphome:
   name: fiido-bms-intellisense
   min_version: 2025.8.0
 
 esp32:
-  board: esp32dev
+  board: ${board}
   framework:
     type: esp-idf
 

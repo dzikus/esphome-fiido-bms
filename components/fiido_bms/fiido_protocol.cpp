@@ -93,8 +93,8 @@ StatsView decode_stats(std::span<const uint8_t> payload) {
   v.b25 = payload[stats::ADDR_25_OFFSET];
   v.b27 = payload[stats::ADDR_27_OFFSET];
   v.b28 = payload[stats::ADDR_28_OFFSET];
-  v.b2B = payload[stats::ADDR_2B_OFFSET];
-  v.b2C = payload[stats::ADDR_2C_OFFSET];
+  v.b2b = payload[stats::ADDR_2B_OFFSET];
+  v.b2c = payload[stats::ADDR_2C_OFFSET];
   v.b38 = payload[stats::ADDR_38_OFFSET];
   // Only bits 4..0 of 0x39 are defined; a write must send the rest as zero.
   v.b39 = payload[stats::ADDR_39_OFFSET] & 0x1F;

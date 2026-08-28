@@ -186,7 +186,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t AMBIGUOUS_LIMIT_LOG_INTERVAL_MS = 60000;
   static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
 
-  WriteError send_raw_write(FrameType type, Addr addr, std::span<const uint8_t> payload);
+  WriteError send_raw_write_(FrameType type, Addr addr, std::span<const uint8_t> payload);
   void send_handshake_();
   WriteError send_poll_(size_t idx, bool warn_on_fail);
   void send_burst_poll_();
@@ -214,15 +214,6 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   // Raw 1-byte value write (no bit-masking) for number entities. False when the
   // frame did not go out, so the caller keeps its cache and entity unchanged.
   [[nodiscard]] bool write_value_byte_(FrameType type, Addr addr, uint8_t value, const char *name);
-  // Republish the last shown value, undoing an optimistic UI change.
-  static void revert_number_(number::Number *n);
-
-  // Drop a publish that repeats the current value. switch and binary_sensor do
-  // this in their base class; sensor, select and number do not.
-  static void publish_(sensor::Sensor *s, float value);
-  static void publish_(binary_sensor::BinarySensor *s, bool value);
-  static void publish_(select::Select *s, const char *option);
-  static void publish_(number::Number *n, float value);
 
   uint32_t startup_delay_ms_{0};
   uint32_t connect_time_ms_{0};
@@ -254,20 +245,20 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   bool addr_25_valid_{false};
 
   // ADDR 0x3C speed limit value (km/h), separate poll.
-  uint8_t addr_3C_cache_{0};
-  bool addr_3C_valid_{false};
+  uint8_t addr_3c_cache_{0};
+  bool addr_3c_valid_{false};
 
   // payload[35] = ADDR 0x28.
   uint8_t addr_28_cache_{0};
   bool addr_28_valid_{false};
 
   // payload[38] = ADDR 0x2B.
-  uint8_t addr_2B_cache_{0};
-  bool addr_2B_valid_{false};
+  uint8_t addr_2b_cache_{0};
+  bool addr_2b_valid_{false};
 
   // payload[39] = ADDR 0x2C.
-  uint8_t addr_2C_cache_{0};
-  bool addr_2C_valid_{false};
+  uint8_t addr_2c_cache_{0};
+  bool addr_2c_valid_{false};
 
   // payload[51] = ADDR 0x38.
   uint8_t addr_38_cache_{0};
