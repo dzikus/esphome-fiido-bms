@@ -111,10 +111,8 @@ jobs:
         run: pip install "esphome==2026.7.4"
       - name: Run codegen unit tests
         run: python -m unittest discover -s tests/python -v
-      - name: Compile full component
-        run: |
-          set -euo pipefail
-          esphome -s board ${{ matrix.board }} compile .github/ci-build.yaml
+      - name: Compile full component and fail on any warning from it
+        run: bash tests/check_esp32_warnings.sh .github/ci-build.yaml ${{ matrix.board }}
   config-floor:
     name: config check and build at the ESPHome floor
     needs: lint
