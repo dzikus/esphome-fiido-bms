@@ -334,6 +334,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   WriteError send_poll_(size_t idx, bool warn_on_fail);
   void send_burst_poll_();
   WriteError send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail = true);
+  void handle_notify_(std::span<const uint8_t> frame);
   // A write is fire and forget; the next STATS is the only confirmation.
   void schedule_write_verify_();
   void publish_flag_entities_(const FlagView &flags);

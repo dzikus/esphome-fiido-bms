@@ -293,73 +293,73 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       break;
     }
     case ESP_GATTC_NOTIFY_EVT: {
-      if (!this->link_.owns_notify(param->notify.handle))
-        break;
-      const uint8_t *buf = param->notify.value;
-      const size_t len = param->notify.value_len;
-
-      const NotifyView notify = validate_notify(std::span<const uint8_t>(buf, len));
-      if (!notify.valid) {
-        this->bad_notify_count_++;
-        uint32_t now = millis();
-        if (should_log_now(now, this->last_bad_notify_log_ms_, BAD_NOTIFY_LOG_INTERVAL_MS)) {
-          size_t dump = len < BAD_NOTIFY_DUMP_LEN ? len : BAD_NOTIFY_DUMP_LEN;
-          ESP_LOGW(TAG, "[%s] NOTIFY invalid (len=%u, %u dropped since last log), head: %s",
-                   this->parent_->address_str(), (unsigned)len, (unsigned)this->bad_notify_count_,
-                   format_hex_pretty(buf, dump).c_str());
-          this->last_bad_notify_log_ms_ = now;
-          this->bad_notify_count_ = 0;
-        }
-        break;
-      }
-      const std::span<const uint8_t> payload = notify.payload;
-      switch (notify.addr) {
-        case Addr::BATTERY:
-          this->parse_battery_(payload);
-          break;
-        case Addr::CTRL:
-          this->parse_ctrl_(payload);
-          break;
-        case Addr::MOTOR:
-          this->parse_motor_(payload);
-          break;
-        case Addr::ENERGY:
-          this->parse_energy_(payload);
-          break;
-        case Addr::STATS:
-          this->parse_stats_(payload);
-          break;
-        case Addr::METER:
-          this->parse_meter_(payload);
-          break;
-        case Addr::SPEED_LIMIT:
-          this->parse_speed_limit_(payload);
-          break;
-        case Addr::PAS_BOOST:
-          this->parse_boost_(payload);
-          break;
-        case Addr::DISPLAY:
-          this->parse_display_(payload);
-          break;
-        case Addr::HANDSHAKE:
-          ESP_LOGD(TAG, "[%s] HANDSHAKE response OK", this->parent_->address_str());
-          break;
-        default: {
-          this->unknown_addr_count_++;
-          uint32_t now = millis();
-          if (should_log_now(now, this->last_unknown_addr_log_ms_, BAD_NOTIFY_LOG_INTERVAL_MS)) {
-            ESP_LOGW(TAG, "[%s] NOTIFY unhandled addr=0x%02X (%u dropped since last log)", this->parent_->address_str(),
-                     static_cast<uint8_t>(notify.addr), (unsigned)this->unknown_addr_count_);
-            this->last_unknown_addr_log_ms_ = now;
-            this->unknown_addr_count_ = 0;
-          }
-          break;
-        }
-      }
+      if (this->link_.owns_notify(param->notify.handle))
+        this->handle_notify_(std::span<const uint8_t>(param->notify.value, param->notify.value_len));
       break;
     }
     default:
       break;
+  }
+}
+
+void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
+  const NotifyView notify = validate_notify(frame);
+  if (!notify.valid) {
+    this->bad_notify_count_++;
+    const uint32_t now = millis();
+    if (should_log_now(now, this->last_bad_notify_log_ms_, BAD_NOTIFY_LOG_INTERVAL_MS)) {
+      const size_t dump = frame.size() < BAD_NOTIFY_DUMP_LEN ? frame.size() : BAD_NOTIFY_DUMP_LEN;
+      ESP_LOGW(TAG, "[%s] NOTIFY invalid (len=%u, %u dropped since last log), head: %s", this->parent_->address_str(),
+               (unsigned)frame.size(), (unsigned)this->bad_notify_count_,
+               format_hex_pretty(frame.data(), dump).c_str());
+      this->last_bad_notify_log_ms_ = now;
+      this->bad_notify_count_ = 0;
+    }
+    return;
+  }
+  const std::span<const uint8_t> payload = notify.payload;
+  switch (notify.addr) {
+    case Addr::BATTERY:
+      this->parse_battery_(payload);
+      break;
+    case Addr::CTRL:
+      this->parse_ctrl_(payload);
+      break;
+    case Addr::MOTOR:
+      this->parse_motor_(payload);
+      break;
+    case Addr::ENERGY:
+      this->parse_energy_(payload);
+      break;
+    case Addr::STATS:
+      this->parse_stats_(payload);
+      break;
+    case Addr::METER:
+      this->parse_meter_(payload);
+      break;
+    case Addr::SPEED_LIMIT:
+      this->parse_speed_limit_(payload);
+      break;
+    case Addr::PAS_BOOST:
+      this->parse_boost_(payload);
+      break;
+    case Addr::DISPLAY:
+      this->parse_display_(payload);
+      break;
+    case Addr::HANDSHAKE:
+      ESP_LOGD(TAG, "[%s] HANDSHAKE response OK", this->parent_->address_str());
+      break;
+    default: {
+      this->unknown_addr_count_++;
+      const uint32_t now = millis();
+      if (should_log_now(now, this->last_unknown_addr_log_ms_, BAD_NOTIFY_LOG_INTERVAL_MS)) {
+        ESP_LOGW(TAG, "[%s] NOTIFY unhandled addr=0x%02X (%u dropped since last log)", this->parent_->address_str(),
+                 static_cast<uint8_t>(notify.addr), (unsigned)this->unknown_addr_count_);
+        this->last_unknown_addr_log_ms_ = now;
+        this->unknown_addr_count_ = 0;
+      }
+      break;
+    }
   }
 }
 
