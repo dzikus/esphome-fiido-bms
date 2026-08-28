@@ -842,32 +842,30 @@ void test_enforce_gear_mode_3_respects_every_gate() {
   TEST_ASSERT_TRUE(should_enforce_gear_mode_3(true, 5, true, true, 160000, 100000, cooldown));
 }
 
-void test_speed_limit_plan_rejects_an_unknown_option() {
-  TEST_ASSERT_FALSE(plan_speed_limit("30 km/h", 0x00).valid);
-  TEST_ASSERT_FALSE(plan_speed_limit("", 0x00).valid);
-  TEST_ASSERT_FALSE(plan_speed_limit("no limit", 0x00).valid);
+void test_speed_limit_option_parsing_rejects_anything_else() {
+  TEST_ASSERT_FALSE(parse_speed_limit_option("30 km/h").has_value());
+  TEST_ASSERT_FALSE(parse_speed_limit_option("").has_value());
+  TEST_ASSERT_FALSE(parse_speed_limit_option("no limit").has_value());
+  TEST_ASSERT_TRUE(parse_speed_limit_option("6 km/h").has_value());
 }
 
 void test_speed_limit_plan_writes_the_pas_bit_only_when_it_differs() {
-  TEST_ASSERT_FALSE(plan_speed_limit("6 km/h", 0x80).needs_pas_write);
-  TEST_ASSERT_TRUE(plan_speed_limit("6 km/h", 0x00).needs_pas_write);
-  TEST_ASSERT_FALSE(plan_speed_limit("No limit", 0x00).needs_pas_write);
-  TEST_ASSERT_TRUE(plan_speed_limit("No limit", 0x80).needs_pas_write);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::SIX_KMH, 0x80).needs_pas_write);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::SIX_KMH, 0x00).needs_pas_write);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0x00).needs_pas_write);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0x80).needs_pas_write);
 }
 
 void test_speed_limit_plan_keeps_the_other_bits_of_0x2c() {
-  // 0x2C also carries key_sound, slow_mode and gear_way.
-  TEST_ASSERT_EQUAL_UINT8(0xD5, plan_speed_limit("6 km/h", 0x55).pas_byte);
-  TEST_ASSERT_EQUAL_UINT8(0x55, plan_speed_limit("No limit", 0xD5).pas_byte);
+  TEST_ASSERT_EQUAL_UINT8(0xD5, plan_speed_limit(SpeedLimitOption::SIX_KMH, 0x55).pas_byte);
+  TEST_ASSERT_EQUAL_UINT8(0x55, plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0xD5).pas_byte);
 }
 
 void test_speed_limit_phase2_is_delayed_only_when_clearing_the_cap() {
-  // Clearing the PAS bit makes the BMS force 0x3C=25 on its own; phase2 has to
-  // land after that.
-  TEST_ASSERT_TRUE(plan_speed_limit("No limit", 0x80).delay_phase2);
-  TEST_ASSERT_TRUE(plan_speed_limit("No limit", 0x00).delay_phase2);
-  TEST_ASSERT_FALSE(plan_speed_limit("6 km/h", 0x00).delay_phase2);
-  TEST_ASSERT_FALSE(plan_speed_limit("25 km/h", 0x00).delay_phase2);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0x80).delay_phase2);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0x00).delay_phase2);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::SIX_KMH, 0x00).delay_phase2);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::TWENTY_FIVE_KMH, 0x00).delay_phase2);
 }
 
 void test_speed_limit_bit_keeps_the_other_bits_of_0x27() {
@@ -878,10 +876,9 @@ void test_speed_limit_bit_keeps_the_other_bits_of_0x27() {
 
 void test_speed_limit_plan_and_readback_agree() {
   // What the writer sends must be what the reader turns back into the option.
-  for (const char *option : {"6 km/h", "25 km/h", "No limit"}) {
+  for (const auto option : {SpeedLimitOption::SIX_KMH, SpeedLimitOption::TWENTY_FIVE_KMH, SpeedLimitOption::NO_LIMIT}) {
     const SpeedLimitPlan plan = plan_speed_limit(option, 0x00);
-    TEST_ASSERT_TRUE(plan.valid);
-    TEST_ASSERT_EQUAL_STRING(option, resolve_speed_limit_option(plan.value, plan.limit_on));
+    TEST_ASSERT_EQUAL_STRING(speed_limit_option_name(option), resolve_speed_limit_option(plan.value, plan.limit_on));
   }
 }
 
@@ -1003,7 +1000,7 @@ int main() {
   RUN_TEST(test_resolve_mode_option_is_3_only_for_three_gears);
   RUN_TEST(test_light_bit_clears_only_on_the_motor_off_edge);
   RUN_TEST(test_enforce_gear_mode_3_respects_every_gate);
-  RUN_TEST(test_speed_limit_plan_rejects_an_unknown_option);
+  RUN_TEST(test_speed_limit_option_parsing_rejects_anything_else);
   RUN_TEST(test_speed_limit_plan_writes_the_pas_bit_only_when_it_differs);
   RUN_TEST(test_speed_limit_plan_keeps_the_other_bits_of_0x2c);
   RUN_TEST(test_speed_limit_phase2_is_delayed_only_when_clearing_the_cap);

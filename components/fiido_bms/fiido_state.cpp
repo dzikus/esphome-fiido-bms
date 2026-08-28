@@ -59,21 +59,44 @@ uint8_t clamp_gear(uint8_t gear, uint8_t max_gear) {
   return gear > max_gear ? max_gear : gear;
 }
 
-SpeedLimitPlan plan_speed_limit(std::string_view option, uint8_t cache_2c) {
-  SpeedLimitPlan plan{};
-  if (option == "6 km/h") {
-    plan.value = 6;
-    plan.limit_on = true;
-  } else if (option == "25 km/h") {
-    plan.value = 25;
-    plan.limit_on = true;
-  } else if (option == "No limit") {
-    plan.value = 100;
-    plan.limit_on = false;
-  } else {
-    return plan;
+std::optional<SpeedLimitOption> parse_speed_limit_option(std::string_view option) {
+  if (option == "6 km/h")
+    return SpeedLimitOption::SIX_KMH;
+  if (option == "25 km/h")
+    return SpeedLimitOption::TWENTY_FIVE_KMH;
+  if (option == "No limit")
+    return SpeedLimitOption::NO_LIMIT;
+  return std::nullopt;
+}
+
+const char *speed_limit_option_name(SpeedLimitOption option) {
+  switch (option) {
+    case SpeedLimitOption::SIX_KMH:
+      return "6 km/h";
+    case SpeedLimitOption::TWENTY_FIVE_KMH:
+      return "25 km/h";
+    case SpeedLimitOption::NO_LIMIT:
+      break;
   }
-  plan.valid = true;
+  return "No limit";
+}
+
+SpeedLimitPlan plan_speed_limit(SpeedLimitOption option, uint8_t cache_2c) {
+  SpeedLimitPlan plan{};
+  switch (option) {
+    case SpeedLimitOption::SIX_KMH:
+      plan.value = 6;
+      plan.limit_on = true;
+      break;
+    case SpeedLimitOption::TWENTY_FIVE_KMH:
+      plan.value = 25;
+      plan.limit_on = true;
+      break;
+    case SpeedLimitOption::NO_LIMIT:
+      plan.value = 100;
+      plan.limit_on = false;
+      break;
+  }
   const bool pas_on = (cache_2c & 0x80) != 0;
   plan.needs_pas_write = pas_on != plan.limit_on;
   plan.pas_byte = plan.limit_on ? static_cast<uint8_t>(cache_2c | 0x80) : static_cast<uint8_t>(cache_2c & ~0x80);

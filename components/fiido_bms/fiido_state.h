@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -64,8 +65,17 @@ struct WriteGateInput {
 
 [[nodiscard]] uint8_t clamp_gear(uint8_t gear, uint8_t max_gear);
 
+enum class SpeedLimitOption : uint8_t {
+  SIX_KMH = 0,
+  TWENTY_FIVE_KMH,
+  NO_LIMIT,
+};
+
+[[nodiscard]] std::optional<SpeedLimitOption> parse_speed_limit_option(std::string_view option);
+
+[[nodiscard]] const char *speed_limit_option_name(SpeedLimitOption option);
+
 struct SpeedLimitPlan {
-  bool valid;
   uint8_t value;         // ADDR 0x3C
   bool limit_on;         // ADDR 0x27 bit 5
   bool needs_pas_write;  // ADDR 0x2C bit 7 differs from the target
@@ -73,7 +83,7 @@ struct SpeedLimitPlan {
   bool delay_phase2;     // clearing the PAS bit makes the BMS force 0x3C=25
 };
 
-[[nodiscard]] SpeedLimitPlan plan_speed_limit(std::string_view option, uint8_t cache_2c);
+[[nodiscard]] SpeedLimitPlan plan_speed_limit(SpeedLimitOption option, uint8_t cache_2c);
 
 [[nodiscard]] uint8_t apply_speed_limit_bit(uint8_t cache_27, bool limit_on);
 

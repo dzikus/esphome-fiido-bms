@@ -208,6 +208,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void parse_speed_limit_(std::span<const uint8_t> payload);
   void parse_boost_(std::span<const uint8_t> payload);
   void parse_display_(std::span<const uint8_t> payload);
+  void apply_speed_limit_(SpeedLimitOption option);
+  void republish_speed_limit_();
   [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name, std::function<void()> retry);
   void write_masked_bits_(Addr addr, uint8_t mask, uint8_t bits, uint8_t *cache, const char *name);
   void write_flag_bit_(Addr addr, uint8_t mask, bool set, uint8_t *cache, const char *name);
