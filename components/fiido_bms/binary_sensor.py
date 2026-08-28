@@ -23,7 +23,8 @@ CODEOWNERS = ["@dzikus"]
 # Exposed binary sensors:
 #   connected: BLE link state (observable in esp32 log).
 #   brake: ADDR 0x2A bit 5. Not user-verified on physical bike yet.
-# (yaml_key, setter_cpp_method, device_class|None, icon|None, entity_category|None, default_name)
+# Each entry: (yaml_key, setter_cpp_method, device_class|None, icon|None,
+#             entity_category|None, default_name)
 BINARY_SENSORS = [
     (
         "connected",

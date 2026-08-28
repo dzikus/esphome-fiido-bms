@@ -85,11 +85,13 @@ HIDDEN_SWITCH_KEYS = {
     CONF_DOUBLE_SPEED,
 }
 
-# Each entry: (config_key, cpp_class, hub_setter_name, default_restore_mode, is_component, extra_kwargs, default_name)
+# Each entry: (config_key, cpp_class, hub_setter_name, default_restore_mode,
+#             is_component, extra_kwargs, default_name)
 # is_component=True means the C++ class inherits Component and needs setup() lifecycle.
 # Restore is read back in setup(), so it only works on is_component=True entries.
 # The rest take DISABLED: the BMS owns their state and sends it with the next STATS.
-# extra_kwargs is forwarded to switch.switch_schema(**extra_kwargs) for icon / entity_category etc.
+# extra_kwargs is forwarded to switch.switch_schema(**extra_kwargs) for icon
+# or entity_category.
 SWITCHES = [
     (
         CONF_MOTOR,
