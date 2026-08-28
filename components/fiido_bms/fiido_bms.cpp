@@ -97,69 +97,34 @@ void FiidoBMSHub::dump_config() {
   ESP_LOGCONFIG(TAG, "  Polls: %u (burst %ums apart)", (unsigned)POLL_TABLE_SIZE, (unsigned)BURST_INTERVAL_MS);
   ESP_LOGCONFIG(TAG, "  Idle auto-shutdown: %u min", (unsigned)(IDLE_SHUTDOWN_MS / 60000));
   // The LOG_ macros print nothing for an entity the yaml left out.
-  LOG_SENSOR("  ", "Battery Voltage", this->battery_voltage_sensor_);
-  LOG_SENSOR("  ", "Battery Current Voltage", this->battery_current_voltage_sensor_);
-  LOG_SENSOR("  ", "Battery Current", this->battery_current_sensor_);
-  LOG_SENSOR("  ", "Battery Capacity", this->battery_capacity_sensor_);
-  LOG_SENSOR("  ", "Battery Manufacturer", this->battery_manufacturer_sensor_);
-  LOG_SENSOR("  ", "Battery Hw Version", this->battery_hw_version_sensor_);
-  LOG_SENSOR("  ", "Battery Sw Version", this->battery_sw_version_sensor_);
-  LOG_SENSOR("  ", "Ctrl Upper Voltage", this->ctrl_upper_voltage_sensor_);
-  LOG_SENSOR("  ", "Ctrl Lower Voltage", this->ctrl_lower_voltage_sensor_);
-  LOG_SENSOR("  ", "Ctrl Current", this->ctrl_current_sensor_);
-  LOG_SENSOR("  ", "Ctrl Temperature", this->ctrl_temperature_sensor_);
-  LOG_SENSOR("  ", "Ctrl Hw Version", this->ctrl_hw_version_sensor_);
-  LOG_SENSOR("  ", "Ctrl Sw Version", this->ctrl_sw_version_sensor_);
-  LOG_SENSOR("  ", "Ctrl Version", this->ctrl_version_sensor_);
-  LOG_SENSOR("  ", "Ctrl Manufacturer", this->ctrl_manufacturer_sensor_);
-  LOG_SENSOR("  ", "Motor Version", this->motor_version_sensor_);
-  LOG_SENSOR("  ", "Motor Magnetic", this->motor_magnetic_sensor_);
-  LOG_SENSOR("  ", "Motor Wire Count", this->motor_wire_count_sensor_);
-  LOG_SENSOR("  ", "Motor Steel Count", this->motor_steel_count_sensor_);
-  LOG_SENSOR("  ", "Motor Reduction Ratio", this->motor_reduction_ratio_sensor_);
-  LOG_SENSOR("  ", "Motor Wheel Diameter", this->motor_wheel_diameter_sensor_);
-  LOG_SENSOR("  ", "Motor Temperature", this->motor_temperature_sensor_);
-  LOG_SENSOR("  ", "Motor Capacity", this->motor_capacity_sensor_);
-  LOG_SENSOR("  ", "Crank Torque", this->crank_torque_sensor_);
-  LOG_SENSOR("  ", "Crank Rpm", this->crank_rpm_sensor_);
-  LOG_SENSOR("  ", "This Take Energy", this->this_take_energy_sensor_);
-  LOG_SENSOR("  ", "Total Take Energy", this->total_take_energy_sensor_);
-  LOG_SENSOR("  ", "Startup Time", this->startup_time_sensor_);
-  LOG_SENSOR("  ", "Bicycle Speed", this->bicycle_speed_sensor_);
-  LOG_SENSOR("  ", "Current Kilometers", this->current_kilometers_sensor_);
-  LOG_SENSOR("  ", "Total Kilometers", this->total_kilometers_sensor_);
-  LOG_SENSOR("  ", "Battery Soc", this->battery_soc_sensor_);
-  LOG_SENSOR("  ", "Bicycle Gear Start", this->bicycle_gear_start_sensor_);
-  LOG_SENSOR("  ", "Meter Hw Version", this->meter_hw_version_sensor_);
-  LOG_SENSOR("  ", "Meter Sw Version", this->meter_sw_version_sensor_);
-  LOG_SENSOR("  ", "Meter Mode Data", this->meter_mode_data_sensor_);
+  this->log_sensors_(BATTERY_FIELDS);
+  this->log_sensors_(CTRL_FIELDS);
+  this->log_sensors_(MOTOR_FIELDS);
+  this->log_sensors_(ENERGY_FIELDS);
+  this->log_sensors_(METER_FIELDS);
+  for (const auto &[member, label] : STATS_SENSORS)
+    LOG_SENSOR("  ", label, this->*member);
   LOG_BINARY_SENSOR("  ", "Connected", this->connected_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Brake", this->brake_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Pas Limit", this->pas_limit_binary_sensor_);
   LOG_SWITCH("  ", "Motor", this->motor_switch_);
   LOG_SWITCH("  ", "Light", this->light_switch_);
   LOG_SWITCH("  ", "Autoshutdown", this->autoshutdown_switch_);
-  LOG_SWITCH("  ", "Speaker", this->speaker_switch_);
-  LOG_SWITCH("  ", "Key Sound", this->key_sound_switch_);
-  LOG_SWITCH("  ", "Throttle", this->throttle_switch_);
-  LOG_SWITCH("  ", "Slow Mode", this->slow_mode_switch_);
   LOG_SWITCH("  ", "Ble", this->ble_switch_);
-  LOG_SWITCH("  ", "Cruise", this->cruise_switch_);
-  LOG_SWITCH("  ", "Start Mode", this->start_mode_switch_);
-  LOG_SWITCH("  ", "Insensitivity", this->insensitivity_switch_);
-  LOG_SWITCH("  ", "Show Total Km", this->show_total_km_switch_);
-  LOG_SWITCH("  ", "Auto Screen Off", this->auto_screen_off_switch_);
-  LOG_SWITCH("  ", "Ring", this->ring_switch_);
-  LOG_SWITCH("  ", "Double Speed", this->double_speed_switch_);
-  LOG_SWITCH("  ", "Bike Guard", this->bike_guard_switch_);
+  for (const FlagControl &control : FLAG_CONTROLS)
+    LOG_SWITCH("  ", control.name, this->*(control.entity));
+  for (const ByteControl &control : BYTE_CONTROLS)
+    LOG_NUMBER("  ", control.name, this->*(control.entity));
   LOG_SELECT("  ", "Mode", this->mode_select_);
   LOG_SELECT("  ", "Speed Limit", this->speed_limit_select_);
   LOG_SELECT("  ", "Speed Unit", this->speed_unit_select_);
-  LOG_NUMBER("  ", "Brightness", this->brightness_number_);
-  LOG_NUMBER("  ", "Boost", this->boost_number_);
-  LOG_NUMBER("  ", "Guard Time", this->guard_time_number_);
-  LOG_BUTTON("  ", "Pair Watch", this->pair_watch_button_);
   LOG_SELECT("  ", "Gear", this->gear_select_);
+  LOG_BUTTON("  ", "Pair Watch", this->pair_watch_button_);
+}
+
+void FiidoBMSHub::log_sensors_(std::span<const SensorField> fields) const {
+  for (const SensorField &field : fields)
+    LOG_SENSOR("  ", field.label, this->*(field.entity));
 }
 
 void FiidoBMSHub::schedule_write_verify_() {
