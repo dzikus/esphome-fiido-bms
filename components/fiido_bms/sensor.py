@@ -488,6 +488,11 @@ SENSOR_POLL_GROUP = {
     "meter_hw_version": "meter",
     "meter_sw_version": "meter",
     "meter_mode_data": "meter",
+    "bicycle_speed": None,
+    "current_kilometers": None,
+    "total_kilometers": None,
+    "battery_soc": None,
+    "bicycle_gear_start": None,
 }
 
 
