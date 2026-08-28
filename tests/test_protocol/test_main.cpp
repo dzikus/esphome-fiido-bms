@@ -591,7 +591,7 @@ void test_u32be_basic() {
   TEST_ASSERT_EQUAL_UINT32(0xDEADBEEFu, u32be(buf, 4));
 }
 
-int main(int argc, char **argv) {
+int main() {
   UNITY_BEGIN();
 
   // Sanity / basic validations

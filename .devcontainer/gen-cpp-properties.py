@@ -147,7 +147,7 @@ def _test_std(tests_dir):
                             return token.strip("\\'\"")
         except OSError:
             continue
-    return "-std=gnu++17"
+    return "-std=gnu++20"
 
 
 def _test_sources(tests_dir):
