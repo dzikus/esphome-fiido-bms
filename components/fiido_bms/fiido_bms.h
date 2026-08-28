@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -211,8 +212,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void apply_speed_limit_(SpeedLimitOption option);
   void republish_speed_limit_();
   [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name, std::function<void()> retry);
-  void write_masked_bits_(Addr addr, uint8_t mask, uint8_t bits, uint8_t *cache, const char *name);
-  void write_flag_bit_(Addr addr, uint8_t mask, bool set, uint8_t *cache, const char *name);
+  void write_masked_bits_(Addr addr, uint8_t mask, uint8_t bits, std::optional<uint8_t> &cache, const char *name);
+  void write_flag_bit_(Addr addr, uint8_t mask, bool set, std::optional<uint8_t> &cache, const char *name);
   // Raw 1-byte value write (no bit-masking) for number entities. False when the
   // frame did not go out, so the caller keeps its cache and entity unchanged.
   [[nodiscard]] bool write_value_byte_(FrameType type, Addr addr, uint8_t value, const char *name);
@@ -238,47 +239,21 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   bool ble_user_enabled_{true};
 
-  // payload[34] = ADDR 0x27. Cache for bit-masked writes (motor/light/...).
-  uint8_t addr_27_cache_{0};
-  bool addr_27_valid_{false};
-
-  // payload[32] = ADDR 0x25 (gear range, nibble-encoded).
-  uint8_t addr_25_cache_{0};
-  bool addr_25_valid_{false};
-
-  // ADDR 0x3C speed limit value (km/h), separate poll.
-  uint8_t addr_3c_cache_{0};
-  bool addr_3c_valid_{false};
-
-  // payload[35] = ADDR 0x28.
-  uint8_t addr_28_cache_{0};
-  bool addr_28_valid_{false};
-
-  // payload[38] = ADDR 0x2B.
-  uint8_t addr_2b_cache_{0};
-  bool addr_2b_valid_{false};
-
-  // payload[39] = ADDR 0x2C.
-  uint8_t addr_2c_cache_{0};
-  bool addr_2c_valid_{false};
-
-  // payload[51] = ADDR 0x38.
-  uint8_t addr_38_cache_{0};
-  bool addr_38_valid_{false};
-
-  // payload[52] = ADDR 0x39. Only bits 4..0 are defined; bits 7..5 are written
-  // as 0, so the cache keeps the low 5 bits and the write builds from them.
-  uint8_t addr_39_cache_{0};
-  bool addr_39_valid_{false};
-
-  // ADDR 0x52 boost level, separate poll.
-  uint8_t addr_52_cache_{0};
-  bool addr_52_valid_{false};
-
-  // ADDR 0x57 brightness + 0x58 guard time, separate display poll.
-  uint8_t addr_57_cache_{0};
-  uint8_t addr_58_cache_{0};
-  bool addr_57_valid_{false};
+  // Bit-masked write cache, empty until the poll that fills it lands.
+  std::optional<uint8_t> addr_25_;  // gear range, nibble-encoded
+  std::optional<uint8_t> addr_27_;  // motor/light/cruise/speed_limit
+  std::optional<uint8_t> addr_28_;
+  std::optional<uint8_t> addr_2b_;
+  std::optional<uint8_t> addr_2c_;
+  std::optional<uint8_t> addr_38_;
+  // Only bits 4..0 of 0x39 are defined; the cache keeps those and a write
+  // builds from them.
+  std::optional<uint8_t> addr_39_;
+  std::optional<uint8_t> addr_3c_;  // speed limit value, separate poll
+  std::optional<uint8_t> addr_52_;  // boost level, separate poll
+  // Display poll fills both or neither.
+  std::optional<uint8_t> addr_57_;  // brightness
+  std::optional<uint8_t> addr_58_;  // guard time
 
   uint32_t update_interval_on_ms_{3000};
   uint32_t update_interval_off_ms_{15000};
