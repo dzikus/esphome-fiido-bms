@@ -59,6 +59,10 @@ uint8_t clamp_gear(uint8_t gear, uint8_t max_gear) {
   return gear > max_gear ? max_gear : gear;
 }
 
+bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok) {
+  return !send_ok && retry_count < max_retries;
+}
+
 bool PendingWrites::push(std::function<void()> fn) {
   const bool dropped = this->queue_.size() >= this->capacity_;
   if (dropped)

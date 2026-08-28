@@ -63,6 +63,8 @@ struct WriteGateInput {
 
 [[nodiscard]] uint8_t clamp_gear(uint8_t gear, uint8_t max_gear);
 
+[[nodiscard]] bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok);
+
 // At capacity the oldest entry is dropped.
 class PendingWrites {
  public:

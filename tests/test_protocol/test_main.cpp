@@ -788,6 +788,14 @@ void test_pending_writes_requeue_during_drain_waits_for_the_next_one() {
   TEST_ASSERT_EQUAL_INT(11, ran);
 }
 
+void test_should_retry_send_stops_at_the_retry_cap() {
+  TEST_ASSERT_FALSE(should_retry_send(0, 2, true));
+  TEST_ASSERT_TRUE(should_retry_send(0, 2, false));
+  TEST_ASSERT_TRUE(should_retry_send(1, 2, false));
+  TEST_ASSERT_FALSE(should_retry_send(2, 2, false));
+  TEST_ASSERT_FALSE(should_retry_send(3, 2, false));
+}
+
 int main() {
   UNITY_BEGIN();
 
@@ -899,6 +907,7 @@ int main() {
   RUN_TEST(test_pending_writes_drops_the_oldest_at_capacity);
   RUN_TEST(test_pending_writes_drain_empties_the_queue);
   RUN_TEST(test_pending_writes_requeue_during_drain_waits_for_the_next_one);
+  RUN_TEST(test_should_retry_send_stops_at_the_retry_cap);
 
   return UNITY_END();
 }
