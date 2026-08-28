@@ -642,13 +642,13 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   // max_gear is 0 when the nibble pair is not 3 or 5, which keeps the last-good
   // count. Runs without the mode select, which the yaml may omit.
   const uint8_t max_gear = sv.max_gear;
-  if (this->gear_select_ != nullptr && !this->gear_select_->gear_count_pinned() && max_gear != 0 &&
-      this->gear_select_->get_gear_count() != max_gear) {
-    this->gear_select_->set_gear_count(max_gear);
-  }
-  if (this->mode_select_ != nullptr && this->gear_select_ != nullptr) {
-    uint8_t current_count = this->gear_select_->get_gear_count();
-    publish_changed(this->mode_select_, current_count == 3 ? "3" : "5");
+  if (this->gear_select_ != nullptr) {
+    const uint8_t count =
+        resolve_gear_count(max_gear, this->gear_select_->gear_count_pinned(), this->gear_select_->get_gear_count());
+    if (count != 0)
+      this->gear_select_->set_gear_count(count);
+    if (this->mode_select_ != nullptr)
+      publish_changed(this->mode_select_, resolve_mode_option(this->gear_select_->get_gear_count()));
   }
 
   if (this->gear_select_ != nullptr) {
@@ -662,13 +662,11 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   // controller is OFF; gating here avoids burning the cooldown on a rejected
   // write. The cooldown caps write traffic to once per minute per hub.
   const bool ctrl_on = (sv.b27 & 0x80) != 0;
-  if (this->enforce_gear_mode_3_ && max_gear == 5 && this->ble_user_enabled_ && ctrl_on) {
-    uint32_t now = millis();
-    if (this->last_enforce_gear_3_ms_ == 0 || now - this->last_enforce_gear_3_ms_ >= ENFORCE_GEAR_MODE_3_COOLDOWN_MS) {
-      ESP_LOGI(TAG, "[%s] enforce_gear_mode_3: BMS reports 5-gear, writing 3", this->parent_->address_str());
-      this->last_enforce_gear_3_ms_ = now;
-      this->set_gear_mode(3);
-    }
+  if (should_enforce_gear_mode_3(this->enforce_gear_mode_3_, max_gear, this->ble_user_enabled_, ctrl_on, millis(),
+                                 this->last_enforce_gear_3_ms_, ENFORCE_GEAR_MODE_3_COOLDOWN_MS)) {
+    ESP_LOGI(TAG, "[%s] enforce_gear_mode_3: BMS reports 5-gear, writing 3", this->parent_->address_str());
+    this->last_enforce_gear_3_ms_ = millis();
+    this->set_gear_mode(3);
   }
 
   // ADDR 0x2A bit 5 = brake. Not user-verified on physical bike yet.
@@ -765,7 +763,7 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   // bit 3 now while the link is still live.
   // Byte built from the cache, not p[]: dispatch above may have set other bits in
   // 0x27 already and writing p[] back would undo them.
-  if (this->ble_user_enabled_ && this->prev_motor_on_ && !motor_on && (this->addr_27_cache_ & 0x08) != 0) {
+  if (should_clear_light_bit(this->ble_user_enabled_, this->prev_motor_on_, motor_on, this->addr_27_cache_)) {
     uint8_t b = this->addr_27_cache_ & ~0x08;
     ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)", this->parent_->address_str(),
              this->addr_27_cache_, b);
@@ -811,19 +809,23 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
 
   // Probe done: motor_on -> stay; verify window still open -> stay; else drop.
   if (this->probe_started_ms_ != 0) {
-    if (motor_on) {
-      ESP_LOGI(TAG, "[%s] LIFECYCLE: probe success -> bike ON, staying connected", this->parent_->address_str());
-      this->probe_started_ms_ = 0;
-    } else if (this->last_dispatch_ms_ != 0 && (millis() - this->last_dispatch_ms_) < WRITE_VERIFY_WINDOW_MS) {
-      ESP_LOGD(TAG, "[%s] LIFECYCLE: probe -> verify window open (%ums left)", this->parent_->address_str(),
-               (unsigned)(WRITE_VERIFY_WINDOW_MS - (millis() - this->last_dispatch_ms_)));
-      this->probe_started_ms_ = millis();
-    } else {
-      ESP_LOGI(TAG, "[%s] LIFECYCLE: probe -> bike still OFF, disabling ble_client", this->parent_->address_str());
-      this->probe_started_ms_ = 0;
-      this->parent_->set_enabled(false);
-      this->disconnected_since_ms_ = millis();
-      this->motor_off_since_ms_ = 0;
+    switch (decide_probe_outcome(motor_on, millis(), this->last_dispatch_ms_, WRITE_VERIFY_WINDOW_MS)) {
+      case ProbeOutcome::STAY_BIKE_ON:
+        ESP_LOGI(TAG, "[%s] LIFECYCLE: probe success -> bike ON, staying connected", this->parent_->address_str());
+        this->probe_started_ms_ = 0;
+        break;
+      case ProbeOutcome::STAY_VERIFY_WINDOW:
+        ESP_LOGD(TAG, "[%s] LIFECYCLE: probe -> verify window open (%ums left)", this->parent_->address_str(),
+                 (unsigned)(WRITE_VERIFY_WINDOW_MS - (millis() - this->last_dispatch_ms_)));
+        this->probe_started_ms_ = millis();
+        break;
+      case ProbeOutcome::DROP_LINK:
+        ESP_LOGI(TAG, "[%s] LIFECYCLE: probe -> bike still OFF, disabling ble_client", this->parent_->address_str());
+        this->probe_started_ms_ = 0;
+        this->parent_->set_enabled(false);
+        this->disconnected_since_ms_ = millis();
+        this->motor_off_since_ms_ = 0;
+        break;
     }
   }
 

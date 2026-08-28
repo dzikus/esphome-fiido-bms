@@ -63,6 +63,25 @@ struct WriteGateInput {
 
 [[nodiscard]] uint8_t clamp_gear(uint8_t gear, uint8_t max_gear);
 
+enum class ProbeOutcome : uint8_t {
+  STAY_BIKE_ON = 0,
+  STAY_VERIFY_WINDOW,
+  DROP_LINK,
+};
+
+[[nodiscard]] ProbeOutcome decide_probe_outcome(bool motor_on, uint32_t now, uint32_t last_dispatch_ms,
+                                                uint32_t write_verify_window_ms);
+
+// 0 = keep the count the select already has.
+[[nodiscard]] uint8_t resolve_gear_count(uint8_t max_gear, bool pinned, uint8_t current_count);
+
+[[nodiscard]] const char *resolve_mode_option(uint8_t gear_count);
+
+[[nodiscard]] bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on, uint8_t cache_27);
+
+[[nodiscard]] bool should_enforce_gear_mode_3(bool enabled, uint8_t max_gear, bool ble_enabled, bool controller_on,
+                                              uint32_t now, uint32_t last_write_ms, uint32_t cooldown_ms);
+
 [[nodiscard]] bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok);
 
 // At capacity the oldest entry is dropped.

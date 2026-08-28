@@ -764,7 +764,7 @@ void test_pending_writes_drops_the_oldest_at_capacity() {
 
 void test_pending_writes_drain_empties_the_queue() {
   PendingWrites q(4);
-  q.push([]() {});
+  (void)q.push([]() {});
   TEST_ASSERT_FALSE(q.empty());
   auto taken = q.drain();
   TEST_ASSERT_EQUAL_UINT(1, taken.size());
@@ -775,9 +775,9 @@ void test_pending_writes_drain_empties_the_queue() {
 void test_pending_writes_requeue_during_drain_waits_for_the_next_one() {
   PendingWrites q(4);
   int ran = 0;
-  q.push([&q, &ran]() {
+  (void)q.push([&q, &ran]() {
     ran++;
-    q.push([&ran]() { ran += 10; });
+    (void)q.push([&ran]() { ran += 10; });
   });
   for (auto &fn : q.drain())
     fn();
@@ -794,6 +794,52 @@ void test_should_retry_send_stops_at_the_retry_cap() {
   TEST_ASSERT_TRUE(should_retry_send(1, 2, false));
   TEST_ASSERT_FALSE(should_retry_send(2, 2, false));
   TEST_ASSERT_FALSE(should_retry_send(3, 2, false));
+}
+
+void test_probe_outcome_motor_on_keeps_the_link() {
+  TEST_ASSERT_EQUAL(ProbeOutcome::STAY_BIKE_ON, decide_probe_outcome(true, 100000, 0, 10000));
+  TEST_ASSERT_EQUAL(ProbeOutcome::STAY_BIKE_ON, decide_probe_outcome(true, 100000, 99999, 10000));
+}
+
+void test_probe_outcome_holds_the_link_while_a_write_is_being_verified() {
+  TEST_ASSERT_EQUAL(ProbeOutcome::STAY_VERIFY_WINDOW, decide_probe_outcome(false, 100000, 95000, 10000));
+  TEST_ASSERT_EQUAL(ProbeOutcome::DROP_LINK, decide_probe_outcome(false, 100000, 90000, 10000));
+  TEST_ASSERT_EQUAL(ProbeOutcome::DROP_LINK, decide_probe_outcome(false, 100000, 0, 10000));
+  // Just after boot millis() is small, and no dispatch has happened: 0 means
+  // "never", not "just now".
+  TEST_ASSERT_EQUAL(ProbeOutcome::DROP_LINK, decide_probe_outcome(false, 5000, 0, 10000));
+}
+
+void test_resolve_gear_count_keeps_what_the_select_has() {
+  TEST_ASSERT_EQUAL_UINT8(0, resolve_gear_count(0, false, 5));
+  TEST_ASSERT_EQUAL_UINT8(0, resolve_gear_count(3, true, 5));
+  TEST_ASSERT_EQUAL_UINT8(0, resolve_gear_count(5, false, 5));
+  TEST_ASSERT_EQUAL_UINT8(3, resolve_gear_count(3, false, 5));
+}
+
+void test_resolve_mode_option_is_3_only_for_three_gears() {
+  TEST_ASSERT_EQUAL_STRING("3", resolve_mode_option(3));
+  TEST_ASSERT_EQUAL_STRING("5", resolve_mode_option(5));
+  TEST_ASSERT_EQUAL_STRING("5", resolve_mode_option(0));
+}
+
+void test_light_bit_clears_only_on_the_motor_off_edge() {
+  TEST_ASSERT_TRUE(should_clear_light_bit(true, true, false, 0x08));
+  TEST_ASSERT_FALSE(should_clear_light_bit(true, true, false, 0x00));
+  TEST_ASSERT_FALSE(should_clear_light_bit(true, false, false, 0x08));
+  TEST_ASSERT_FALSE(should_clear_light_bit(true, true, true, 0x08));
+  TEST_ASSERT_FALSE(should_clear_light_bit(false, true, false, 0x08));
+}
+
+void test_enforce_gear_mode_3_respects_every_gate() {
+  const uint32_t cooldown = 60000;
+  TEST_ASSERT_TRUE(should_enforce_gear_mode_3(true, 5, true, true, 100000, 0, cooldown));
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(false, 5, true, true, 100000, 0, cooldown));
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(true, 3, true, true, 100000, 0, cooldown));
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(true, 5, false, true, 100000, 0, cooldown));
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(true, 5, true, false, 100000, 0, cooldown));
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(true, 5, true, true, 100000, 50000, cooldown));
+  TEST_ASSERT_TRUE(should_enforce_gear_mode_3(true, 5, true, true, 160000, 100000, cooldown));
 }
 
 int main() {
@@ -908,6 +954,12 @@ int main() {
   RUN_TEST(test_pending_writes_drain_empties_the_queue);
   RUN_TEST(test_pending_writes_requeue_during_drain_waits_for_the_next_one);
   RUN_TEST(test_should_retry_send_stops_at_the_retry_cap);
+  RUN_TEST(test_probe_outcome_motor_on_keeps_the_link);
+  RUN_TEST(test_probe_outcome_holds_the_link_while_a_write_is_being_verified);
+  RUN_TEST(test_resolve_gear_count_keeps_what_the_select_has);
+  RUN_TEST(test_resolve_mode_option_is_3_only_for_three_gears);
+  RUN_TEST(test_light_bit_clears_only_on_the_motor_off_edge);
+  RUN_TEST(test_enforce_gear_mode_3_respects_every_gate);
 
   return UNITY_END();
 }

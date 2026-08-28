@@ -59,6 +59,36 @@ uint8_t clamp_gear(uint8_t gear, uint8_t max_gear) {
   return gear > max_gear ? max_gear : gear;
 }
 
+ProbeOutcome decide_probe_outcome(bool motor_on, uint32_t now, uint32_t last_dispatch_ms,
+                                  uint32_t write_verify_window_ms) {
+  if (motor_on)
+    return ProbeOutcome::STAY_BIKE_ON;
+  if (last_dispatch_ms != 0 && (now - last_dispatch_ms) < write_verify_window_ms)
+    return ProbeOutcome::STAY_VERIFY_WINDOW;
+  return ProbeOutcome::DROP_LINK;
+}
+
+uint8_t resolve_gear_count(uint8_t max_gear, bool pinned, uint8_t current_count) {
+  if (pinned || max_gear == 0 || max_gear == current_count)
+    return 0;
+  return max_gear;
+}
+
+const char *resolve_mode_option(uint8_t gear_count) {
+  return gear_count == 3 ? "3" : "5";
+}
+
+bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on, uint8_t cache_27) {
+  return ble_enabled && prev_motor_on && !motor_on && (cache_27 & 0x08) != 0;
+}
+
+bool should_enforce_gear_mode_3(bool enabled, uint8_t max_gear, bool ble_enabled, bool controller_on, uint32_t now,
+                                uint32_t last_write_ms, uint32_t cooldown_ms) {
+  if (!enabled || max_gear != 5 || !ble_enabled || !controller_on)
+    return false;
+  return should_log_now(now, last_write_ms, cooldown_ms);
+}
+
 bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok) {
   return !send_ok && retry_count < max_retries;
 }
