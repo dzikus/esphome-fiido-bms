@@ -162,6 +162,52 @@ void FiidoBMSHub::dump_config() {
   LOG_SELECT("  ", "Gear", this->gear_select_);
 }
 
+void FiidoBMSHub::settle_probe_(bool motor_on) {
+  if (this->probe_started_ms_ == 0)
+    return;
+  switch (decide_probe_outcome(motor_on, millis(), this->last_dispatch_ms_, WRITE_VERIFY_WINDOW_MS)) {
+    case ProbeOutcome::STAY_BIKE_ON:
+      ESP_LOGI(TAG, "[%s] LIFECYCLE: probe success -> bike ON, staying connected", this->parent_->address_str());
+      this->probe_started_ms_ = 0;
+      break;
+    case ProbeOutcome::STAY_VERIFY_WINDOW:
+      ESP_LOGD(TAG, "[%s] LIFECYCLE: probe -> verify window open (%ums left)", this->parent_->address_str(),
+               (unsigned)(WRITE_VERIFY_WINDOW_MS - (millis() - this->last_dispatch_ms_)));
+      this->probe_started_ms_ = millis();
+      break;
+    case ProbeOutcome::DROP_LINK:
+      ESP_LOGI(TAG, "[%s] LIFECYCLE: probe -> bike still OFF, disabling ble_client", this->parent_->address_str());
+      this->probe_started_ms_ = 0;
+      this->parent_->set_enabled(false);
+      this->disconnected_since_ms_ = millis();
+      this->motor_off_since_ms_ = 0;
+      break;
+  }
+}
+
+void FiidoBMSHub::publish_flag_entities_(const FlagView &f) {
+  publish_changed(this->pas_limit_binary_sensor_, f.pas_limit_on);
+  // A press of the physical button on the bike shows up here.
+  if (this->motor_switch_ != nullptr)
+    this->motor_switch_->publish_state(f.motor_on);
+  if (this->light_switch_ != nullptr)
+    this->light_switch_->publish_state(f.light_on);
+  // STATS arrives more often than the 0x3C poll. An ambiguous pair is the BMS
+  // reloading from flash; the previous option stands.
+  if (this->speed_limit_select_ != nullptr && this->registers_.has<Addr::SPEED_LIMIT>()) {
+    const char *opt = resolve_speed_limit_option(*this->registers_.get<Addr::SPEED_LIMIT>(), f.speed_limit_on);
+    if (opt != nullptr)
+      publish_changed(this->speed_limit_select_, opt);
+  }
+  if (this->speed_unit_select_ != nullptr)
+    publish_changed(this->speed_unit_select_, f.speed_unit_mph ? "mph" : "km/h");
+  for (const FlagControl &control : FLAG_CONTROLS) {
+    switch_::Switch *entity = this->*(control.entity);
+    if (entity != nullptr)
+      entity->publish_state(f.*(control.state));
+  }
+}
+
 void FiidoBMSHub::reset_session_state_() {
   this->link_.reset();
   this->handshake_sent_ = false;
@@ -348,12 +394,7 @@ void FiidoBMSHub::update() {
   if (this->force_poll_stats_) {
     this->force_poll_stats_ = false;
     start_with_stats = true;
-    for (size_t i = 0; i < POLL_TABLE_SIZE; i++) {
-      if (POLL_TABLE[i].addr == Addr::STATS) {
-        start_idx = i;
-        break;
-      }
-    }
+    start_idx = poll_index(Addr::STATS);
   }
   const uint32_t now = millis();
   const BurstGate gate = evaluate_burst_gate(
@@ -695,42 +736,15 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
                    this->registers_.value_or<Addr::FLAGS_2B>(0), this->registers_.value_or<Addr::FLAGS_2C>(0),
                    this->registers_.value_or<Addr::FLAGS_38>(0), this->registers_.value_or<Addr::FLAGS_39>(0));
 
-  publish_changed(this->pas_limit_binary_sensor_, f.pas_limit_on);
+  this->publish_flag_entities_(f);
 
   const bool motor_on = (sv.b27 & 0x80) != 0;
   const bool light_on = motor_on && ((sv.b27 & 0x08) != 0);
-  uint32_t desired = motor_on ? this->update_interval_on_ms_ : this->update_interval_off_ms_;
+  const uint32_t desired = motor_on ? this->update_interval_on_ms_ : this->update_interval_off_ms_;
   if (this->desired_interval_ms_ != desired) {
     ESP_LOGD(TAG, "[%s] ADAPTIVE interval: motor %s -> %ums (from %ums)", this->parent_->address_str(),
              motor_on ? "ON" : "OFF", (unsigned)desired, (unsigned)this->desired_interval_ms_);
     this->desired_interval_ms_ = desired;
-  }
-
-  // A press of the physical button on the bike shows up here.
-  if (this->motor_switch_ != nullptr) {
-    this->motor_switch_->publish_state(f.motor_on);
-  }
-  if (this->light_switch_ != nullptr) {
-    this->light_switch_->publish_state(f.light_on);
-  }
-  // STATS arrives more often than the 0x3C poll, so publish whichever combination
-  // is on hand.
-  if (this->speed_limit_select_ != nullptr && this->registers_.has<Addr::SPEED_LIMIT>()) {
-    const char *opt = resolve_speed_limit_option(*this->registers_.get<Addr::SPEED_LIMIT>(), f.speed_limit_on);
-    if (opt != nullptr) {
-      publish_changed(this->speed_limit_select_, opt);
-    }
-    // Ambiguous combo is transient (BMS reloading from flash on boot).
-    // Keep previous publish to avoid flicker.
-  }
-
-  if (this->speed_unit_select_ != nullptr) {
-    publish_changed(this->speed_unit_select_, f.speed_unit_mph ? "mph" : "km/h");
-  }
-  for (const FlagControl &control : FLAG_CONTROLS) {
-    switch_::Switch *entity = this->*(control.entity);
-    if (entity != nullptr)
-      entity->publish_state(f.*(control.state));
   }
 
   // Edge motor ON -> OFF (physical button): BMS persists bit 3 across the
@@ -776,27 +790,7 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
     this->motor_off_since_ms_ = motor_off_since;
   }
 
-  // Probe done: motor_on -> stay; verify window still open -> stay; else drop.
-  if (this->probe_started_ms_ != 0) {
-    switch (decide_probe_outcome(motor_on, millis(), this->last_dispatch_ms_, WRITE_VERIFY_WINDOW_MS)) {
-      case ProbeOutcome::STAY_BIKE_ON:
-        ESP_LOGI(TAG, "[%s] LIFECYCLE: probe success -> bike ON, staying connected", this->parent_->address_str());
-        this->probe_started_ms_ = 0;
-        break;
-      case ProbeOutcome::STAY_VERIFY_WINDOW:
-        ESP_LOGD(TAG, "[%s] LIFECYCLE: probe -> verify window open (%ums left)", this->parent_->address_str(),
-                 (unsigned)(WRITE_VERIFY_WINDOW_MS - (millis() - this->last_dispatch_ms_)));
-        this->probe_started_ms_ = millis();
-        break;
-      case ProbeOutcome::DROP_LINK:
-        ESP_LOGI(TAG, "[%s] LIFECYCLE: probe -> bike still OFF, disabling ble_client", this->parent_->address_str());
-        this->probe_started_ms_ = 0;
-        this->parent_->set_enabled(false);
-        this->disconnected_since_ms_ = millis();
-        this->motor_off_since_ms_ = 0;
-        break;
-    }
-  }
+  this->settle_probe_(motor_on);
 
   ESP_LOGV(TAG,
            "[%s] STATS speed=%.1f km=%.1f total=%.1fkm gear=%u SOC=%u%% addr25=0x%02X addr27=0x%02X addr2A=0x%02X "
