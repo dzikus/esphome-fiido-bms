@@ -296,9 +296,9 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void parse_display_(std::span<const uint8_t> payload);
   void apply_speed_limit_(SpeedLimitOption option);
   void apply_speed_unit_(bool mile);
-  void republish_speed_unit_();
-  void republish_speed_limit_();
-  [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name, PendingWrite retry);
+  // Queues the retry itself on the two deferring verdicts. Caller republishes its
+  // own entity on the two REJECT verdicts.
+  [[nodiscard]] WriteGate gate_(bool cache_valid, bool needs_controller, const char *name, PendingWrite retry);
   template <Addr A>
   void write_masked_bits_(uint8_t mask, uint8_t bits, const char *name) {
     this->write_masked_bits_(A, cache_slot(A), mask, bits, name);

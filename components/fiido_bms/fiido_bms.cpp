@@ -59,6 +59,15 @@ void revert_number(number::Number *n) {
     n->publish_state(n->state);
 }
 
+// publish_changed dedups; the entity still holds the old value.
+void revert_select(select::Select *s) {
+  if (s == nullptr)
+    return;
+  const auto shown = s->current_option();
+  if (!shown.empty())
+    s->publish_state(shown.c_str());
+}
+
 }  // namespace
 
 static const char *const TAG = FIIDO_BMS_TAG;
@@ -855,23 +864,14 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
 }
 
 void FiidoBMSHub::set_motor_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] MOTOR %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
+  const WriteGate verdict =
+      this->gate_(this->registers_.has<Addr::FLAGS_27>(), false, "MOTOR", [this, on]() { this->set_motor_enable(on); });
+  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF) {
     if (this->motor_switch_ != nullptr)
       this->motor_switch_->publish_state(!on);
-    return;
   }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    ESP_LOGI(TAG, "[%s] MOTOR %s queued (disconnected)", this->parent_->address_str(), on ? "ON" : "OFF");
-    this->enqueue_pending_write_([this, on]() { this->set_motor_enable(on); });
-    this->ensure_enabled_for_write_();
+  if (verdict != WriteGate::SEND)
     return;
-  }
-  if (!this->registers_.has<Addr::FLAGS_27>()) {
-    ESP_LOGI(TAG, "[%s] MOTOR %s deferred: ADDR 0x27 cache cold", this->parent_->address_str(), on ? "ON" : "OFF");
-    this->enqueue_pending_write_([this, on]() { this->set_motor_enable(on); });
-    return;
-  }
   const uint8_t cached = *this->registers_.get<Addr::FLAGS_27>();
   uint8_t b = cached;
   if (on) {
@@ -897,35 +897,15 @@ void FiidoBMSHub::set_motor_enable(bool on) {
 }
 
 void FiidoBMSHub::set_light_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] LIGHT %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->light_switch_ != nullptr)
-      this->light_switch_->publish_state(!on);
-    return;
-  }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    ESP_LOGI(TAG, "[%s] LIGHT %s queued (disconnected)", this->parent_->address_str(), on ? "ON" : "OFF");
-    this->enqueue_pending_write_([this, on]() { this->set_light_enable(on); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->registers_.has<Addr::FLAGS_27>()) {
-    ESP_LOGI(TAG, "[%s] LIGHT %s deferred: ADDR 0x27 cache cold", this->parent_->address_str(), on ? "ON" : "OFF");
-    this->enqueue_pending_write_([this, on]() { this->set_light_enable(on); });
-    return;
-  }
-  const uint8_t cached = *this->registers_.get<Addr::FLAGS_27>();
-  // Light needs controller power (bit 7). Reject otherwise.
-  bool motor_on = (cached & 0x80) != 0;
-  if (!motor_on) {
-    ESP_LOGW(
-        TAG,
-        "[%s] set_light_enable(%s) REJECTED - bike controller is OFF (bit7 ADDR 0x27 = 0). Enable motor switch first.",
-        this->parent_->address_str(), on ? "ON" : "OFF");
+  const WriteGate verdict =
+      this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "LIGHT", [this, on]() { this->set_light_enable(on); });
+  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF) {
     if (this->light_switch_ != nullptr)
       this->light_switch_->publish_state(false);
-    return;
   }
+  if (verdict != WriteGate::SEND)
+    return;
+  const uint8_t cached = *this->registers_.get<Addr::FLAGS_27>();
   uint8_t b = cached;
   if (on) {
     b |= 0x08;
@@ -944,42 +924,17 @@ void FiidoBMSHub::set_light_enable(bool on) {
 }
 
 void FiidoBMSHub::set_gear(uint8_t gear) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] GEAR %u rejected: BLE user-disabled", this->parent_->address_str(), gear);
-    if (this->gear_select_ != nullptr) {
-      auto opt = this->gear_select_->current_option();
-      if (!opt.empty())
-        this->gear_select_->publish_state(opt.c_str());
-    }
-    return;
-  }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    ESP_LOGI(TAG, "[%s] GEAR %u queued (disconnected)", this->parent_->address_str(), gear);
-    this->enqueue_pending_write_([this, gear]() { this->set_gear(gear); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
   const uint8_t max_gear = (this->gear_select_ != nullptr) ? this->gear_select_->get_gear_count() : 5;
   if (clamp_gear(gear, max_gear) != gear) {
     ESP_LOGI(TAG, "[%s] set_gear(%u) clamped to %u (active gear count)", this->parent_->address_str(), gear, max_gear);
     gear = clamp_gear(gear, max_gear);
   }
-  if (!this->registers_.has<Addr::FLAGS_27>()) {
-    ESP_LOGI(TAG, "[%s] GEAR %u deferred: ADDR 0x27 cache cold", this->parent_->address_str(), gear);
-    this->enqueue_pending_write_([this, gear]() { this->set_gear(gear); });
+  const WriteGate verdict =
+      this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "GEAR", [this, gear]() { this->set_gear(gear); });
+  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+    revert_select(this->gear_select_);
+  if (verdict != WriteGate::SEND)
     return;
-  }
-  bool motor_on = (*this->registers_.get<Addr::FLAGS_27>() & 0x80) != 0;
-  if (!motor_on) {
-    ESP_LOGW(TAG, "[%s] set_gear(%u) REJECTED - bike controller is OFF. Enable motor switch first.",
-             this->parent_->address_str(), gear);
-    if (this->gear_select_ != nullptr) {
-      auto opt = this->gear_select_->current_option();
-      if (!opt.empty())
-        this->gear_select_->publish_state(opt.c_str());
-    }
-    return;
-  }
   ESP_LOGI(TAG, "[%s] GEAR set to %u (WRITE ADDR 0x26)", this->parent_->address_str(), gear);
   if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::GEAR, std::array<uint8_t, 1>{gear})) {
     this->force_poll_stats_ = true;
@@ -990,47 +945,18 @@ void FiidoBMSHub::set_gear(uint8_t gear) {
 }
 
 void FiidoBMSHub::set_gear_mode(uint8_t mode) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] GEAR MODE %u rejected: BLE user-disabled", this->parent_->address_str(), mode);
-    if (this->mode_select_ != nullptr) {
-      auto opt = this->mode_select_->current_option();
-      if (!opt.empty())
-        this->mode_select_->publish_state(opt.c_str());
-    }
-    return;
-  }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    ESP_LOGI(TAG, "[%s] GEAR MODE %u queued (disconnected)", this->parent_->address_str(), mode);
-    this->enqueue_pending_write_([this, mode]() { this->set_gear_mode(mode); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
   // ADDR 0x25 upper nibble = max_gear, lower = bike config preserved. Frame 0xFF.
   if (mode != 3 && mode != 5) {
     ESP_LOGW(TAG, "[%s] set_gear_mode(%u) REJECTED - must be 3 or 5", this->parent_->address_str(), mode);
-    if (this->mode_select_ != nullptr) {
-      auto opt = this->mode_select_->current_option();
-      if (!opt.empty())
-        this->mode_select_->publish_state(opt.c_str());
-    }
+    revert_select(this->mode_select_);
     return;
   }
-  if (!this->registers_.has<Addr::FLAGS_27>() || !this->registers_.has<Addr::GEAR_RANGE>()) {
-    ESP_LOGI(TAG, "[%s] GEAR MODE %u deferred: state cache cold", this->parent_->address_str(), mode);
-    this->enqueue_pending_write_([this, mode]() { this->set_gear_mode(mode); });
+  const bool cache_ready = this->registers_.has<Addr::FLAGS_27>() && this->registers_.has<Addr::GEAR_RANGE>();
+  const WriteGate verdict = this->gate_(cache_ready, true, "GEAR MODE", [this, mode]() { this->set_gear_mode(mode); });
+  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+    revert_select(this->mode_select_);
+  if (verdict != WriteGate::SEND)
     return;
-  }
-  bool motor_on = (*this->registers_.get<Addr::FLAGS_27>() & 0x80) != 0;
-  if (!motor_on) {
-    ESP_LOGW(TAG, "[%s] set_gear_mode(%u) REJECTED - bike controller is OFF. Enable motor switch first.",
-             this->parent_->address_str(), mode);
-    if (this->mode_select_ != nullptr) {
-      auto opt = this->mode_select_->current_option();
-      if (!opt.empty())
-        this->mode_select_->publish_state(opt.c_str());
-    }
-    return;
-  }
   const uint8_t cached = *this->registers_.get<Addr::GEAR_RANGE>();
   const uint8_t encoded = encode_gear_mode(mode, cached);
   ESP_LOGI(TAG, "[%s] GEAR MODE set to %u (ADDR 0x25: 0x%02X -> 0x%02X) frame type 0xFF", this->parent_->address_str(),
@@ -1087,18 +1013,10 @@ void FiidoBMSHub::set_speed_limit(const std::string &option) {
   const std::optional<SpeedLimitOption> parsed = parse_speed_limit_option(option);
   if (!parsed.has_value()) {
     ESP_LOGW(TAG, "[%s] set_speed_limit('%s') REJECTED - unknown option", this->parent_->address_str(), option.c_str());
-    this->republish_speed_limit_();
+    revert_select(this->speed_limit_select_);
     return;
   }
   this->apply_speed_limit_(*parsed);
-}
-
-void FiidoBMSHub::republish_speed_limit_() {
-  if (this->speed_limit_select_ == nullptr)
-    return;
-  const auto shown = this->speed_limit_select_->current_option();
-  if (!shown.empty())
-    this->speed_limit_select_->publish_state(shown.c_str());
 }
 
 void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
@@ -1106,22 +1024,13 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
   const SpeedLimitPlan plan = plan_speed_limit(option, this->registers_.value_or<Addr::FLAGS_2C>(0));
   // Newer command supersedes a pending phase2, which holds the old target.
   this->cancel_timeout("speed_limit_phase2");
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] SPEED_LIMIT '%s' rejected: BLE user-disabled", this->parent_->address_str(), name);
-    this->republish_speed_limit_();
+  const bool cache_ready = this->registers_.has<Addr::FLAGS_27>() && this->registers_.has<Addr::FLAGS_2C>();
+  const WriteGate verdict =
+      this->gate_(cache_ready, false, "SPEED_LIMIT", [this, option]() { this->apply_speed_limit_(option); });
+  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+    revert_select(this->speed_limit_select_);
+  if (verdict != WriteGate::SEND)
     return;
-  }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    ESP_LOGI(TAG, "[%s] SPEED_LIMIT '%s' queued (disconnected)", this->parent_->address_str(), name);
-    this->enqueue_pending_write_([this, option]() { this->apply_speed_limit_(option); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->registers_.has<Addr::FLAGS_27>() || !this->registers_.has<Addr::FLAGS_2C>()) {
-    ESP_LOGI(TAG, "[%s] SPEED_LIMIT '%s' deferred: state cache cold", this->parent_->address_str(), name);
-    this->enqueue_pending_write_([this, option]() { this->apply_speed_limit_(option); });
-    return;
-  }
   if (plan.needs_pas_write) {
     ESP_LOGI(TAG, "[%s] SPEED_LIMIT phase1: PAS %s ADDR 0x2C 0x%02X->0x%02X (bit 7)", this->parent_->address_str(),
              plan.limit_on ? "ON" : "OFF", *this->registers_.get<Addr::FLAGS_2C>(), plan.pas_byte);
@@ -1174,54 +1083,50 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
 void FiidoBMSHub::set_speed_unit(const std::string &option) {
   if (option != "km/h" && option != "mph") {
     ESP_LOGW(TAG, "[%s] set_speed_unit('%s') unknown option", this->parent_->address_str(), option.c_str());
-    this->republish_speed_unit_();
+    revert_select(this->speed_unit_select_);
     return;
   }
   this->apply_speed_unit_(option == "mph");
 }
 
-void FiidoBMSHub::republish_speed_unit_() {
-  if (this->speed_unit_select_ == nullptr)
-    return;
-  const auto shown = this->speed_unit_select_->current_option();
-  if (!shown.empty())
-    this->speed_unit_select_->publish_state(shown.c_str());
-}
-
 void FiidoBMSHub::apply_speed_unit_(bool mile) {
-  const char *name = mile ? "mph" : "km/h";
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] SPEED_UNIT '%s' rejected: BLE user-disabled", this->parent_->address_str(), name);
-    this->republish_speed_unit_();
+  const WriteGate verdict = this->gate_(this->registers_.has<Addr::FLAGS_28>(), false, "SPEED_UNIT",
+                                        [this, mile]() { this->apply_speed_unit_(mile); });
+  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+    revert_select(this->speed_unit_select_);
+  if (verdict != WriteGate::SEND)
     return;
-  }
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    ESP_LOGI(TAG, "[%s] SPEED_UNIT '%s' queued (disconnected)", this->parent_->address_str(), name);
-    this->enqueue_pending_write_([this, mile]() { this->apply_speed_unit_(mile); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (!this->registers_.has<Addr::FLAGS_28>()) {
-    ESP_LOGI(TAG, "[%s] SPEED_UNIT '%s' deferred: cache cold", this->parent_->address_str(), name);
-    this->enqueue_pending_write_([this, mile]() { this->apply_speed_unit_(mile); });
-    return;
-  }
   this->write_flag_bit_<Addr::FLAGS_28>(0x80, mile, "SPEED_UNIT");
 }
 
-bool FiidoBMSHub::defer_flag_write_(bool cache_valid, const char *name, PendingWrite retry) {
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    ESP_LOGI(TAG, "[%s] %s queued (disconnected)", this->parent_->address_str(), name);
-    this->enqueue_pending_write_(retry);
-    this->ensure_enabled_for_write_();
-    return true;
+WriteGate FiidoBMSHub::gate_(bool cache_valid, bool needs_controller, const char *name, PendingWrite retry) {
+  const WriteGate verdict = gate_write({
+      .ble_enabled = this->ble_user_enabled_,
+      .connected = this->node_state == espbt::ClientState::ESTABLISHED,
+      .cache_valid = cache_valid,
+      .needs_controller = needs_controller,
+      .controller_on = (this->registers_.value_or<Addr::FLAGS_27>(0) & 0x80) != 0,
+  });
+  switch (verdict) {
+    case WriteGate::QUEUE_DISCONNECTED:
+      ESP_LOGI(TAG, "[%s] %s queued (disconnected)", this->parent_->address_str(), name);
+      this->enqueue_pending_write_(retry);
+      this->ensure_enabled_for_write_();
+      break;
+    case WriteGate::DEFER_COLD_CACHE:
+      ESP_LOGI(TAG, "[%s] %s deferred: cache cold", this->parent_->address_str(), name);
+      this->enqueue_pending_write_(retry);
+      break;
+    case WriteGate::REJECT_BLE_DISABLED:
+      ESP_LOGW(TAG, "[%s] %s rejected: BLE user-disabled", this->parent_->address_str(), name);
+      break;
+    case WriteGate::REJECT_CONTROLLER_OFF:
+      ESP_LOGW(TAG, "[%s] %s rejected: bike controller is OFF (bit 7 ADDR 0x27)", this->parent_->address_str(), name);
+      break;
+    case WriteGate::SEND:
+      break;
   }
-  if (!cache_valid) {
-    ESP_LOGI(TAG, "[%s] %s deferred: cache cold", this->parent_->address_str(), name);
-    this->enqueue_pending_write_(retry);
-    return true;
-  }
-  return false;
+  return verdict;
 }
 
 void FiidoBMSHub::write_masked_bits_(Addr addr, size_t slot, uint8_t mask, uint8_t bits, const char *name) {
@@ -1246,15 +1151,14 @@ void FiidoBMSHub::write_masked_bits_(Addr addr, size_t slot, uint8_t mask, uint8
 
 void FiidoBMSHub::set_flag_(FlagId id, bool on) {
   const FlagControl &c = FLAG_CONTROLS[static_cast<size_t>(id)];
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] %s %s rejected: BLE user-disabled", this->parent_->address_str(), c.name, on ? "ON" : "OFF");
+  const WriteGate verdict = this->gate_(this->registers_.at(c.slot).has_value(), false, c.name,
+                                        [this, id, on]() { this->set_flag_(id, on); });
+  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF) {
     switch_::Switch *entity = this->*(c.entity);
     if (entity != nullptr)
       entity->publish_state(!on);
-    return;
   }
-  if (this->defer_flag_write_(this->registers_.at(c.slot).has_value(), c.name,
-                              [this, id, on]() { this->set_flag_(id, on); }))
+  if (verdict != WriteGate::SEND)
     return;
   this->write_masked_bits_(c.addr, c.slot, c.mask, on ? c.bits_on : c.bits_off, c.name);
 }
@@ -1313,22 +1217,18 @@ bool FiidoBMSHub::write_value_byte_(FrameType type, Addr addr, uint8_t value, co
 void FiidoBMSHub::set_byte_(ByteId id, float value) {
   const ByteControl &c = BYTE_CONTROLS[static_cast<size_t>(id)];
   number::Number *entity = this->*(c.entity);
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] %s %.0f rejected: BLE user-disabled", this->parent_->address_str(), c.name, value);
-    revert_number(entity);
-    return;
-  }
   // NaN passes both clamp compares and the cast below is UB.
   if (!std::isfinite(value)) {
     revert_number(entity);
     return;
   }
   const uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : static_cast<uint8_t>(value));
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, id, value]() { this->set_byte_(id, value); });
-    this->ensure_enabled_for_write_();
+  // A whole-byte write has no cache to wait for.
+  const WriteGate verdict = this->gate_(true, false, c.name, [this, id, value]() { this->set_byte_(id, value); });
+  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+    revert_number(entity);
+  if (verdict != WriteGate::SEND)
     return;
-  }
   if (this->write_value_byte_(c.type, c.addr, v, c.name)) {
     this->registers_.at(c.slot) = v;
     if (entity != nullptr)
