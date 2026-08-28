@@ -59,10 +59,18 @@ jobs:
           echo "--- re-run built binary as source of truth ---"
           tests/.pio/build/native/program
   esphome-build:
-    name: esphome compile (full component)
+    name: esphome compile (${{ matrix.board }})
     needs: unit-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          - esp32dev
+          - esp32-s3-devkitc-1
+          - esp32-c3-devkitm-1
+          - esp32-c6-devkitc-1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -74,8 +82,8 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.platformio
-          key: ${{ runner.os }}-esphome-${{ hashFiles('.github/ci-build.yaml') }}
-          restore-keys: ${{ runner.os }}-esphome-
+          key: ${{ runner.os }}-esphome-${{ matrix.board }}-${{ hashFiles('.github/ci-build.yaml') }}
+          restore-keys: ${{ runner.os }}-esphome-${{ matrix.board }}-
       - name: Install ESPHome
         run: pip install "esphome==2026.7.4"
       - name: Run codegen unit tests
@@ -83,7 +91,7 @@ jobs:
       - name: Compile full component
         run: |
           set -euo pipefail
-          esphome compile .github/ci-build.yaml
+          esphome -s board ${{ matrix.board }} compile .github/ci-build.yaml
   config-floor:
     name: config check and build at the ESPHome floor
     needs: lint

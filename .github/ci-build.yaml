@@ -1,6 +1,10 @@
 # CI-only configuration that compiles the full component (all platforms, two
 # hubs) so a build-breaking change in any source file fails CI. Not meant for
 # flashing. Uses dummy BLE MACs; no device is contacted during compile.
+
+substitutions:
+  board: esp32dev
+
 esphome:
   name: ci-build
   # Two hubs need the device-aware duplicate-name check, added in 2025.8.0.
@@ -10,7 +14,7 @@ esphome:
       name: "Second Bike"
 
 esp32:
-  board: esp32dev
+  board: ${board}
   framework:
     type: esp-idf
 
