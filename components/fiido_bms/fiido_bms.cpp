@@ -538,12 +538,10 @@ void FiidoBMSHub::manage_lifecycle_() {
 }
 
 void FiidoBMSHub::enqueue_pending_write_(std::function<void()> fn) {
-  if (this->pending_writes_.size() >= MAX_PENDING_WRITES) {
+  if (!this->pending_writes_.push(std::move(fn))) {
     ESP_LOGW(TAG, "[%s] pending_writes_ at cap %u - dropping oldest", this->parent_->address_str(),
              (unsigned)MAX_PENDING_WRITES);
-    this->pending_writes_.erase(this->pending_writes_.begin());
   }
-  this->pending_writes_.push_back(std::move(fn));
 }
 
 void FiidoBMSHub::dispatch_pending_writes_() {
@@ -551,8 +549,7 @@ void FiidoBMSHub::dispatch_pending_writes_() {
     return;
   ESP_LOGD(TAG, "[%s] LIFECYCLE: dispatching %u pending writes", this->parent_->address_str(),
            (unsigned)this->pending_writes_.size());
-  std::vector<std::function<void()>> writes;
-  writes.swap(this->pending_writes_);
+  std::vector<std::function<void()>> writes = this->pending_writes_.drain();
   this->last_dispatch_ms_ = millis();
   for (auto &fn : writes)
     fn();
@@ -927,10 +924,10 @@ void FiidoBMSHub::set_gear(uint8_t gear) {
     this->ensure_enabled_for_write_();
     return;
   }
-  uint8_t max_gear = (this->gear_select_ != nullptr) ? this->gear_select_->get_gear_count() : 5;
-  if (gear > max_gear) {
+  const uint8_t max_gear = (this->gear_select_ != nullptr) ? this->gear_select_->get_gear_count() : 5;
+  if (clamp_gear(gear, max_gear) != gear) {
     ESP_LOGI(TAG, "[%s] set_gear(%u) clamped to %u (active gear count)", this->parent_->address_str(), gear, max_gear);
-    gear = max_gear;
+    gear = clamp_gear(gear, max_gear);
   }
   if (!this->addr_27_valid_) {
     ESP_LOGI(TAG, "[%s] GEAR %u deferred: ADDR 0x27 cache cold", this->parent_->address_str(), gear);
@@ -999,7 +996,7 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
     }
     return;
   }
-  uint8_t encoded = (mode << 4) | (this->addr_25_cache_ & 0x0F);
+  const uint8_t encoded = encode_gear_mode(mode, this->addr_25_cache_);
   ESP_LOGI(TAG, "[%s] GEAR MODE set to %u (ADDR 0x25: 0x%02X -> 0x%02X) frame type 0xFF", this->parent_->address_str(),
            mode, this->addr_25_cache_, encoded);
   if (WriteError::NONE == this->send_raw_write(FrameType::WRITE_J0, Addr::GEAR_RANGE, std::vector<uint8_t>{encoded})) {

@@ -37,4 +37,40 @@ bool should_auto_shutdown(uint32_t now, uint32_t last_activity_ms, uint32_t idle
   return enabled && motor_on && (now - last_activity_ms) >= idle_ms;
 }
 
+WriteGate gate_write(const WriteGateInput &in) {
+  if (!in.ble_enabled)
+    return WriteGate::REJECT_BLE_DISABLED;
+  if (!in.connected)
+    return WriteGate::QUEUE_DISCONNECTED;
+  if (!in.cache_valid)
+    return WriteGate::DEFER_COLD_CACHE;
+  if (in.needs_controller && !in.controller_on)
+    return WriteGate::REJECT_CONTROLLER_OFF;
+  return WriteGate::SEND;
+}
+
+uint8_t encode_gear_mode(uint8_t mode, uint8_t cache_25) {
+  if (mode != 3 && mode != 5)
+    return cache_25;
+  return static_cast<uint8_t>((mode << 4) | (cache_25 & 0x0F));
+}
+
+uint8_t clamp_gear(uint8_t gear, uint8_t max_gear) {
+  return gear > max_gear ? max_gear : gear;
+}
+
+bool PendingWrites::push(std::function<void()> fn) {
+  const bool dropped = this->queue_.size() >= this->capacity_;
+  if (dropped)
+    this->queue_.erase(this->queue_.begin());
+  this->queue_.push_back(std::move(fn));
+  return !dropped;
+}
+
+std::vector<std::function<void()>> PendingWrites::drain() {
+  std::vector<std::function<void()>> taken;
+  taken.swap(this->queue_);
+  return taken;
+}
+
 }  // namespace esphome::fiido_bms

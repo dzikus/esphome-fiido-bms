@@ -690,6 +690,104 @@ void test_auto_shutdown_only_with_the_motor_on_and_enabled() {
   TEST_ASSERT_FALSE(should_auto_shutdown(19999, 5000, 15000, true, true));
 }
 
+static WriteGateInput gate_base() {
+  WriteGateInput in{};
+  in.ble_enabled = true;
+  in.connected = true;
+  in.cache_valid = true;
+  return in;
+}
+
+void test_write_gate_ladder_order() {
+  WriteGateInput in = gate_base();
+  TEST_ASSERT_EQUAL(WriteGate::SEND, gate_write(in));
+
+  in.cache_valid = false;
+  TEST_ASSERT_EQUAL(WriteGate::DEFER_COLD_CACHE, gate_write(in));
+  in.connected = false;
+  TEST_ASSERT_EQUAL(WriteGate::QUEUE_DISCONNECTED, gate_write(in));
+  in.ble_enabled = false;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_BLE_DISABLED, gate_write(in));
+}
+
+void test_write_gate_controller_only_when_required() {
+  WriteGateInput in = gate_base();
+  in.controller_on = false;
+  in.needs_controller = false;
+  TEST_ASSERT_EQUAL(WriteGate::SEND, gate_write(in));
+  in.needs_controller = true;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_CONTROLLER_OFF, gate_write(in));
+  in.controller_on = true;
+  TEST_ASSERT_EQUAL(WriteGate::SEND, gate_write(in));
+}
+
+void test_write_gate_cold_cache_beats_controller_check() {
+  WriteGateInput in = gate_base();
+  in.cache_valid = false;
+  in.needs_controller = true;
+  in.controller_on = false;
+  TEST_ASSERT_EQUAL(WriteGate::DEFER_COLD_CACHE, gate_write(in));
+}
+
+void test_encode_gear_mode_preserves_the_low_nibble() {
+  TEST_ASSERT_EQUAL_UINT8(0x35, encode_gear_mode(3, 0x55));
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(5, 0x35));
+  TEST_ASSERT_EQUAL_UINT8(0x30, encode_gear_mode(3, 0x50));
+}
+
+void test_encode_gear_mode_refuses_anything_but_3_or_5() {
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(4, 0x55));
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(0, 0x55));
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(255, 0x55));
+}
+
+void test_clamp_gear_holds_the_ceiling() {
+  TEST_ASSERT_EQUAL_UINT8(3, clamp_gear(9, 3));
+  TEST_ASSERT_EQUAL_UINT8(2, clamp_gear(2, 3));
+  TEST_ASSERT_EQUAL_UINT8(0, clamp_gear(0, 3));
+}
+
+void test_pending_writes_drops_the_oldest_at_capacity() {
+  PendingWrites q(3);
+  std::vector<int> ran;
+  for (int i = 0; i < 3; i++)
+    TEST_ASSERT_TRUE(q.push([&ran, i]() { ran.push_back(i); }));
+  TEST_ASSERT_FALSE(q.push([&ran]() { ran.push_back(99); }));
+  TEST_ASSERT_EQUAL_UINT(3, q.size());
+  for (auto &fn : q.drain())
+    fn();
+  TEST_ASSERT_EQUAL_INT(3, (int)ran.size());
+  TEST_ASSERT_EQUAL_INT(1, ran[0]);
+  TEST_ASSERT_EQUAL_INT(2, ran[1]);
+  TEST_ASSERT_EQUAL_INT(99, ran[2]);
+}
+
+void test_pending_writes_drain_empties_the_queue() {
+  PendingWrites q(4);
+  q.push([]() {});
+  TEST_ASSERT_FALSE(q.empty());
+  auto taken = q.drain();
+  TEST_ASSERT_EQUAL_UINT(1, taken.size());
+  TEST_ASSERT_TRUE(q.empty());
+  TEST_ASSERT_EQUAL_UINT(0, q.drain().size());
+}
+
+void test_pending_writes_requeue_during_drain_waits_for_the_next_one() {
+  PendingWrites q(4);
+  int ran = 0;
+  q.push([&q, &ran]() {
+    ran++;
+    q.push([&ran]() { ran += 10; });
+  });
+  for (auto &fn : q.drain())
+    fn();
+  TEST_ASSERT_EQUAL_INT(1, ran);
+  TEST_ASSERT_EQUAL_UINT(1, q.size());
+  for (auto &fn : q.drain())
+    fn();
+  TEST_ASSERT_EQUAL_INT(11, ran);
+}
+
 int main() {
   UNITY_BEGIN();
 
@@ -792,6 +890,15 @@ int main() {
   RUN_TEST(test_speed_limit_option_needs_the_enable_bit);
   RUN_TEST(test_should_log_now_lets_the_first_one_through);
   RUN_TEST(test_auto_shutdown_only_with_the_motor_on_and_enabled);
+  RUN_TEST(test_write_gate_ladder_order);
+  RUN_TEST(test_write_gate_controller_only_when_required);
+  RUN_TEST(test_write_gate_cold_cache_beats_controller_check);
+  RUN_TEST(test_encode_gear_mode_preserves_the_low_nibble);
+  RUN_TEST(test_encode_gear_mode_refuses_anything_but_3_or_5);
+  RUN_TEST(test_clamp_gear_holds_the_ceiling);
+  RUN_TEST(test_pending_writes_drops_the_oldest_at_capacity);
+  RUN_TEST(test_pending_writes_drain_empties_the_queue);
+  RUN_TEST(test_pending_writes_requeue_during_drain_waits_for_the_next_one);
 
   return UNITY_END();
 }

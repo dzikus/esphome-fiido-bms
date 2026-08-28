@@ -18,6 +18,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "fiido_protocol.h"
+#include "fiido_state.h"
 
 namespace esphome::fiido_bms {
 
@@ -311,7 +312,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint32_t disconnected_since_ms_{0};
   uint32_t probe_started_ms_{0};
   uint32_t last_dispatch_ms_{0};
-  std::vector<std::function<void()>> pending_writes_;
+  PendingWrites pending_writes_{MAX_PENDING_WRITES};
 
   bool poll_enabled_battery_{false};
   bool poll_enabled_ctrl_{false};
