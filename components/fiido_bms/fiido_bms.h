@@ -201,12 +201,6 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t LIFECYCLE_TICK_MS = 1000;
   // Minimum gap between two enforce_gear_mode_3 writes triggered by parse_stats_.
   static constexpr uint32_t ENFORCE_GEAR_MODE_3_COOLDOWN_MS = 60000;
-  // Frame CRC is a plain XOR, so a corrupted frame can still validate.
-  // Sample outside these bounds is dropped, last published value stays.
-  static constexpr float MAX_TOTAL_KM = 200000.0f;
-  static constexpr float MAX_TRIP_KM = 1000.0f;
-  static constexpr float MAX_SPEED_KMH = 100.0f;
-  static constexpr uint8_t MAX_SOC_PCT = 100;
   static constexpr int16_t MIN_MOTOR_TEMP_C = -40;
   static constexpr int16_t MAX_MOTOR_TEMP_C = 125;
   // Rate limit for rejected-frame logs; a fragmented stream rejects every frame.

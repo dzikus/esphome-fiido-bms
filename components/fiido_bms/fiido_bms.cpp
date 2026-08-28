@@ -770,7 +770,7 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   this->prev_motor_on_ = motor_on;
   // Activity signals from STATS: gear change, non-zero speed, light toggle.
   uint8_t gear = p[stats::ADDR_26_OFFSET];
-  uint16_t speed_raw = u16be(p, 29);
+  uint16_t speed_raw = u16be(p, stats::SPEED_OFFSET);
   if (gear != this->prev_gear_)
     this->mark_activity_("gear");
   this->prev_gear_ = gear;
@@ -821,9 +821,10 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   ESP_LOGV(TAG,
            "[%s] STATS speed=%.1f km=%.1f total=%.1fkm gear=%u SOC=%u%% addr25=0x%02X addr27=0x%02X addr2A=0x%02X "
            "addr2C=0x%02X motor=%s idle=%us",
-           this->parent_->address_str(), u16be(p, 29) / 10.0, u16be(p, 27) / 10.0, u32be(p, 23) / 10.0, gear,
-           p[stats::ADDR_24_OFFSET], p[stats::ADDR_25_OFFSET], p[stats::ADDR_27_OFFSET], p[stats::ADDR_2A_OFFSET],
-           p[stats::ADDR_2C_OFFSET], motor_on ? "ON" : "OFF", (unsigned)((millis() - this->last_activity_ms_) / 1000));
+           this->parent_->address_str(), u16be(p, stats::SPEED_OFFSET) / 10.0, u16be(p, stats::TRIP_KM_OFFSET) / 10.0,
+           u32be(p, stats::TOTAL_KM_OFFSET) / 10.0, gear, p[stats::ADDR_24_OFFSET], p[stats::ADDR_25_OFFSET],
+           p[stats::ADDR_27_OFFSET], p[stats::ADDR_2A_OFFSET], p[stats::ADDR_2C_OFFSET], motor_on ? "ON" : "OFF",
+           (unsigned)((millis() - this->last_activity_ms_) / 1000));
 }
 
 void FiidoBMSHub::set_motor_enable(bool on) {
