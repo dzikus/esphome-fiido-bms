@@ -136,6 +136,29 @@ enum class ProbeOutcome : uint8_t {
 
 [[nodiscard]] bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok);
 
+// What the rider is doing, as far as one STATS frame can tell.
+struct RideState {
+  uint8_t gear;
+  bool motor_on;
+  bool light_on;
+};
+
+struct ActivitySignals {
+  bool motor_turned_on;
+  bool gear_changed;
+  bool moving;
+  bool light_changed;
+
+  [[nodiscard]] bool any() const {
+    return this->motor_turned_on || this->gear_changed || this->moving || this->light_changed;
+  }
+};
+
+[[nodiscard]] ActivitySignals detect_activity(const RideState &prev, const RideState &now, uint16_t speed_raw);
+
+// 0 while the motor is on, otherwise the timestamp the OFF window opened.
+[[nodiscard]] uint32_t track_motor_off(uint32_t since_ms, bool motor_on, uint32_t now);
+
 // Registers cached for read-modify-write.
 inline constexpr std::array<Addr, 11> CACHED_REGISTERS{
     Addr::GEAR_RANGE, Addr::FLAGS_27,    Addr::FLAGS_28,  Addr::FLAGS_2B, Addr::FLAGS_2C,   Addr::FLAGS_38,

@@ -19,6 +19,21 @@ StatsSamples stats_samples(const StatsView &view) {
   return out;
 }
 
+ActivitySignals detect_activity(const RideState &prev, const RideState &now, uint16_t speed_raw) {
+  return {
+      .motor_turned_on = now.motor_on && !prev.motor_on,
+      .gear_changed = now.gear != prev.gear,
+      .moving = speed_raw > 0,
+      .light_changed = now.light_on != prev.light_on,
+  };
+}
+
+uint32_t track_motor_off(uint32_t since_ms, bool motor_on, uint32_t now) {
+  if (motor_on)
+    return 0;
+  return since_ms != 0 ? since_ms : now;
+}
+
 LifecycleAction decide_lifecycle(const LifecycleInput &in) {
   if (in.enabled && in.connected) {
     if (in.motor_off_since_ms != 0 && (in.now - in.motor_off_since_ms) >= in.idle_disconnect_ms && !in.pending_writes)

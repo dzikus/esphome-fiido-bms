@@ -171,9 +171,7 @@ void FiidoBMSHub::reset_session_state_() {
   this->burst_retry_ = 0;
   // The bike can change while the link is down.
   this->registers_.clear();
-  this->prev_motor_on_ = false;
-  this->prev_light_on_ = false;
-  this->prev_gear_ = 0xFF;
+  this->prev_ride_ = {.gear = 0xFF, .motor_on = false, .light_on = false};
   this->last_dispatch_ms_ = 0;
   this->last_bad_notify_log_ms_ = 0;
   this->bad_notify_count_ = 0;
@@ -632,9 +630,7 @@ void FiidoBMSHub::set_ble_user_enabled(bool en) {
     this->motor_off_since_ms_ = 0;
     // No DISCONNECT_EVT fires when re-enabling from already-disconnected state.
     this->last_activity_ms_ = millis();
-    this->prev_motor_on_ = false;
-    this->prev_light_on_ = false;
-    this->prev_gear_ = 0xFF;
+    this->prev_ride_ = {.gear = 0xFF, .motor_on = false, .light_on = false};
     ESP_LOGI(TAG, "[%s] BLE user-enabled, starting probe", this->parent_->address_str());
   }
 }
@@ -753,19 +749,13 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
       entity->publish_state(f.*(control.state));
   }
 
-  // Auto-shutdown idle tracking.
-  // Edge motor OFF -> ON: reset idle timer to give the user a grace period.
-  if (motor_on && !this->prev_motor_on_) {
-    this->last_activity_ms_ = millis();
-    ESP_LOGD(TAG, "[%s] motor ON edge -> idle timer reset", this->parent_->address_str());
-  }
   // Edge motor ON -> OFF (physical button): BMS persists bit 3 across the
   // OFF/ON cycle so the bike would come back ON with stale lights. Clear
   // bit 3 now while the link is still live.
   // Byte built from the cache, not p[]: dispatch above may have set other bits in
   // 0x27 already and writing p[] back would undo them.
   const uint8_t cache_27 = this->registers_.value_or<Addr::FLAGS_27>(0);
-  if (should_clear_light_bit(this->ble_user_enabled_, this->prev_motor_on_, motor_on, cache_27)) {
+  if (should_clear_light_bit(this->ble_user_enabled_, this->prev_ride_.motor_on, motor_on, cache_27)) {
     const uint8_t b = cache_27 & ~0x08;
     ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)", this->parent_->address_str(),
              cache_27, b);
@@ -775,18 +765,17 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
       ESP_LOGW(TAG, "[%s] WRITE 0x27 (light auto-clear) failed - cache not updated", this->parent_->address_str());
     }
   }
-  this->prev_motor_on_ = motor_on;
-  // Activity signals from STATS: gear change, non-zero speed, light toggle.
-  uint8_t gear = p[stats::ADDR_26_OFFSET];
-  uint16_t speed_raw = u16be(p, stats::SPEED_OFFSET);
-  if (gear != this->prev_gear_)
+  const RideState ride{.gear = p[stats::ADDR_26_OFFSET], .motor_on = motor_on, .light_on = light_on};
+  const ActivitySignals activity = detect_activity(this->prev_ride_, ride, u16be(p, stats::SPEED_OFFSET));
+  this->prev_ride_ = ride;
+  if (activity.motor_turned_on)
+    this->mark_activity_("motor on");
+  if (activity.gear_changed)
     this->mark_activity_("gear");
-  this->prev_gear_ = gear;
-  if (speed_raw > 0)
+  if (activity.moving)
     this->mark_activity_("speed");
-  if (light_on != this->prev_light_on_)
+  if (activity.light_changed)
     this->mark_activity_("light");
-  this->prev_light_on_ = light_on;
   // Trigger auto-shutdown after IDLE_SHUTDOWN_MS of no activity (if enabled).
   if (should_auto_shutdown(millis(), this->last_activity_ms_, IDLE_SHUTDOWN_MS, this->auto_shutdown_enabled_,
                            motor_on)) {
@@ -796,17 +785,11 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
     this->set_motor_enable(false);
   }
 
-  // Lifecycle: track motor OFF duration for idle disconnect. Cleared on motor ON.
-  if (!motor_on) {
-    if (this->motor_off_since_ms_ == 0) {
-      this->motor_off_since_ms_ = millis();
-      ESP_LOGD(TAG, "[%s] LIFECYCLE: motor OFF -> idle disconnect timer started", this->parent_->address_str());
-    }
-  } else {
-    if (this->motor_off_since_ms_ != 0) {
-      ESP_LOGD(TAG, "[%s] LIFECYCLE: motor ON -> idle disconnect timer cleared", this->parent_->address_str());
-      this->motor_off_since_ms_ = 0;
-    }
+  const uint32_t motor_off_since = track_motor_off(this->motor_off_since_ms_, motor_on, millis());
+  if (motor_off_since != this->motor_off_since_ms_) {
+    ESP_LOGD(TAG, "[%s] LIFECYCLE: idle disconnect timer %s", this->parent_->address_str(),
+             motor_off_since != 0 ? "started" : "cleared");
+    this->motor_off_since_ms_ = motor_off_since;
   }
 
   // Probe done: motor_on -> stay; verify window still open -> stay; else drop.

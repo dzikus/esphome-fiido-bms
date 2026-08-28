@@ -84,6 +84,34 @@ static void test_lifecycle_survives_the_millis_wrap() {
   TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
 }
 
+static void test_activity_reports_every_signal_independently() {
+  const RideState off{.gear = 0, .motor_on = false, .light_on = false};
+  TEST_ASSERT_FALSE(detect_activity(off, off, 0).any());
+
+  const RideState on{.gear = 0, .motor_on = true, .light_on = false};
+  TEST_ASSERT_TRUE(detect_activity(off, on, 0).motor_turned_on);
+  TEST_ASSERT_FALSE(detect_activity(on, on, 0).motor_turned_on);
+  TEST_ASSERT_FALSE(detect_activity(on, off, 0).motor_turned_on);
+
+  const RideState geared{.gear = 2, .motor_on = false, .light_on = false};
+  TEST_ASSERT_TRUE(detect_activity(off, geared, 0).gear_changed);
+
+  const RideState lit{.gear = 0, .motor_on = false, .light_on = true};
+  TEST_ASSERT_TRUE(detect_activity(off, lit, 0).light_changed);
+  TEST_ASSERT_TRUE(detect_activity(lit, off, 0).light_changed);
+
+  TEST_ASSERT_TRUE(detect_activity(off, off, 1).moving);
+  TEST_ASSERT_FALSE(detect_activity(off, off, 0).moving);
+}
+
+static void test_motor_off_window_opens_once_and_clears_on_motor_on() {
+  TEST_ASSERT_EQUAL_UINT32(5000, track_motor_off(0, false, 5000));
+  // Second frame with the motor still off keeps the original timestamp.
+  TEST_ASSERT_EQUAL_UINT32(5000, track_motor_off(5000, false, 9000));
+  TEST_ASSERT_EQUAL_UINT32(0, track_motor_off(5000, true, 9000));
+  TEST_ASSERT_EQUAL_UINT32(0, track_motor_off(0, true, 9000));
+}
+
 static void test_should_log_now_lets_the_first_one_through() {
   TEST_ASSERT_TRUE(should_log_now(0, 0, 5000));
   TEST_ASSERT_TRUE(should_log_now(1, 0, 5000));
@@ -317,6 +345,8 @@ void run_state_tests() {
   RUN_TEST(test_lifecycle_probe_timeout_waits_for_the_write_verify_window);
   RUN_TEST(test_lifecycle_disconnected_probes_on_its_period);
   RUN_TEST(test_lifecycle_survives_the_millis_wrap);
+  RUN_TEST(test_activity_reports_every_signal_independently);
+  RUN_TEST(test_motor_off_window_opens_once_and_clears_on_motor_on);
   RUN_TEST(test_should_log_now_lets_the_first_one_through);
   RUN_TEST(test_auto_shutdown_only_with_the_motor_on_and_enabled);
   RUN_TEST(test_write_gate_ladder_order);

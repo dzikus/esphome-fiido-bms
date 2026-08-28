@@ -355,9 +355,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   bool force_poll_stats_{false};
 
   uint32_t last_activity_ms_{0};
-  uint8_t prev_gear_{0xFF};
-  bool prev_light_on_{false};
-  bool prev_motor_on_{false};
+  RideState prev_ride_{.gear = 0xFF, .motor_on = false, .light_on = false};
   bool auto_shutdown_enabled_{true};
 
   uint32_t motor_off_since_ms_{0};
