@@ -31,11 +31,16 @@ fi
 
 config_dir="$(dirname "${repo_dir}/${ci_config}")"
 # The tree can hold several build dirs; take the one this run just wrote.
-# Several build dirs can coexist, and each has a bootloader sub-build of its own.
-db="$(find "${config_dir}/.esphome/build" -name compile_commands.json -path '*/build/*' \
-  -not -path '*/bootloader/*' -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)"
-if [[ -z "${db}" ]]; then
-  echo "esphome produced no compile_commands.json under ${config_dir}/.esphome" >&2
+# Other configs share .esphome/build; the newest database there can be for a
+# different board. Go by the name esphome builds under, not by mtime.
+name="$(sed -n '/^esphome:/,/^[a-z]/p' "${repo_dir}/${ci_config}" | sed -n 's/^  name: *//p' | head -1)"
+if [[ -z "${name}" ]]; then
+  echo "cannot read esphome.name from ${ci_config}" >&2
+  exit 1
+fi
+db="${config_dir}/.esphome/build/${name}/build/compile_commands.json"
+if [[ ! -f "${db}" ]]; then
+  echo "no compile database at ${db}" >&2
   exit 1
 fi
 
