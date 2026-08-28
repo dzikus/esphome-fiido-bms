@@ -28,6 +28,53 @@ constexpr const char *FIIDO_BMS_TAG = "fiido_bms";
 namespace espbt = esphome::esp32_ble_tracker;
 
 class FiidoGearSelect;
+class FiidoBMSHub;
+
+// Row order in FLAG_CONTROLS.
+enum class FlagId : size_t {
+  SPEAKER = 0,
+  KEY_SOUND,
+  THROTTLE,
+  SLOW_MODE,
+  CRUISE,
+  START_MODE,
+  INSENSITIVITY,
+  SHOW_TOTAL_KM,
+  AUTO_SCREEN_OFF,
+  RING,
+  DOUBLE_SPEED,
+  BIKE_GUARD,
+  COUNT,
+};
+
+// Speaker is 00 audible / 01 silent; 0x2C bit 4 and 0x2B bit 1 read inverted.
+struct FlagControl {
+  Addr addr;
+  size_t slot;
+  uint8_t mask;
+  uint8_t bits_on;
+  uint8_t bits_off;
+  const char *name;
+  switch_::Switch *FiidoBMSHub::*entity;
+  bool FlagView::*state;
+};
+
+// Row order in BYTE_CONTROLS.
+enum class ByteId : size_t {
+  BRIGHTNESS = 0,
+  BOOST,
+  GUARD_TIME,
+  COUNT,
+};
+
+// Whole-byte writes, no mask.
+struct ByteControl {
+  FrameType type;
+  Addr addr;
+  size_t slot;
+  const char *name;
+  number::Number *FiidoBMSHub::*entity;
+};
 
 class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
  public:
@@ -144,8 +191,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   void set_gear_select(FiidoGearSelect *s) { this->gear_select_ = s; }
 
-  void enable_boost_poll() { this->poll_enabled_boost_ = true; }
-  void enable_display_poll() { this->poll_enabled_display_ = true; }
+  void enable_boost_poll() { this->poll_enabled_[poll_index(Addr::PAS_BOOST)] = true; }
+  void enable_display_poll() { this->poll_enabled_[poll_index(Addr::DISPLAY)] = true; }
 
   void set_auto_shutdown_enabled(bool en);
 
@@ -154,13 +201,51 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void set_idle_disconnect_ms(uint32_t ms) { this->idle_disconnect_ms_ = ms; }
   void set_enforce_gear_mode_3(bool en) { this->enforce_gear_mode_3_ = en; }
 
-  void enable_battery_poll() { this->poll_enabled_battery_ = true; }
-  void enable_ctrl_poll() { this->poll_enabled_ctrl_ = true; }
-  void enable_motor_poll() { this->poll_enabled_motor_ = true; }
-  void enable_energy_poll() { this->poll_enabled_energy_ = true; }
-  void enable_meter_poll() { this->poll_enabled_meter_ = true; }
+  void enable_battery_poll() { this->poll_enabled_[poll_index(Addr::BATTERY)] = true; }
+  void enable_ctrl_poll() { this->poll_enabled_[poll_index(Addr::CTRL)] = true; }
+  void enable_motor_poll() { this->poll_enabled_[poll_index(Addr::MOTOR)] = true; }
+  void enable_energy_poll() { this->poll_enabled_[poll_index(Addr::ENERGY)] = true; }
+  void enable_meter_poll() { this->poll_enabled_[poll_index(Addr::METER)] = true; }
 
  protected:
+  static constexpr std::array<FlagControl, 12> FLAG_CONTROLS{{
+      {Addr::FLAGS_38, cache_slot(Addr::FLAGS_38), 0x0C, 0x00, 0x04, "SPEAKER", &FiidoBMSHub::speaker_switch_,
+       &FlagView::speaker_audible},
+      {Addr::FLAGS_2C, cache_slot(Addr::FLAGS_2C), 0x10, 0x00, 0x10, "KEY_SOUND", &FiidoBMSHub::key_sound_switch_,
+       &FlagView::key_sound_on},
+      {Addr::FLAGS_2B, cache_slot(Addr::FLAGS_2B), 0x02, 0x00, 0x02, "THROTTLE", &FiidoBMSHub::throttle_switch_,
+       &FlagView::throttle_on},
+      {Addr::FLAGS_2C, cache_slot(Addr::FLAGS_2C), 0x40, 0x40, 0x00, "SLOW_MODE", &FiidoBMSHub::slow_mode_switch_,
+       &FlagView::slow_mode_on},
+      {Addr::FLAGS_27, cache_slot(Addr::FLAGS_27), 0x40, 0x40, 0x00, "CRUISE", &FiidoBMSHub::cruise_switch_,
+       &FlagView::cruise_on},
+      {Addr::FLAGS_27, cache_slot(Addr::FLAGS_27), 0x02, 0x02, 0x00, "START_MODE", &FiidoBMSHub::start_mode_switch_,
+       &FlagView::start_mode_on},
+      {Addr::FLAGS_27, cache_slot(Addr::FLAGS_27), 0x01, 0x01, 0x00, "INSENS", &FiidoBMSHub::insensitivity_switch_,
+       &FlagView::insensitivity_on},
+      {Addr::FLAGS_28, cache_slot(Addr::FLAGS_28), 0x40, 0x40, 0x00, "SHOW_TOTAL_KM",
+       &FiidoBMSHub::show_total_km_switch_, &FlagView::show_total_km_on},
+      {Addr::FLAGS_39, cache_slot(Addr::FLAGS_39), 0x08, 0x08, 0x00, "AUTO_SCREEN_OFF",
+       &FiidoBMSHub::auto_screen_off_switch_, &FlagView::auto_screen_off_on},
+      {Addr::FLAGS_39, cache_slot(Addr::FLAGS_39), 0x02, 0x02, 0x00, "RING", &FiidoBMSHub::ring_switch_,
+       &FlagView::ring_on},
+      {Addr::FLAGS_2B, cache_slot(Addr::FLAGS_2B), 0x20, 0x20, 0x00, "DOUBLE_SPEED", &FiidoBMSHub::double_speed_switch_,
+       &FlagView::double_speed_on},
+      {Addr::FLAGS_2B, cache_slot(Addr::FLAGS_2B), 0x40, 0x40, 0x00, "BIKE_GUARD", &FiidoBMSHub::bike_guard_switch_,
+       &FlagView::bike_guard_on},
+  }};
+  static_assert(FLAG_CONTROLS.size() == static_cast<size_t>(FlagId::COUNT), "FlagId and FLAG_CONTROLS disagree");
+  void set_flag_(FlagId id, bool on);
+
+  static constexpr std::array<ByteControl, 3> BYTE_CONTROLS{{
+      {FrameType::WRITE_J0, Addr::DISPLAY, cache_slot(Addr::DISPLAY), "BRIGHTNESS", &FiidoBMSHub::brightness_number_},
+      {FrameType::WRITE_L0, Addr::PAS_BOOST, cache_slot(Addr::PAS_BOOST), "BOOST", &FiidoBMSHub::boost_number_},
+      {FrameType::WRITE_J0, Addr::GUARD_TIME, cache_slot(Addr::GUARD_TIME), "GUARD_TIME",
+       &FiidoBMSHub::guard_time_number_},
+  }};
+  static_assert(BYTE_CONTROLS.size() == static_cast<size_t>(ByteId::COUNT), "ByteId and BYTE_CONTROLS disagree");
+  void set_byte_(ByteId id, float value);
+
   static constexpr uint32_t BURST_INTERVAL_MS = 5;
   static constexpr uint32_t BURST_RETRY_MS = 50;
   static constexpr uint8_t BURST_SEND_RETRIES = 2;
@@ -214,8 +299,15 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void republish_speed_unit_();
   void republish_speed_limit_();
   [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name, PendingWrite retry);
-  void write_masked_bits_(Addr addr, uint8_t mask, uint8_t bits, std::optional<uint8_t> &cache, const char *name);
-  void write_flag_bit_(Addr addr, uint8_t mask, bool set, std::optional<uint8_t> &cache, const char *name);
+  template <Addr A>
+  void write_masked_bits_(uint8_t mask, uint8_t bits, const char *name) {
+    this->write_masked_bits_(A, cache_slot(A), mask, bits, name);
+  }
+  template <Addr A>
+  void write_flag_bit_(uint8_t mask, bool set, const char *name) {
+    this->write_masked_bits_<A>(mask, set ? mask : 0x00, name);
+  }
+  void write_masked_bits_(Addr addr, size_t slot, uint8_t mask, uint8_t bits, const char *name);
   // Raw 1-byte value write (no bit-masking) for number entities. False when the
   // frame did not go out, so the caller keeps its cache and entity unchanged.
   [[nodiscard]] bool write_value_byte_(FrameType type, Addr addr, uint8_t value, const char *name);
@@ -241,21 +333,9 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   bool ble_user_enabled_{true};
 
-  // Bit-masked write cache, empty until the poll that fills it lands.
-  std::optional<uint8_t> addr_25_;  // gear range, nibble-encoded
-  std::optional<uint8_t> addr_27_;  // motor/light/cruise/speed_limit
-  std::optional<uint8_t> addr_28_;
-  std::optional<uint8_t> addr_2b_;
-  std::optional<uint8_t> addr_2c_;
-  std::optional<uint8_t> addr_38_;
-  // Only bits 4..0 of 0x39 are defined; the cache keeps those and a write
+  // Only bits 4..0 of ADDR 0x39 are defined; the cache keeps those and a write
   // builds from them.
-  std::optional<uint8_t> addr_39_;
-  std::optional<uint8_t> addr_3c_;  // speed limit value, separate poll
-  std::optional<uint8_t> addr_52_;  // boost level, separate poll
-  // Display poll fills both or neither.
-  std::optional<uint8_t> addr_57_;  // brightness
-  std::optional<uint8_t> addr_58_;  // guard time
+  RegisterCache registers_;
 
   uint32_t update_interval_on_ms_{3000};
   uint32_t update_interval_off_ms_{15000};
@@ -284,13 +364,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint32_t last_dispatch_ms_{0};
   PendingWrites pending_writes_;
 
-  bool poll_enabled_battery_{false};
-  bool poll_enabled_ctrl_{false};
-  bool poll_enabled_motor_{false};
-  bool poll_enabled_energy_{false};
-  bool poll_enabled_meter_{false};
-  bool poll_enabled_boost_{false};
-  bool poll_enabled_display_{false};
+  std::array<bool, POLL_TABLE_SIZE> poll_enabled_{default_poll_enables()};
 };
 
 }  // namespace esphome::fiido_bms

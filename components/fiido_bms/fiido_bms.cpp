@@ -210,17 +210,7 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       this->burst_retry_ = 0;
       this->publish_connected_(false);
       // Bike state may change while disconnected; need fresh STATS post-reconnect.
-      this->addr_27_.reset();
-      this->addr_25_.reset();
-      this->addr_28_.reset();
-      this->addr_2b_.reset();
-      this->addr_2c_.reset();
-      this->addr_38_.reset();
-      this->addr_39_.reset();
-      this->addr_3c_.reset();
-      this->addr_52_.reset();
-      this->addr_57_.reset();
-      this->addr_58_.reset();
+      this->registers_.clear();
       this->prev_motor_on_ = false;
       this->prev_light_on_ = false;
       this->prev_gear_ = 0xFF;
@@ -409,37 +399,8 @@ void FiidoBMSHub::send_burst_poll_() {
     this->burst_remaining_ = 0;
     return;
   }
-  // STATS (0x05) and SPEEDLIM (0x3C) are backbone, others gated by per-poll enable.
-  bool enabled[POLL_TABLE_SIZE];
-  for (size_t i = 0; i < POLL_TABLE_SIZE; i++) {
-    switch (POLL_TABLE[i].addr) {
-      case Addr::BATTERY:
-        enabled[i] = this->poll_enabled_battery_;
-        break;
-      case Addr::CTRL:
-        enabled[i] = this->poll_enabled_ctrl_;
-        break;
-      case Addr::MOTOR:
-        enabled[i] = this->poll_enabled_motor_;
-        break;
-      case Addr::ENERGY:
-        enabled[i] = this->poll_enabled_energy_;
-        break;
-      case Addr::METER:
-        enabled[i] = this->poll_enabled_meter_;
-        break;
-      case Addr::PAS_BOOST:
-        enabled[i] = this->poll_enabled_boost_;
-        break;
-      case Addr::DISPLAY:
-        enabled[i] = this->poll_enabled_display_;
-        break;
-      default:
-        enabled[i] = true;
-    }
-  }
   const PollCursor cursor =
-      skip_disabled_polls({.index = this->burst_idx_, .remaining = this->burst_remaining_}, enabled);
+      skip_disabled_polls({.index = this->burst_idx_, .remaining = this->burst_remaining_}, this->poll_enabled_);
   this->burst_idx_ = cursor.index;
   this->burst_remaining_ = cursor.remaining;
   if (this->burst_remaining_ == 0)
@@ -750,21 +711,23 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   // ADDR 0x2A bit 5 = brake. Not user-verified on physical bike yet.
   publish_changed(this->brake_binary_sensor_, sv.brake);
 
-  this->addr_25_ = sv.b25;
-  this->addr_27_ = sv.b27;
-  this->addr_28_ = sv.b28;
-  this->addr_2b_ = sv.b2b;
-  this->addr_2c_ = sv.b2c;
-  this->addr_38_ = sv.b38;
-  this->addr_39_ = sv.b39;
+  this->registers_.set<Addr::GEAR_RANGE>(sv.b25);
+  this->registers_.set<Addr::FLAGS_27>(sv.b27);
+  this->registers_.set<Addr::FLAGS_28>(sv.b28);
+  this->registers_.set<Addr::FLAGS_2B>(sv.b2b);
+  this->registers_.set<Addr::FLAGS_2C>(sv.b2c);
+  this->registers_.set<Addr::FLAGS_38>(sv.b38);
+  this->registers_.set<Addr::FLAGS_39>(sv.b39);
 
   this->dispatch_pending_writes_();
 
   // Entity sync reads the caches, which dispatch may have just moved on; sv holds
   // the payload the write was built from. Behaviour below stays on sv, so
   // auto-shutdown and lifecycle act on state the bike confirmed.
-  const FlagView f = decode_flags(this->addr_27_.value_or(0), this->addr_28_.value_or(0), this->addr_2b_.value_or(0),
-                                  this->addr_2c_.value_or(0), this->addr_38_.value_or(0), this->addr_39_.value_or(0));
+  const FlagView f =
+      decode_flags(this->registers_.value_or<Addr::FLAGS_27>(0), this->registers_.value_or<Addr::FLAGS_28>(0),
+                   this->registers_.value_or<Addr::FLAGS_2B>(0), this->registers_.value_or<Addr::FLAGS_2C>(0),
+                   this->registers_.value_or<Addr::FLAGS_38>(0), this->registers_.value_or<Addr::FLAGS_39>(0));
 
   publish_changed(this->pas_limit_binary_sensor_, f.pas_limit_on);
 
@@ -786,8 +749,8 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   }
   // STATS arrives more often than the 0x3C poll, so publish whichever combination
   // is on hand.
-  if (this->speed_limit_select_ != nullptr && this->addr_3c_.has_value()) {
-    const char *opt = resolve_speed_limit_option(*this->addr_3c_, f.speed_limit_on);
+  if (this->speed_limit_select_ != nullptr && this->registers_.has<Addr::SPEED_LIMIT>()) {
+    const char *opt = resolve_speed_limit_option(*this->registers_.get<Addr::SPEED_LIMIT>(), f.speed_limit_on);
     if (opt != nullptr) {
       publish_changed(this->speed_limit_select_, opt);
     }
@@ -798,30 +761,11 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   if (this->speed_unit_select_ != nullptr) {
     publish_changed(this->speed_unit_select_, f.speed_unit_mph ? "mph" : "km/h");
   }
-  if (this->speaker_switch_ != nullptr)
-    this->speaker_switch_->publish_state(f.speaker_audible);
-  if (this->key_sound_switch_ != nullptr)
-    this->key_sound_switch_->publish_state(f.key_sound_on);
-  if (this->throttle_switch_ != nullptr)
-    this->throttle_switch_->publish_state(f.throttle_on);
-  if (this->slow_mode_switch_ != nullptr)
-    this->slow_mode_switch_->publish_state(f.slow_mode_on);
-  if (this->cruise_switch_ != nullptr)
-    this->cruise_switch_->publish_state(f.cruise_on);
-  if (this->start_mode_switch_ != nullptr)
-    this->start_mode_switch_->publish_state(f.start_mode_on);
-  if (this->insensitivity_switch_ != nullptr)
-    this->insensitivity_switch_->publish_state(f.insensitivity_on);
-  if (this->show_total_km_switch_ != nullptr)
-    this->show_total_km_switch_->publish_state(f.show_total_km_on);
-  if (this->auto_screen_off_switch_ != nullptr)
-    this->auto_screen_off_switch_->publish_state(f.auto_screen_off_on);
-  if (this->ring_switch_ != nullptr)
-    this->ring_switch_->publish_state(f.ring_on);
-  if (this->double_speed_switch_ != nullptr)
-    this->double_speed_switch_->publish_state(f.double_speed_on);
-  if (this->bike_guard_switch_ != nullptr)
-    this->bike_guard_switch_->publish_state(f.bike_guard_on);
+  for (const FlagControl &control : FLAG_CONTROLS) {
+    switch_::Switch *entity = this->*(control.entity);
+    if (entity != nullptr)
+      entity->publish_state(f.*(control.state));
+  }
 
   // Auto-shutdown idle tracking.
   // Edge motor OFF -> ON: reset idle timer to give the user a grace period.
@@ -834,13 +778,13 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   // bit 3 now while the link is still live.
   // Byte built from the cache, not p[]: dispatch above may have set other bits in
   // 0x27 already and writing p[] back would undo them.
-  const uint8_t cache_27 = this->addr_27_.value_or(0);
+  const uint8_t cache_27 = this->registers_.value_or<Addr::FLAGS_27>(0);
   if (should_clear_light_bit(this->ble_user_enabled_, this->prev_motor_on_, motor_on, cache_27)) {
     const uint8_t b = cache_27 & ~0x08;
     ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)", this->parent_->address_str(),
              cache_27, b);
     if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b})) {
-      this->addr_27_ = b;
+      this->registers_.set<Addr::FLAGS_27>(b);
     } else {
       ESP_LOGW(TAG, "[%s] WRITE 0x27 (light auto-clear) failed - cache not updated", this->parent_->address_str());
     }
@@ -923,12 +867,13 @@ void FiidoBMSHub::set_motor_enable(bool on) {
     this->ensure_enabled_for_write_();
     return;
   }
-  if (!this->addr_27_.has_value()) {
+  if (!this->registers_.has<Addr::FLAGS_27>()) {
     ESP_LOGI(TAG, "[%s] MOTOR %s deferred: ADDR 0x27 cache cold", this->parent_->address_str(), on ? "ON" : "OFF");
     this->enqueue_pending_write_([this, on]() { this->set_motor_enable(on); });
     return;
   }
-  uint8_t b = *this->addr_27_;
+  const uint8_t cached = *this->registers_.get<Addr::FLAGS_27>();
+  uint8_t b = cached;
   if (on) {
     b |= 0x80;
   } else {
@@ -941,9 +886,9 @@ void FiidoBMSHub::set_motor_enable(bool on) {
     }
   }
   ESP_LOGI(TAG, "[%s] MOTOR %s ADDR 0x27: 0x%02X -> 0x%02X", this->parent_->address_str(), on ? "ENABLE" : "DISABLE",
-           *this->addr_27_, b);
+           cached, b);
   if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b})) {
-    this->addr_27_ = b;
+    this->registers_.set<Addr::FLAGS_27>(b);
     this->force_poll_stats_ = true;
     this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
   } else {
@@ -964,13 +909,14 @@ void FiidoBMSHub::set_light_enable(bool on) {
     this->ensure_enabled_for_write_();
     return;
   }
-  if (!this->addr_27_.has_value()) {
+  if (!this->registers_.has<Addr::FLAGS_27>()) {
     ESP_LOGI(TAG, "[%s] LIGHT %s deferred: ADDR 0x27 cache cold", this->parent_->address_str(), on ? "ON" : "OFF");
     this->enqueue_pending_write_([this, on]() { this->set_light_enable(on); });
     return;
   }
+  const uint8_t cached = *this->registers_.get<Addr::FLAGS_27>();
   // Light needs controller power (bit 7). Reject otherwise.
-  bool motor_on = (*this->addr_27_ & 0x80) != 0;
+  bool motor_on = (cached & 0x80) != 0;
   if (!motor_on) {
     ESP_LOGW(
         TAG,
@@ -980,16 +926,16 @@ void FiidoBMSHub::set_light_enable(bool on) {
       this->light_switch_->publish_state(false);
     return;
   }
-  uint8_t b = *this->addr_27_;
+  uint8_t b = cached;
   if (on) {
     b |= 0x08;
   } else {
     b &= ~0x08;
   }
   ESP_LOGI(TAG, "[%s] LIGHT %s ADDR 0x27: 0x%02X -> 0x%02X (bit3)", this->parent_->address_str(),
-           on ? "ENABLE" : "DISABLE", *this->addr_27_, b);
+           on ? "ENABLE" : "DISABLE", cached, b);
   if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b})) {
-    this->addr_27_ = b;
+    this->registers_.set<Addr::FLAGS_27>(b);
     this->force_poll_stats_ = true;
     this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
   } else {
@@ -1018,12 +964,12 @@ void FiidoBMSHub::set_gear(uint8_t gear) {
     ESP_LOGI(TAG, "[%s] set_gear(%u) clamped to %u (active gear count)", this->parent_->address_str(), gear, max_gear);
     gear = clamp_gear(gear, max_gear);
   }
-  if (!this->addr_27_.has_value()) {
+  if (!this->registers_.has<Addr::FLAGS_27>()) {
     ESP_LOGI(TAG, "[%s] GEAR %u deferred: ADDR 0x27 cache cold", this->parent_->address_str(), gear);
     this->enqueue_pending_write_([this, gear]() { this->set_gear(gear); });
     return;
   }
-  bool motor_on = (*this->addr_27_ & 0x80) != 0;
+  bool motor_on = (*this->registers_.get<Addr::FLAGS_27>() & 0x80) != 0;
   if (!motor_on) {
     ESP_LOGW(TAG, "[%s] set_gear(%u) REJECTED - bike controller is OFF. Enable motor switch first.",
              this->parent_->address_str(), gear);
@@ -1069,12 +1015,12 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
     }
     return;
   }
-  if (!this->addr_27_.has_value() || !this->addr_25_.has_value()) {
+  if (!this->registers_.has<Addr::FLAGS_27>() || !this->registers_.has<Addr::GEAR_RANGE>()) {
     ESP_LOGI(TAG, "[%s] GEAR MODE %u deferred: state cache cold", this->parent_->address_str(), mode);
     this->enqueue_pending_write_([this, mode]() { this->set_gear_mode(mode); });
     return;
   }
-  bool motor_on = (*this->addr_27_ & 0x80) != 0;
+  bool motor_on = (*this->registers_.get<Addr::FLAGS_27>() & 0x80) != 0;
   if (!motor_on) {
     ESP_LOGW(TAG, "[%s] set_gear_mode(%u) REJECTED - bike controller is OFF. Enable motor switch first.",
              this->parent_->address_str(), mode);
@@ -1085,12 +1031,13 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
     }
     return;
   }
-  const uint8_t encoded = encode_gear_mode(mode, *this->addr_25_);
+  const uint8_t cached = *this->registers_.get<Addr::GEAR_RANGE>();
+  const uint8_t encoded = encode_gear_mode(mode, cached);
   ESP_LOGI(TAG, "[%s] GEAR MODE set to %u (ADDR 0x25: 0x%02X -> 0x%02X) frame type 0xFF", this->parent_->address_str(),
-           mode, *this->addr_25_, encoded);
+           mode, cached, encoded);
   if (WriteError::NONE ==
       this->send_raw_write_(FrameType::WRITE_J0, Addr::GEAR_RANGE, std::array<uint8_t, 1>{encoded})) {
-    this->addr_25_ = encoded;
+    this->registers_.set<Addr::GEAR_RANGE>(encoded);
     this->force_poll_stats_ = true;
     this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
   } else {
@@ -1112,11 +1059,11 @@ void FiidoBMSHub::parse_meter_(std::span<const uint8_t> p) {
 void FiidoBMSHub::parse_speed_limit_(std::span<const uint8_t> p) {
   if (p.size() != speed_limit::PAYLOAD_LEN)
     return;
-  this->addr_3c_ = p[speed_limit::VALUE_KMH];
+  this->registers_.set<Addr::SPEED_LIMIT>(p[speed_limit::VALUE_KMH]);
   ESP_LOGV(TAG, "[%s] SPEED_LIMIT value=%u 0x%02X", this->parent_->address_str(), p[speed_limit::VALUE_KMH],
            p[speed_limit::VALUE_KMH]);
-  if (this->speed_limit_select_ != nullptr && this->addr_27_.has_value()) {
-    bool limit_on = (*this->addr_27_ & 0x20) != 0;
+  if (this->speed_limit_select_ != nullptr && this->registers_.has<Addr::FLAGS_27>()) {
+    bool limit_on = (*this->registers_.get<Addr::FLAGS_27>() & 0x20) != 0;
     const char *opt = resolve_speed_limit_option(p[speed_limit::VALUE_KMH], limit_on);
     if (opt != nullptr) {
       publish_changed(this->speed_limit_select_, opt);
@@ -1156,7 +1103,7 @@ void FiidoBMSHub::republish_speed_limit_() {
 
 void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
   const char *name = speed_limit_option_name(option);
-  const SpeedLimitPlan plan = plan_speed_limit(option, this->addr_2c_.value_or(0));
+  const SpeedLimitPlan plan = plan_speed_limit(option, this->registers_.value_or<Addr::FLAGS_2C>(0));
   // Newer command supersedes a pending phase2, which holds the old target.
   this->cancel_timeout("speed_limit_phase2");
   if (!this->ble_user_enabled_) {
@@ -1170,17 +1117,17 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
     this->ensure_enabled_for_write_();
     return;
   }
-  if (!this->addr_27_.has_value() || !this->addr_2c_.has_value()) {
+  if (!this->registers_.has<Addr::FLAGS_27>() || !this->registers_.has<Addr::FLAGS_2C>()) {
     ESP_LOGI(TAG, "[%s] SPEED_LIMIT '%s' deferred: state cache cold", this->parent_->address_str(), name);
     this->enqueue_pending_write_([this, option]() { this->apply_speed_limit_(option); });
     return;
   }
   if (plan.needs_pas_write) {
     ESP_LOGI(TAG, "[%s] SPEED_LIMIT phase1: PAS %s ADDR 0x2C 0x%02X->0x%02X (bit 7)", this->parent_->address_str(),
-             plan.limit_on ? "ON" : "OFF", *this->addr_2c_, plan.pas_byte);
+             plan.limit_on ? "ON" : "OFF", *this->registers_.get<Addr::FLAGS_2C>(), plan.pas_byte);
     if (WriteError::NONE ==
         this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_2C, std::array<uint8_t, 1>{plan.pas_byte})) {
-      this->addr_2c_ = plan.pas_byte;
+      this->registers_.set<Addr::FLAGS_2C>(plan.pas_byte);
     } else {
       ESP_LOGW(TAG, "[%s] WRITE 0x2C (speed_limit PAS) failed - cache not updated", this->parent_->address_str());
     }
@@ -1189,25 +1136,26 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
   // The link and cache are checked again inside.
   auto phase2 = [this, name, plan]() {
     if (!this->ble_user_enabled_ || this->node_state != espbt::ClientState::ESTABLISHED ||
-        !this->addr_27_.has_value()) {
+        !this->registers_.has<Addr::FLAGS_27>()) {
       ESP_LOGW(TAG, "[%s] SPEED_LIMIT phase2 aborted - BLE disabled or link/cache not ready",
                this->parent_->address_str());
       return;
     }
-    const uint8_t b27 = apply_speed_limit_bit(*this->addr_27_, plan.limit_on);
+    const uint8_t cached_27 = *this->registers_.get<Addr::FLAGS_27>();
+    const uint8_t b27 = apply_speed_limit_bit(cached_27, plan.limit_on);
     ESP_LOGI(TAG, "[%s] SPEED_LIMIT phase2: '%s' WRITE 0x3C=%u + 0x27 0x%02X->0x%02X (bit5=%u)",
-             this->parent_->address_str(), name, plan.value, *this->addr_27_, b27, plan.limit_on ? 1 : 0);
+             this->parent_->address_str(), name, plan.value, cached_27, b27, plan.limit_on ? 1 : 0);
     const bool ok_3c = WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::SPEED_LIMIT,
                                                                  std::array<uint8_t, 1>{plan.value});
     const bool ok_27 =
         WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b27});
     if (ok_3c) {
-      this->addr_3c_ = plan.value;
+      this->registers_.set<Addr::SPEED_LIMIT>(plan.value);
     } else {
       ESP_LOGW(TAG, "[%s] WRITE 0x3C (speed_limit value) failed - cache not updated", this->parent_->address_str());
     }
     if (ok_27) {
-      this->addr_27_ = b27;
+      this->registers_.set<Addr::FLAGS_27>(b27);
     } else {
       ESP_LOGW(TAG, "[%s] WRITE 0x27 (speed_limit bit5) failed - cache not updated", this->parent_->address_str());
     }
@@ -1253,12 +1201,12 @@ void FiidoBMSHub::apply_speed_unit_(bool mile) {
     this->ensure_enabled_for_write_();
     return;
   }
-  if (!this->addr_28_.has_value()) {
+  if (!this->registers_.has<Addr::FLAGS_28>()) {
     ESP_LOGI(TAG, "[%s] SPEED_UNIT '%s' deferred: cache cold", this->parent_->address_str(), name);
     this->enqueue_pending_write_([this, mile]() { this->apply_speed_unit_(mile); });
     return;
   }
-  this->write_flag_bit_(Addr::FLAGS_28, 0x80, mile, this->addr_28_, "SPEED_UNIT");
+  this->write_flag_bit_<Addr::FLAGS_28>(0x80, mile, "SPEED_UNIT");
 }
 
 bool FiidoBMSHub::defer_flag_write_(bool cache_valid, const char *name, PendingWrite retry) {
@@ -1276,8 +1224,8 @@ bool FiidoBMSHub::defer_flag_write_(bool cache_valid, const char *name, PendingW
   return false;
 }
 
-void FiidoBMSHub::write_masked_bits_(Addr addr, uint8_t mask, uint8_t bits, std::optional<uint8_t> &cache,
-                                     const char *name) {
+void FiidoBMSHub::write_masked_bits_(Addr addr, size_t slot, uint8_t mask, uint8_t bits, const char *name) {
+  std::optional<uint8_t> &cache = this->registers_.at(slot);
   if (!cache.has_value()) {
     ESP_LOGW(TAG, "[%s] %s skipped: ADDR 0x%02X cache cold, preserve-bits would be built from zero",
              this->parent_->address_str(), name, static_cast<unsigned>(addr));
@@ -1296,165 +1244,56 @@ void FiidoBMSHub::write_masked_bits_(Addr addr, uint8_t mask, uint8_t bits, std:
   }
 }
 
-void FiidoBMSHub::write_flag_bit_(Addr addr, uint8_t mask, bool set, std::optional<uint8_t> &cache, const char *name) {
-  this->write_masked_bits_(addr, mask, set ? mask : 0x00, cache, name);
+void FiidoBMSHub::set_flag_(FlagId id, bool on) {
+  const FlagControl &c = FLAG_CONTROLS[static_cast<size_t>(id)];
+  if (!this->ble_user_enabled_) {
+    ESP_LOGW(TAG, "[%s] %s %s rejected: BLE user-disabled", this->parent_->address_str(), c.name, on ? "ON" : "OFF");
+    switch_::Switch *entity = this->*(c.entity);
+    if (entity != nullptr)
+      entity->publish_state(!on);
+    return;
+  }
+  if (this->defer_flag_write_(this->registers_.at(c.slot).has_value(), c.name,
+                              [this, id, on]() { this->set_flag_(id, on); }))
+    return;
+  this->write_masked_bits_(c.addr, c.slot, c.mask, on ? c.bits_on : c.bits_off, c.name);
 }
 
 void FiidoBMSHub::set_speaker_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] SPEAKER %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->speaker_switch_ != nullptr)
-      this->speaker_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_38_.has_value(), "SPEAKER", [this, on]() { this->set_speaker_enable(on); }))
-    return;
-  // bits 3:2: 00 = audible, 01 = silent.
-  this->write_masked_bits_(Addr::FLAGS_38, 0x0C, on ? 0x00 : 0x04, this->addr_38_, "SPEAKER");
+  this->set_flag_(FlagId::SPEAKER, on);
 }
-
 void FiidoBMSHub::set_key_sound_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] KEY_SOUND %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->key_sound_switch_ != nullptr)
-      this->key_sound_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_2c_.has_value(), "KEY_SOUND",
-                              [this, on]() { this->set_key_sound_enable(on); }))
-    return;
-  // bit 4 inverted: 0 = beep, 1 = silent.
-  this->write_flag_bit_(Addr::FLAGS_2C, 0x10, !on, this->addr_2c_, "KEY_SOUND");
+  this->set_flag_(FlagId::KEY_SOUND, on);
 }
-
 void FiidoBMSHub::set_throttle_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] THROTTLE %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->throttle_switch_ != nullptr)
-      this->throttle_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_2b_.has_value(), "THROTTLE", [this, on]() { this->set_throttle_enable(on); }))
-    return;
-  // bit 1 inverted: 0 = throttle active, 1 = disabled.
-  this->write_flag_bit_(Addr::FLAGS_2B, 0x02, !on, this->addr_2b_, "THROTTLE");
+  this->set_flag_(FlagId::THROTTLE, on);
 }
-
 void FiidoBMSHub::set_slow_mode_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] SLOW_MODE %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->slow_mode_switch_ != nullptr)
-      this->slow_mode_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_2c_.has_value(), "SLOW_MODE",
-                              [this, on]() { this->set_slow_mode_enable(on); }))
-    return;
-  // bit 6: 1 = reset speed limit on next power cycle, 0 = persist.
-  this->write_flag_bit_(Addr::FLAGS_2C, 0x40, on, this->addr_2c_, "SLOW_MODE");
+  this->set_flag_(FlagId::SLOW_MODE, on);
 }
-
 void FiidoBMSHub::set_cruise_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] CRUISE %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->cruise_switch_ != nullptr)
-      this->cruise_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_27_.has_value(), "CRUISE", [this, on]() { this->set_cruise_enable(on); }))
-    return;
-  this->write_flag_bit_(Addr::FLAGS_27, 0x40, on, this->addr_27_, "CRUISE");
+  this->set_flag_(FlagId::CRUISE, on);
 }
-
 void FiidoBMSHub::set_start_mode_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] START_MODE %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->start_mode_switch_ != nullptr)
-      this->start_mode_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_27_.has_value(), "START_MODE",
-                              [this, on]() { this->set_start_mode_enable(on); }))
-    return;
-  this->write_flag_bit_(Addr::FLAGS_27, 0x02, on, this->addr_27_, "START_MODE");
+  this->set_flag_(FlagId::START_MODE, on);
 }
-
 void FiidoBMSHub::set_insensitivity_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] INSENS %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->insensitivity_switch_ != nullptr)
-      this->insensitivity_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_27_.has_value(), "INSENS",
-                              [this, on]() { this->set_insensitivity_enable(on); }))
-    return;
-  this->write_flag_bit_(Addr::FLAGS_27, 0x01, on, this->addr_27_, "INSENS");
+  this->set_flag_(FlagId::INSENSITIVITY, on);
 }
-
 void FiidoBMSHub::set_show_total_km_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] SHOW_TOTAL_KM %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->show_total_km_switch_ != nullptr)
-      this->show_total_km_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_28_.has_value(), "SHOW_TOTAL_KM",
-                              [this, on]() { this->set_show_total_km_enable(on); }))
-    return;
-  this->write_flag_bit_(Addr::FLAGS_28, 0x40, on, this->addr_28_, "SHOW_TOTAL_KM");
+  this->set_flag_(FlagId::SHOW_TOTAL_KM, on);
 }
-
 void FiidoBMSHub::set_auto_screen_off_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] AUTO_SCREEN_OFF %s rejected: BLE user-disabled", this->parent_->address_str(),
-             on ? "ON" : "OFF");
-    if (this->auto_screen_off_switch_ != nullptr)
-      this->auto_screen_off_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_39_.has_value(), "AUTO_SCREEN_OFF",
-                              [this, on]() { this->set_auto_screen_off_enable(on); }))
-    return;
-  this->write_flag_bit_(Addr::FLAGS_39, 0x08, on, this->addr_39_, "AUTO_SCREEN_OFF");
+  this->set_flag_(FlagId::AUTO_SCREEN_OFF, on);
 }
-
 void FiidoBMSHub::set_ring_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] RING %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->ring_switch_ != nullptr)
-      this->ring_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_39_.has_value(), "RING", [this, on]() { this->set_ring_enable(on); }))
-    return;
-  this->write_flag_bit_(Addr::FLAGS_39, 0x02, on, this->addr_39_, "RING");
+  this->set_flag_(FlagId::RING, on);
 }
-
 void FiidoBMSHub::set_double_speed_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] DOUBLE_SPEED %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->double_speed_switch_ != nullptr)
-      this->double_speed_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_2b_.has_value(), "DOUBLE_SPEED",
-                              [this, on]() { this->set_double_speed_enable(on); }))
-    return;
-  this->write_flag_bit_(Addr::FLAGS_2B, 0x20, on, this->addr_2b_, "DOUBLE_SPEED");
+  this->set_flag_(FlagId::DOUBLE_SPEED, on);
 }
-
 void FiidoBMSHub::set_bike_guard_enable(bool on) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] BIKE_GUARD %s rejected: BLE user-disabled", this->parent_->address_str(), on ? "ON" : "OFF");
-    if (this->bike_guard_switch_ != nullptr)
-      this->bike_guard_switch_->publish_state(!on);
-    return;
-  }
-  if (this->defer_flag_write_(this->addr_2b_.has_value(), "BIKE_GUARD",
-                              [this, on]() { this->set_bike_guard_enable(on); }))
-    return;
-  this->write_flag_bit_(Addr::FLAGS_2B, 0x40, on, this->addr_2b_, "BIKE_GUARD");
+  this->set_flag_(FlagId::BIKE_GUARD, on);
 }
 
 // Raw 1-byte value write for number entities. Clamps to 0..255 then sends.
@@ -1471,80 +1310,42 @@ bool FiidoBMSHub::write_value_byte_(FrameType type, Addr addr, uint8_t value, co
   return true;
 }
 
-void FiidoBMSHub::set_brightness(float value) {
+void FiidoBMSHub::set_byte_(ByteId id, float value) {
+  const ByteControl &c = BYTE_CONTROLS[static_cast<size_t>(id)];
+  number::Number *entity = this->*(c.entity);
   if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] BRIGHTNESS %.0f rejected: BLE user-disabled", this->parent_->address_str(), value);
-    revert_number(this->brightness_number_);
+    ESP_LOGW(TAG, "[%s] %s %.0f rejected: BLE user-disabled", this->parent_->address_str(), c.name, value);
+    revert_number(entity);
     return;
   }
   // NaN passes both clamp compares and the cast below is UB.
   if (!std::isfinite(value)) {
-    revert_number(this->brightness_number_);
+    revert_number(entity);
     return;
   }
-  uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : (uint8_t)value);
+  const uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : static_cast<uint8_t>(value));
   if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, value]() { this->set_brightness(value); });
+    this->enqueue_pending_write_([this, id, value]() { this->set_byte_(id, value); });
     this->ensure_enabled_for_write_();
     return;
   }
-  if (this->write_value_byte_(FrameType::WRITE_J0, Addr::DISPLAY, v, "BRIGHTNESS")) {
-    this->addr_57_ = v;
-    if (this->brightness_number_ != nullptr)
-      this->brightness_number_->publish_state(v);
+  if (this->write_value_byte_(c.type, c.addr, v, c.name)) {
+    this->registers_.at(c.slot) = v;
+    if (entity != nullptr)
+      entity->publish_state(v);
   } else {
-    revert_number(this->brightness_number_);
+    revert_number(entity);
   }
 }
 
+void FiidoBMSHub::set_brightness(float value) {
+  this->set_byte_(ByteId::BRIGHTNESS, value);
+}
 void FiidoBMSHub::set_boost(float value) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] BOOST %.0f rejected: BLE user-disabled", this->parent_->address_str(), value);
-    revert_number(this->boost_number_);
-    return;
-  }
-  if (!std::isfinite(value)) {
-    revert_number(this->boost_number_);
-    return;
-  }
-  uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : (uint8_t)value);
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, value]() { this->set_boost(value); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (this->write_value_byte_(FrameType::WRITE_L0, Addr::PAS_BOOST, v, "BOOST")) {
-    this->addr_52_ = v;
-    if (this->boost_number_ != nullptr)
-      this->boost_number_->publish_state(v);
-  } else {
-    revert_number(this->boost_number_);
-  }
+  this->set_byte_(ByteId::BOOST, value);
 }
-
 void FiidoBMSHub::set_guard_time(float value) {
-  if (!this->ble_user_enabled_) {
-    ESP_LOGW(TAG, "[%s] GUARD_TIME %.0f rejected: BLE user-disabled", this->parent_->address_str(), value);
-    revert_number(this->guard_time_number_);
-    return;
-  }
-  if (!std::isfinite(value)) {
-    revert_number(this->guard_time_number_);
-    return;
-  }
-  uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : (uint8_t)value);
-  if (this->node_state != espbt::ClientState::ESTABLISHED) {
-    this->enqueue_pending_write_([this, value]() { this->set_guard_time(value); });
-    this->ensure_enabled_for_write_();
-    return;
-  }
-  if (this->write_value_byte_(FrameType::WRITE_J0, Addr::GUARD_TIME, v, "GUARD_TIME")) {
-    this->addr_58_ = v;
-    if (this->guard_time_number_ != nullptr)
-      this->guard_time_number_->publish_state(v);
-  } else {
-    revert_number(this->guard_time_number_);
-  }
+  this->set_byte_(ByteId::GUARD_TIME, value);
 }
 
 // Pair this ESP32 as a proximity unlock companion: send its own BLE address as a
@@ -1577,7 +1378,7 @@ void FiidoBMSHub::pair_watch() {
 void FiidoBMSHub::parse_boost_(std::span<const uint8_t> p) {
   if (p.size() != pas_boost::PAYLOAD_LEN)
     return;
-  this->addr_52_ = p[pas_boost::LEVEL];
+  this->registers_.set<Addr::PAS_BOOST>(p[pas_boost::LEVEL]);
   publish_changed(this->boost_number_, p[pas_boost::LEVEL]);
   ESP_LOGV(TAG, "[%s] BOOST value=%u", this->parent_->address_str(), p[pas_boost::LEVEL]);
 }
@@ -1585,8 +1386,8 @@ void FiidoBMSHub::parse_boost_(std::span<const uint8_t> p) {
 void FiidoBMSHub::parse_display_(std::span<const uint8_t> p) {
   if (p.size() != display::PAYLOAD_LEN)
     return;
-  this->addr_57_ = p[display::BRIGHTNESS];
-  this->addr_58_ = p[display::GUARD_TIME];
+  this->registers_.set<Addr::DISPLAY>(p[display::BRIGHTNESS]);
+  this->registers_.set<Addr::GUARD_TIME>(p[display::GUARD_TIME]);
   publish_changed(this->brightness_number_, p[display::BRIGHTNESS]);
   publish_changed(this->guard_time_number_, p[display::GUARD_TIME]);
   ESP_LOGV(TAG, "[%s] DISPLAY brightness=%u guard_time=%u", this->parent_->address_str(), p[display::BRIGHTNESS],

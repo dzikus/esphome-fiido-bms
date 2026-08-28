@@ -261,6 +261,25 @@ inline constexpr size_t BRIGHTNESS = 0;
 inline constexpr size_t GUARD_TIME = 1;
 }  // namespace display
 
+// Not defined: -fno-exceptions rules out throw.
+size_t address_not_in_table();
+
+consteval size_t poll_index(Addr addr) {
+  for (size_t i = 0; i < POLL_TABLE.size(); i++) {
+    if (POLL_TABLE[i].addr == addr)
+      return i;
+  }
+  return address_not_in_table();
+}
+
+// No yaml option turns these two off.
+consteval std::array<bool, POLL_TABLE_SIZE> default_poll_enables() {
+  std::array<bool, POLL_TABLE_SIZE> out{};
+  out[poll_index(Addr::STATS)] = true;
+  out[poll_index(Addr::SPEED_LIMIT)] = true;
+  return out;
+}
+
 // Poll length against what the parser reads.
 consteval uint8_t poll_len(Addr addr) {
   for (const PollDef &poll : POLL_TABLE) {

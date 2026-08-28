@@ -136,6 +136,61 @@ enum class ProbeOutcome : uint8_t {
 
 [[nodiscard]] bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok);
 
+// Registers cached for read-modify-write.
+inline constexpr std::array<Addr, 11> CACHED_REGISTERS{
+    Addr::GEAR_RANGE, Addr::FLAGS_27,    Addr::FLAGS_28,  Addr::FLAGS_2B, Addr::FLAGS_2C,   Addr::FLAGS_38,
+    Addr::FLAGS_39,   Addr::SPEED_LIMIT, Addr::PAS_BOOST, Addr::DISPLAY,  Addr::GUARD_TIME,
+};
+
+// A repeat would alias two registers onto one slot.
+static_assert([] {
+  for (size_t i = 0; i < CACHED_REGISTERS.size(); i++) {
+    for (size_t j = i + 1; j < CACHED_REGISTERS.size(); j++) {
+      if (CACHED_REGISTERS[i] == CACHED_REGISTERS[j])
+        return false;
+    }
+  }
+  return true;
+}());
+
+[[nodiscard]] consteval size_t cache_slot(Addr addr) {
+  for (size_t i = 0; i < CACHED_REGISTERS.size(); i++) {
+    if (CACHED_REGISTERS[i] == addr)
+      return i;
+  }
+  return address_not_in_table();
+}
+
+// Empty until the poll that fills it lands.
+class RegisterCache {
+ public:
+  template <Addr A>
+  [[nodiscard]] std::optional<uint8_t> get() const {
+    return this->slots_[cache_slot(A)];
+  }
+  template <Addr A>
+  [[nodiscard]] bool has() const {
+    return this->slots_[cache_slot(A)].has_value();
+  }
+  template <Addr A>
+  [[nodiscard]] uint8_t value_or(uint8_t fallback) const {
+    return this->slots_[cache_slot(A)].value_or(fallback);
+  }
+  template <Addr A>
+  void set(uint8_t value) {
+    this->slots_[cache_slot(A)] = value;
+  }
+
+  [[nodiscard]] std::optional<uint8_t> &at(size_t slot) { return this->slots_[slot]; }
+  [[nodiscard]] const std::optional<uint8_t> &at(size_t slot) const { return this->slots_[slot]; }
+
+  // Called on disconnect.
+  void clear() { this->slots_.fill(std::nullopt); }
+
+ private:
+  std::array<std::optional<uint8_t>, CACHED_REGISTERS.size()> slots_{};
+};
+
 // A capture is this plus one small value.
 class PendingWrite {
  public:
