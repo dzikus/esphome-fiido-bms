@@ -688,8 +688,8 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   // Entity sync reads the caches, which dispatch may have just moved on; sv holds
   // the payload the write was built from. Behaviour below stays on sv, so
   // auto-shutdown and lifecycle act on state the bike confirmed.
-  const FlagView f = decode_flags(*this->addr_27_, *this->addr_28_, *this->addr_2b_, *this->addr_2c_, *this->addr_38_,
-                                  *this->addr_39_);
+  const FlagView f = decode_flags(this->addr_27_.value_or(0), this->addr_28_.value_or(0), this->addr_2b_.value_or(0),
+                                  this->addr_2c_.value_or(0), this->addr_38_.value_or(0), this->addr_39_.value_or(0));
 
   publish_changed(this->pas_limit_binary_sensor_, f.pas_limit_on);
 
@@ -759,10 +759,11 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   // bit 3 now while the link is still live.
   // Byte built from the cache, not p[]: dispatch above may have set other bits in
   // 0x27 already and writing p[] back would undo them.
-  if (should_clear_light_bit(this->ble_user_enabled_, this->prev_motor_on_, motor_on, *this->addr_27_)) {
-    uint8_t b = *this->addr_27_ & ~0x08;
+  const uint8_t cache_27 = this->addr_27_.value_or(0);
+  if (should_clear_light_bit(this->ble_user_enabled_, this->prev_motor_on_, motor_on, cache_27)) {
+    const uint8_t b = cache_27 & ~0x08;
     ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)", this->parent_->address_str(),
-             *this->addr_27_, b);
+             cache_27, b);
     if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b})) {
       this->addr_27_ = b;
     } else {
@@ -1080,7 +1081,7 @@ void FiidoBMSHub::republish_speed_limit_() {
 
 void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
   const char *name = speed_limit_option_name(option);
-  const SpeedLimitPlan plan = plan_speed_limit(option, *this->addr_2c_);
+  const SpeedLimitPlan plan = plan_speed_limit(option, this->addr_2c_.value_or(0));
   // Newer command supersedes a pending phase2, which holds the old target.
   this->cancel_timeout("speed_limit_phase2");
   if (!this->ble_user_enabled_) {
