@@ -7,8 +7,7 @@
 #include "esphome/core/helpers.h"
 #include "fiido_bms.h"
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 using FiidoHubBoolSetter = void (FiidoBMSHub::*)(bool);
 
@@ -59,7 +58,6 @@ class FiidoBikeGuardSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_bike_guard
 class FiidoAutoshutdownSwitch : public FiidoBoolSwitchWithRestore<&FiidoBMSHub::set_auto_shutdown_enabled> {};
 class FiidoBleSwitch : public FiidoBoolSwitchWithRestore<&FiidoBMSHub::set_ble_user_enabled> {};
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32

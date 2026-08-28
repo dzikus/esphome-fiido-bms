@@ -17,8 +17,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "fiido_protocol.h"
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 constexpr const char *FIIDO_BMS_TAG = "fiido_bms";
 
@@ -425,7 +424,6 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   bool poll_enabled_display_{false};
 };
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32

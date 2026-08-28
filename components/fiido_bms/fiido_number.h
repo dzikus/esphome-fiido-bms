@@ -6,8 +6,7 @@
 #include "esphome/core/helpers.h"
 #include "fiido_bms.h"
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 using FiidoHubFloatSetter = void (FiidoBMSHub::*)(float);
 
@@ -24,7 +23,6 @@ class FiidoBrightnessNumber : public FiidoNumber<&FiidoBMSHub::set_brightness> {
 class FiidoBoostNumber : public FiidoNumber<&FiidoBMSHub::set_boost> {};
 class FiidoGuardTimeNumber : public FiidoNumber<&FiidoBMSHub::set_guard_time> {};
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32

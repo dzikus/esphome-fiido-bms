@@ -19,8 +19,7 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 static const char *const TAG = FIIDO_BMS_TAG;
 
@@ -1539,7 +1538,6 @@ void FiidoBMSHub::parse_display_(std::span<const uint8_t> p) {
   ESP_LOGV(TAG, "[%s] DISPLAY brightness=%u guard_time=%u", this->parent_->address_str(), p[0], p[1]);
 }
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32

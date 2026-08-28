@@ -10,8 +10,7 @@
 #include "esphome/core/helpers.h"
 #include "fiido_bms.h"
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 class FiidoGearSelect : public select::Select, public Parented<FiidoBMSHub> {
  public:
@@ -36,7 +35,6 @@ class FiidoGearSelect : public select::Select, public Parented<FiidoBMSHub> {
   std::vector<std::string> names_5_;
 };
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32

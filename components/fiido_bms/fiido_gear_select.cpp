@@ -5,8 +5,7 @@
 
 #ifdef USE_ESP32
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 void FiidoGearSelect::set_gear_count(uint8_t count) {
   if (count != 3 && count != 5)
@@ -55,7 +54,6 @@ void FiidoGearSelect::control(const std::string &value) {
   }
 }
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32

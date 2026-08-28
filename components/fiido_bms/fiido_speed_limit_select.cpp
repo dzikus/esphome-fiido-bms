@@ -5,8 +5,7 @@
 
 #ifdef USE_ESP32
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 const std::vector<std::string> FiidoSpeedLimitSelect::OPTIONS = {"6 km/h", "25 km/h", "No limit"};
 
@@ -24,7 +23,6 @@ void FiidoSpeedLimitSelect::control(const std::string &value) {
   }
 }
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32

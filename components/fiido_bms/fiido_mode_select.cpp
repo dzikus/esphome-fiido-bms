@@ -5,8 +5,7 @@
 
 #ifdef USE_ESP32
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 const std::vector<std::string> FiidoModeSelect::MODE_OPTIONS = {"3", "5"};
 
@@ -24,7 +23,6 @@ void FiidoModeSelect::control(const std::string &value) {
   }
 }
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32
