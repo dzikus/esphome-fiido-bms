@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <span>
 #include <vector>
 
 #include "esphome/core/component.h"
@@ -216,11 +217,11 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t AMBIGUOUS_LIMIT_LOG_INTERVAL_MS = 60000;
   static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
 
-  [[nodiscard]] bool send_raw_write(FrameType type, uint8_t addr, const std::vector<uint8_t> &payload);
+  [[nodiscard]] bool send_raw_write(FrameType type, uint8_t addr, std::span<const uint8_t> payload);
   void send_handshake_();
   [[nodiscard]] bool send_poll_(size_t idx, bool warn_on_fail);
   void send_burst_poll_();
-  bool send_frame_(const uint8_t *frame, size_t len, const char *name, bool warn_on_fail = true);
+  bool send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail = true);
   void publish_connected_(bool state);
   void mark_activity_(const char *reason);
 
@@ -229,15 +230,15 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void dispatch_pending_writes_();
   void ensure_enabled_for_write_();
 
-  void parse_battery_(const uint8_t *payload, size_t len);
-  void parse_ctrl_(const uint8_t *payload, size_t len);
-  void parse_motor_(const uint8_t *payload, size_t len);
-  void parse_energy_(const uint8_t *payload, size_t len);
-  void parse_stats_(const uint8_t *payload, size_t len);
-  void parse_meter_(const uint8_t *payload, size_t len);
-  void parse_speed_limit_(const uint8_t *payload, size_t len);
-  void parse_boost_(const uint8_t *payload, size_t len);
-  void parse_display_(const uint8_t *payload, size_t len);
+  void parse_battery_(std::span<const uint8_t> payload);
+  void parse_ctrl_(std::span<const uint8_t> payload);
+  void parse_motor_(std::span<const uint8_t> payload);
+  void parse_energy_(std::span<const uint8_t> payload);
+  void parse_stats_(std::span<const uint8_t> payload);
+  void parse_meter_(std::span<const uint8_t> payload);
+  void parse_speed_limit_(std::span<const uint8_t> payload);
+  void parse_boost_(std::span<const uint8_t> payload);
+  void parse_display_(std::span<const uint8_t> payload);
   [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name, std::function<void()> retry);
   void write_masked_bits_(uint8_t addr, uint8_t mask, uint8_t bits, uint8_t *cache, const char *name);
   void write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache, const char *name);

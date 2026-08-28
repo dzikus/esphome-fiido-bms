@@ -1,10 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <span>
+#include <vector>
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 // Header bytes
 static constexpr uint8_t FIIDO_SIG_0 = 0x46;  // 'F'
@@ -41,35 +43,59 @@ static constexpr size_t NOTIFY_HDR_LEN = 5;  // [F][d][AA][len][addr]
 static constexpr size_t NOTIFY_CRC_LEN = 1;
 static constexpr size_t NOTIFY_OVERHEAD = NOTIFY_HDR_LEN + NOTIFY_CRC_LEN;  // 6
 
-// Pure decode helpers
-[[nodiscard]] uint8_t compute_crc(const uint8_t *buf, size_t len);
+// The length byte caps the payload at 0xFF.
+inline constexpr size_t WRITE_FRAME_OVERHEAD = 6;  // [F][d][type][len][addr] + crc
+inline constexpr size_t MAX_WRITE_PAYLOAD = 0xFF;
 
-// Build poll frame: [F][d][55][len][addr][crc]. out must be POLL_FRAME_LEN bytes.
-void build_poll_frame(uint8_t addr, uint8_t len, uint8_t *out);
+[[nodiscard]] uint8_t compute_crc(std::span<const uint8_t> data);
 
-// Build write frame: [F][d][type][payload_len][addr][...payload][crc].
-// out must have capacity >= (6 + payload_len). Returns total length written.
-[[nodiscard]] size_t build_write_frame(FrameType type, uint8_t addr, const uint8_t *payload, uint8_t payload_len,
-                                       uint8_t *out);
+// [F][d][55][len][addr][crc]
+[[nodiscard]] std::array<uint8_t, POLL_FRAME_LEN> build_poll_frame(uint8_t addr, uint8_t len);
 
-// Validate notify frame: header + CRC. Returns true if frame is well-formed.
-// Sets *payload_addr to ADDR byte, *payload_len to payload length (= len - NOTIFY_OVERHEAD).
-[[nodiscard]] bool validate_notify(const uint8_t *buf, size_t len, uint8_t *out_addr, size_t *out_payload_len);
+// [F][d][type][payload_len][addr][...payload][crc]. Empty = refused.
+[[nodiscard]] std::vector<uint8_t> build_write_frame(FrameType type, uint8_t addr, std::span<const uint8_t> payload);
 
-// Endianness helpers
-inline uint16_t u16be(const uint8_t *buf, size_t off) {
+// payload views the caller's frame; empty unless valid.
+struct NotifyView {
+  bool valid;
+  uint8_t addr;
+  std::span<const uint8_t> payload;
+};
+
+// Checks header, declared length and CRC.
+[[nodiscard]] NotifyView validate_notify(std::span<const uint8_t> frame);
+
+// Returns 0 past the end instead of reading it.
+[[nodiscard]] inline uint16_t u16be(std::span<const uint8_t> buf, size_t off) {
+  if (off + 2 > buf.size())
+    return 0;
   return (uint16_t(buf[off]) << 8) | uint16_t(buf[off + 1]);
 }
 
-inline uint32_t u32be(const uint8_t *buf, size_t off) {
+[[nodiscard]] inline uint32_t u32be(std::span<const uint8_t> buf, size_t off) {
+  if (off + 4 > buf.size())
+    return 0;
   return (uint32_t(buf[off]) << 24) | (uint32_t(buf[off + 1]) << 16) | (uint32_t(buf[off + 2]) << 8) |
          uint32_t(buf[off + 3]);
 }
 
-// POLL_TABLE: rotated by the hub. Size is constexpr so callers can size a local
-// array by it and so the table itself is checked against it at compile time.
-inline constexpr size_t POLL_TABLE_SIZE = 9;
-extern const PollDef POLL_TABLE[POLL_TABLE_SIZE];
+// Rotated by the hub. POLL_TABLE_SIZE is the table's own size().
+inline constexpr std::array<PollDef, 9> POLL_TABLE = {{
+    {0x7B, 13, "BATTERY"},
+    {0xAF, 12, "CTRL"},
+    {0x96, 12, "MOTOR"},
+    {0xC8, 12, "ENERGY"},
+    {0x05, 53, "STATS"},
+    {0x60, 13, "METER"},
+    // Speed limit value (read-only baseline, log-only). Frame: 46 64 55 01 3C 4A.
+    {0x3C, 1, "SPEEDLIM"},
+    // Boost level read-back (1 byte). Frame: 46 64 55 01 52 24.
+    {0x52, 1, "BOOST"},
+    // Display block read-back: 0x57 brightness + 0x58 guard time (2 bytes).
+    // Frame: 46 64 55 02 57 22.
+    {0x57, 2, "DISPLAY"},
+}};
+inline constexpr size_t POLL_TABLE_SIZE = POLL_TABLE.size();
 
 struct PollCursor {
   size_t index;
@@ -77,7 +103,7 @@ struct PollCursor {
 };
 
 // Skipping a poll spends a slot, so a burst still ends after POLL_TABLE_SIZE steps.
-[[nodiscard]] PollCursor skip_disabled_polls(PollCursor cursor, const bool *enabled);
+[[nodiscard]] PollCursor skip_disabled_polls(PollCursor cursor, std::span<const bool, POLL_TABLE_SIZE> enabled);
 
 struct BurstGate {
   bool start;
@@ -98,8 +124,6 @@ struct BurstState {
 // STATS poll payload byte offsets (covers ADDR 0x05..0x39).
 // Frame layout: [F][d][AA][len][addr=0x05][...payload...][crc]
 // payload starts at index 0; STATS ADDR_XX corresponds to payload[XX - 0x05 + 0].
-// Hub strips frame header before calling parse_stats_(p, len), so p is the
-// 53-byte payload that starts at ADDR 0x05.
 namespace stats {
 inline constexpr size_t PAYLOAD_LEN = 53;
 // These three predate the ADDR_ naming and do not follow the ADDR - 0x05 rule.
@@ -146,7 +170,7 @@ struct StatsView {
   uint8_t b25, b27, b28, b2B, b2C, b38, b39;
 };
 
-[[nodiscard]] StatsView decode_stats(const uint8_t *payload, size_t len);
+[[nodiscard]] StatsView decode_stats(std::span<const uint8_t> payload);
 
 // Two of these are inverted on the wire; see decode_flags.
 struct FlagView {
@@ -171,5 +195,4 @@ struct FlagView {
 
 [[nodiscard]] FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2B, uint8_t b2C, uint8_t b38, uint8_t b39);
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms

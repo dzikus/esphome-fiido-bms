@@ -16,14 +16,13 @@ void tearDown() {}
 
 void test_compute_crc_battery_poll() {
   const uint8_t frame[] = {0x46, 0x64, 0x55, 0x0D, 0x7B};
-  TEST_ASSERT_EQUAL_UINT8(0x01, compute_crc(frame, sizeof(frame)));
+  TEST_ASSERT_EQUAL_UINT8(0x01, compute_crc(frame));
 }
 
 void test_build_poll_frame_battery() {
-  uint8_t out[POLL_FRAME_LEN];
-  build_poll_frame(0x7B, 0x0D, out);
+  const auto out = build_poll_frame(0x7B, 0x0D);
   const uint8_t expected[] = {0x46, 0x64, 0x55, 0x0D, 0x7B, 0x01};
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, POLL_FRAME_LEN);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), POLL_FRAME_LEN);
 }
 
 void test_build_poll_frame_all_polls() {
@@ -40,10 +39,9 @@ void test_build_poll_frame_all_polls() {
       {0x46, 0x64, 0x55, 0x02, 0x57, 0x22},  // DISPLAY
   };
   TEST_ASSERT_EQUAL_UINT(9, POLL_TABLE_SIZE);
-  uint8_t out[POLL_FRAME_LEN];
   for (size_t i = 0; i < POLL_TABLE_SIZE; i++) {
-    build_poll_frame(POLL_TABLE[i].addr, POLL_TABLE[i].len, out);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(expected[i], out, POLL_FRAME_LEN);
+    const auto out = build_poll_frame(POLL_TABLE[i].addr, POLL_TABLE[i].len);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(expected[i], out.data(), POLL_FRAME_LEN);
   }
 }
 
@@ -52,51 +50,46 @@ void test_build_poll_frame_all_polls() {
 void test_build_write_frame_motor_enable() {
   // L0 write (0xAA) to ADDR 0x27, one payload byte with bit 7 set.
   const uint8_t payload[] = {0x80};
-  uint8_t out[8];
-  size_t n = build_write_frame(FrameType::WriteL0, 0x27, payload, 1, out);
+  const std::vector<uint8_t> out = build_write_frame(FrameType::WriteL0, 0x27, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xAA, 0x01, 0x27, 0x80, 0x2E};
-  TEST_ASSERT_EQUAL_UINT(7, n);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size());
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
 }
 
 void test_build_write_frame_gear_mode() {
   // J0 write (0xFF) to ADDR 0x25, nibble-encoded 3-gear payload 0x30.
   const uint8_t payload[] = {0x30};
-  uint8_t out[8];
-  size_t n = build_write_frame(FrameType::WriteJ0, 0x25, payload, 1, out);
+  const std::vector<uint8_t> out = build_write_frame(FrameType::WriteJ0, 0x25, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x25, 0x30, 0xC9};
-  TEST_ASSERT_EQUAL_UINT(7, n);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size());
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
 }
 
 void test_build_write_frame_brightness() {
   // J0 write (0xFF) to ADDR 0x57, one raw payload byte (display brightness).
   const uint8_t payload[] = {0xFF};
-  uint8_t out[8];
-  size_t n = build_write_frame(FrameType::WriteJ0, 0x57, payload, 1, out);
+  const std::vector<uint8_t> out = build_write_frame(FrameType::WriteJ0, 0x57, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x57, 0xFF, 0x74};
-  TEST_ASSERT_EQUAL_UINT(7, n);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size());
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
 }
 
 void test_build_write_frame_boost() {
   // L0 write (0xAA) to ADDR 0x52, one raw payload byte (PAS boost level).
   const uint8_t payload[] = {100};
-  uint8_t out[8];
-  size_t n = build_write_frame(FrameType::WriteL0, 0x52, payload, 1, out);
+  const std::vector<uint8_t> out = build_write_frame(FrameType::WriteL0, 0x52, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xAA, 0x01, 0x52, 0x64, 0xBF};
-  TEST_ASSERT_EQUAL_UINT(7, n);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size());
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
 }
 
 void test_build_write_frame_guard_time() {
   // J0 write (0xFF) to ADDR 0x58, one raw payload byte (guard timeout seconds).
   const uint8_t payload[] = {0x00};
-  uint8_t out[8];
-  size_t n = build_write_frame(FrameType::WriteJ0, 0x58, payload, 1, out);
+  const std::vector<uint8_t> out = build_write_frame(FrameType::WriteJ0, 0x58, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x58, 0x00, 0x84};
-  TEST_ASSERT_EQUAL_UINT(7, n);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size());
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
 }
 
 void test_build_write_frame_addr_39() {
@@ -106,21 +99,28 @@ void test_build_write_frame_addr_39() {
   uint8_t b = 0xE8 & 0x1F;
   TEST_ASSERT_EQUAL_UINT8(0x08, b);
   const uint8_t payload[] = {b};
-  uint8_t out[8];
-  size_t n = build_write_frame(FrameType::WriteJ0, 0x39, payload, 1, out);
+  const std::vector<uint8_t> out = build_write_frame(FrameType::WriteJ0, 0x39, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x39, 0x08, 0xED};
-  TEST_ASSERT_EQUAL_UINT(7, n);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size());
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
 }
 
 void test_build_write_frame_multibyte_payload() {
   // Multi-byte payload exercises the copy loop and CRC offset (5 + payload_len).
   const uint8_t payload[] = {0x01, 0x02, 0x03};
-  uint8_t out[16];
-  size_t n = build_write_frame(FrameType::WriteL0, 0xAB, payload, 3, out);
+  const std::vector<uint8_t> out = build_write_frame(FrameType::WriteL0, 0xAB, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xAA, 0x03, 0xAB, 0x01, 0x02, 0x03, 0x20};
-  TEST_ASSERT_EQUAL_UINT(9, n);
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out, 9);
+  TEST_ASSERT_EQUAL_UINT(9, out.size());
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 9);
+}
+
+void test_build_write_frame_refuses_a_payload_the_length_byte_cannot_describe() {
+  const std::vector<uint8_t> payload(MAX_WRITE_PAYLOAD + 1, 0x00);
+  TEST_ASSERT_TRUE(build_write_frame(FrameType::WriteL0, 0x27, payload).empty());
+  const std::vector<uint8_t> largest(MAX_WRITE_PAYLOAD, 0x00);
+  const std::vector<uint8_t> frame = build_write_frame(FrameType::WriteL0, 0x27, largest);
+  TEST_ASSERT_EQUAL_UINT(MAX_WRITE_PAYLOAD + WRITE_FRAME_OVERHEAD, frame.size());
+  TEST_ASSERT_EQUAL_UINT8(MAX_WRITE_PAYLOAD, frame[3]);
 }
 
 // === compute_masked_write ===
@@ -260,12 +260,12 @@ void test_skip_disabled_polls_terminates_when_all_are_off() {
 
 void test_decode_stats_rejects_wrong_length() {
   const uint8_t short_payload[4] = {0, 0, 0, 0};
-  TEST_ASSERT_FALSE(decode_stats(short_payload, sizeof(short_payload)).valid);
+  TEST_ASSERT_FALSE(decode_stats(short_payload).valid);
 }
 
 void test_decode_stats_reads_the_captured_frame() {
   // Ties the offset constants to a captured payload.
-  const StatsView v = decode_stats(fixtures::STATS_NOTIFY + NOTIFY_HDR_LEN, 53);
+  const StatsView v = decode_stats(std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN, 53));
   TEST_ASSERT_TRUE(v.valid);
   TEST_ASSERT_EQUAL_UINT8(90, v.soc_pct);
   TEST_ASSERT_EQUAL_UINT8(1, v.gear);
@@ -275,22 +275,22 @@ void test_decode_stats_reads_the_captured_frame() {
 void test_decode_stats_masks_0x39_to_low_bits() {
   uint8_t p[53] = {0};
   p[stats::ADDR_39_OFFSET] = 0xE8;
-  TEST_ASSERT_EQUAL_UINT8(0x08, decode_stats(p, sizeof(p)).b39);
+  TEST_ASSERT_EQUAL_UINT8(0x08, decode_stats(p).b39);
 }
 
 void test_decode_stats_gear_count_from_nibble_pair() {
   // Read as a plain number the byte never equals 3 or 5.
   uint8_t p[53] = {0};
   p[stats::ADDR_25_OFFSET] = 0x30;
-  TEST_ASSERT_EQUAL_UINT8(3, decode_stats(p, sizeof(p)).max_gear);
+  TEST_ASSERT_EQUAL_UINT8(3, decode_stats(p).max_gear);
   p[stats::ADDR_25_OFFSET] = 0x53;
-  TEST_ASSERT_EQUAL_UINT8(5, decode_stats(p, sizeof(p)).max_gear);
+  TEST_ASSERT_EQUAL_UINT8(5, decode_stats(p).max_gear);
 }
 
 void test_decode_stats_rejects_a_nibble_pair_that_means_nothing() {
   uint8_t p[53] = {0};
   p[stats::ADDR_25_OFFSET] = 0x77;
-  TEST_ASSERT_EQUAL_UINT8(0, decode_stats(p, sizeof(p)).max_gear);
+  TEST_ASSERT_EQUAL_UINT8(0, decode_stats(p).max_gear);
 }
 
 void test_decode_stats_bounds_reject_impossible_values() {
@@ -302,7 +302,7 @@ void test_decode_stats_bounds_reject_impossible_values() {
   p[stats::TOTAL_KM_OFFSET + 2] = 0xFF;
   p[stats::TOTAL_KM_OFFSET + 3] = 0xFF;
   p[stats::ADDR_24_OFFSET] = 200;
-  const StatsView v = decode_stats(p, sizeof(p));
+  const StatsView v = decode_stats(p);
   TEST_ASSERT_FALSE(v.total_km_ok);
   TEST_ASSERT_FALSE(v.soc_ok);
   TEST_ASSERT_TRUE(v.speed_ok);
@@ -341,9 +341,7 @@ void test_validate_notify_bad_crc() {
   for (size_t i = 0; i < sizeof(bad); i++)
     bad[i] = fixtures::BATTERY_NOTIFY[i];
   bad[sizeof(bad) - 1] ^= 0xFF;  // corrupted CRC
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_FALSE(validate_notify(bad, sizeof(bad), &addr, &payload_len));
+  TEST_ASSERT_FALSE(validate_notify(bad).valid);
 }
 
 void test_validate_notify_bad_signature() {
@@ -351,9 +349,7 @@ void test_validate_notify_bad_signature() {
   for (size_t i = 0; i < sizeof(bad); i++)
     bad[i] = fixtures::BATTERY_NOTIFY[i];
   bad[0] = 0x00;  // missing "Fd" signature
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_FALSE(validate_notify(bad, sizeof(bad), &addr, &payload_len));
+  TEST_ASSERT_FALSE(validate_notify(bad).valid);
 }
 
 void test_validate_notify_wrong_length() {
@@ -361,27 +357,34 @@ void test_validate_notify_wrong_length() {
   for (size_t i = 0; i < sizeof(bad); i++)
     bad[i] = fixtures::BATTERY_NOTIFY[i];
   bad[3] = 0x0E;  // declared_len 1 larger than actual
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_FALSE(validate_notify(bad, sizeof(bad), &addr, &payload_len));
+  TEST_ASSERT_FALSE(validate_notify(bad).valid);
 }
 
 void test_validate_notify_too_short() {
   const uint8_t tiny[] = {0x46, 0x64};
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_FALSE(validate_notify(tiny, sizeof(tiny), &addr, &payload_len));
+  TEST_ASSERT_FALSE(validate_notify(tiny).valid);
+}
+
+void test_validate_notify_hands_back_the_payload_it_declared() {
+  const NotifyView notify = validate_notify(fixtures::BATTERY_NOTIFY);
+  TEST_ASSERT_TRUE(notify.valid);
+  TEST_ASSERT_EQUAL_UINT(sizeof(fixtures::BATTERY_NOTIFY) - NOTIFY_OVERHEAD, notify.payload.size());
+  TEST_ASSERT_EQUAL_PTR(fixtures::BATTERY_NOTIFY + NOTIFY_HDR_LEN, notify.payload.data());
+}
+
+void test_endian_helpers_read_zero_past_the_end() {
+  const uint8_t buf[] = {0x12, 0x34, 0x56};
+  TEST_ASSERT_EQUAL_UINT16(0, u16be(buf, 2));
+  TEST_ASSERT_EQUAL_UINT32(0, u32be(buf, 0));
 }
 
 // === HANDSHAKE ===
 
 void test_validate_handshake() {
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_TRUE(
-      validate_notify(fixtures::HANDSHAKE_NOTIFY, sizeof(fixtures::HANDSHAKE_NOTIFY), &addr, &payload_len));
-  TEST_ASSERT_EQUAL_UINT8(0x0D, addr);
-  TEST_ASSERT_EQUAL_UINT(13, payload_len);
+  const NotifyView notify = validate_notify(fixtures::HANDSHAKE_NOTIFY);
+  TEST_ASSERT_TRUE(notify.valid);
+  TEST_ASSERT_EQUAL_UINT8(0x0D, notify.addr);
+  TEST_ASSERT_EQUAL_UINT(13, notify.payload.size());
 }
 
 // === Captured fixtures ===
@@ -391,36 +394,35 @@ void test_validate_handshake() {
 // offsets the decoder uses; decode_stats covers those.
 
 void test_fixture_battery_validate() {
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::BATTERY_NOTIFY, sizeof(fixtures::BATTERY_NOTIFY), &addr, &payload_len));
-  TEST_ASSERT_EQUAL_UINT8(0x7B, addr);
-  TEST_ASSERT_EQUAL_UINT(13, payload_len);
+  const NotifyView notify = validate_notify(fixtures::BATTERY_NOTIFY);
+  TEST_ASSERT_TRUE(notify.valid);
+  TEST_ASSERT_EQUAL_UINT8(0x7B, notify.addr);
+  TEST_ASSERT_EQUAL_UINT(13, notify.payload.size());
 }
 
 void test_fixture_battery_voltage_48v() {
   // off 4-5 = batteryVoltage BE/10. Real bike reported 48.0V.
-  const uint8_t *p = fixtures::BATTERY_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::BATTERY_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT16(480, u16be(p, 4));
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 48.0f, u16be(p, 4) / 10.0f);
 }
 
 void test_fixture_battery_capacity_11_6_ah() {
   // off 2-3 = totalLevel BE/10 -> 11.6 Ah (C11 Pro spec)
-  const uint8_t *p = fixtures::BATTERY_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::BATTERY_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT16(116, u16be(p, 2));
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 11.6f, u16be(p, 2) / 10.0f);
 }
 
 void test_fixture_battery_hw_sw() {
-  const uint8_t *p = fixtures::BATTERY_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::BATTERY_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT8(1, p[0]);  // HW
   TEST_ASSERT_EQUAL_UINT8(1, p[1]);  // SW
 }
 
 void test_fixture_battery_idle_no_current() {
   // off 7-8 = currentVoltage, off 9-10 = current -> idle = 0
-  const uint8_t *p = fixtures::BATTERY_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::BATTERY_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT16(0, u16be(p, 7));
   TEST_ASSERT_EQUAL_UINT16(0, u16be(p, 9));
 }
@@ -428,15 +430,14 @@ void test_fixture_battery_idle_no_current() {
 // === CTRL decode ===
 
 void test_fixture_ctrl_validate() {
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::CTRL_NOTIFY, sizeof(fixtures::CTRL_NOTIFY), &addr, &payload_len));
-  TEST_ASSERT_EQUAL_UINT8(0xAF, addr);
-  TEST_ASSERT_EQUAL_UINT(12, payload_len);
+  const NotifyView notify = validate_notify(fixtures::CTRL_NOTIFY);
+  TEST_ASSERT_TRUE(notify.valid);
+  TEST_ASSERT_EQUAL_UINT8(0xAF, notify.addr);
+  TEST_ASSERT_EQUAL_UINT(12, notify.payload.size());
 }
 
 void test_fixture_ctrl_versions() {
-  const uint8_t *p = fixtures::CTRL_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::CTRL_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT8(1, p[0]);     // HW
   TEST_ASSERT_EQUAL_UINT8(0xD3, p[1]);  // SW = 211
   TEST_ASSERT_EQUAL_UINT8(18, p[10]);   // currentVersion = 0x12
@@ -446,50 +447,48 @@ void test_fixture_ctrl_versions() {
 // === MOTOR decode ===
 
 void test_fixture_motor_validate() {
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::MOTOR_NOTIFY, sizeof(fixtures::MOTOR_NOTIFY), &addr, &payload_len));
-  TEST_ASSERT_EQUAL_UINT8(0x96, addr);
-  TEST_ASSERT_EQUAL_UINT(12, payload_len);
+  const NotifyView notify = validate_notify(fixtures::MOTOR_NOTIFY);
+  TEST_ASSERT_TRUE(notify.valid);
+  TEST_ASSERT_EQUAL_UINT8(0x96, notify.addr);
+  TEST_ASSERT_EQUAL_UINT(12, notify.payload.size());
 }
 
 void test_fixture_motor_wheel_28_inch() {
   // off 5-6 = wheel BE/10. C11 has 28" wheels (physically verified).
-  const uint8_t *p = fixtures::MOTOR_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::MOTOR_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT16(280, u16be(p, 5));
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 28.0f, u16be(p, 5) / 10.0f);
 }
 
 void test_fixture_motor_capacity_350w() {
   // off 9-10 = capacity -> C11 has a 350W motor (spec)
-  const uint8_t *p = fixtures::MOTOR_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::MOTOR_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT16(350, u16be(p, 9));
 }
 
 void test_fixture_motor_version() {
-  const uint8_t *p = fixtures::MOTOR_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::MOTOR_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT8(1, p[0]);  // emVersion
 }
 
 // === ENERGY decode ===
 
 void test_fixture_energy_validate() {
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::ENERGY_NOTIFY, sizeof(fixtures::ENERGY_NOTIFY), &addr, &payload_len));
-  TEST_ASSERT_EQUAL_UINT8(0xC8, addr);
-  TEST_ASSERT_EQUAL_UINT(12, payload_len);
+  const NotifyView notify = validate_notify(fixtures::ENERGY_NOTIFY);
+  TEST_ASSERT_TRUE(notify.valid);
+  TEST_ASSERT_EQUAL_UINT8(0xC8, notify.addr);
+  TEST_ASSERT_EQUAL_UINT(12, notify.payload.size());
 }
 
 void test_fixture_energy_startup_time() {
   // off 10-11 = startupTime BE = 57 s (BMS uptime since power-on)
-  const uint8_t *p = fixtures::ENERGY_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::ENERGY_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT16(57, u16be(p, 10));
 }
 
 void test_fixture_energy_idle_zero_totals() {
   // off 6-9 = totalTakeEnergy BE32/10 -> 0 when idle
-  const uint8_t *p = fixtures::ENERGY_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::ENERGY_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT32(0, u32be(p, 6));
   TEST_ASSERT_EQUAL_UINT16(0, u16be(p, 0));  // torque
   TEST_ASSERT_EQUAL_UINT16(0, u16be(p, 2));  // RPM
@@ -498,28 +497,27 @@ void test_fixture_energy_idle_zero_totals() {
 // === STATS decode ===
 
 void test_fixture_stats_validate() {
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::STATS_NOTIFY, sizeof(fixtures::STATS_NOTIFY), &addr, &payload_len));
-  TEST_ASSERT_EQUAL_UINT8(0x05, addr);
-  TEST_ASSERT_EQUAL_UINT(53, payload_len);
+  const NotifyView notify = validate_notify(fixtures::STATS_NOTIFY);
+  TEST_ASSERT_TRUE(notify.valid);
+  TEST_ASSERT_EQUAL_UINT8(0x05, notify.addr);
+  TEST_ASSERT_EQUAL_UINT(53, notify.payload.size());
 }
 
 void test_fixture_stats_soc_90_percent() {
   // off 31 = statusBatteryValue = SOC% (90% = 4/5 bars, confirmed against display)
-  const uint8_t *p = fixtures::STATS_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT8(90, p[31]);
 }
 
 void test_fixture_stats_total_km_42_8() {
   // off 23-26 = totalKilometers BE32/10
-  const uint8_t *p = fixtures::STATS_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT32(428, u32be(p, 23));
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 42.8f, u32be(p, 23) / 10.0f);
 }
 
 void test_fixture_stats_gear() {
-  const uint8_t *p = fixtures::STATS_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT8(1, p[33]);  // bicycleGear
 }
 
@@ -527,52 +525,51 @@ void test_fixture_stats_gear() {
 
 void test_fixture_stats_open_light_on() {
   // off 34 (0x27) bit 3 = openLight
-  const uint8_t *p = fixtures::STATS_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_BIT_HIGH(3, p[34]);
 }
 
 void test_fixture_stats_charging_on() {
   // off 37 (0x2A) bit 3 = statusStateOfCharge
-  const uint8_t *p = fixtures::STATS_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_BIT_HIGH(3, p[37]);
 }
 
 void test_fixture_stats_left_turn_signal() {
   // off 51 (0x38) bit 0 = leftTurnLight
-  const uint8_t *p = fixtures::STATS_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_BIT_HIGH(0, p[51]);
 }
 
 void test_fixture_stats_right_turn_signal() {
   // off 51 (0x38) bit 1 = rightTurnLight
-  const uint8_t *p = fixtures::STATS_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_BIT_HIGH(1, p[51]);
 }
 
 void test_fixture_stats_brake_off() {
   // off 37 (0x2A) bit 5 = brake handle status; low (not engaged) in idle fixture.
-  const uint8_t *p = fixtures::STATS_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_BIT_LOW(5, p[37]);
 }
 
 // === METER decode ===
 
 void test_fixture_meter_validate() {
-  uint8_t addr = 0;
-  size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::METER_NOTIFY, sizeof(fixtures::METER_NOTIFY), &addr, &payload_len));
-  TEST_ASSERT_EQUAL_UINT8(0x60, addr);
-  TEST_ASSERT_EQUAL_UINT(13, payload_len);
+  const NotifyView notify = validate_notify(fixtures::METER_NOTIFY);
+  TEST_ASSERT_TRUE(notify.valid);
+  TEST_ASSERT_EQUAL_UINT8(0x60, notify.addr);
+  TEST_ASSERT_EQUAL_UINT(13, notify.payload.size());
 }
 
 void test_fixture_meter_hw_sw() {
-  const uint8_t *p = fixtures::METER_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::METER_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT8(32, p[0]);  // HW=32
   TEST_ASSERT_EQUAL_UINT8(40, p[1]);  // SW=40
 }
 
 void test_fixture_meter_mode_data() {
-  const uint8_t *p = fixtures::METER_NOTIFY + NOTIFY_HDR_LEN;
+  const std::span<const uint8_t> p = std::span<const uint8_t>(fixtures::METER_NOTIFY).subspan(NOTIFY_HDR_LEN);
   TEST_ASSERT_EQUAL_UINT8(55, p[7]);  // modeData = 55
 }
 
@@ -605,6 +602,7 @@ int main() {
   RUN_TEST(test_build_write_frame_guard_time);
   RUN_TEST(test_build_write_frame_addr_39);
   RUN_TEST(test_build_write_frame_multibyte_payload);
+  RUN_TEST(test_build_write_frame_refuses_a_payload_the_length_byte_cannot_describe);
   RUN_TEST(test_masked_write_keeps_bits_outside_mask);
   RUN_TEST(test_masked_write_clears_bit_inside_mask);
   RUN_TEST(test_masked_write_is_idempotent);
@@ -636,6 +634,7 @@ int main() {
   RUN_TEST(test_validate_notify_bad_signature);
   RUN_TEST(test_validate_notify_wrong_length);
   RUN_TEST(test_validate_notify_too_short);
+  RUN_TEST(test_validate_notify_hands_back_the_payload_it_declared);
 
   // HANDSHAKE
   RUN_TEST(test_validate_handshake);
@@ -681,6 +680,7 @@ int main() {
   // u16be/u32be
   RUN_TEST(test_u16be_basic);
   RUN_TEST(test_u32be_basic);
+  RUN_TEST(test_endian_helpers_read_zero_past_the_end);
 
   return UNITY_END();
 }

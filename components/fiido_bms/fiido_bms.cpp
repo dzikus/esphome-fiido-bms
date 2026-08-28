@@ -195,9 +195,8 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       const uint8_t *buf = param->notify.value;
       const size_t len = param->notify.value_len;
 
-      uint8_t addr = 0;
-      size_t payload_len = 0;
-      if (!validate_notify(buf, len, &addr, &payload_len)) {
+      const NotifyView notify = validate_notify(std::span<const uint8_t>(buf, len));
+      if (!notify.valid) {
         this->bad_notify_count_++;
         uint32_t now = millis();
         if (this->last_bad_notify_log_ms_ == 0 || (now - this->last_bad_notify_log_ms_) >= BAD_NOTIFY_LOG_INTERVAL_MS) {
@@ -210,34 +209,34 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
         }
         break;
       }
-      const uint8_t *payload = buf + NOTIFY_HDR_LEN;
-      switch (addr) {
+      const std::span<const uint8_t> payload = notify.payload;
+      switch (notify.addr) {
         case 0x7B:
-          this->parse_battery_(payload, payload_len);
+          this->parse_battery_(payload);
           break;
         case 0xAF:
-          this->parse_ctrl_(payload, payload_len);
+          this->parse_ctrl_(payload);
           break;
         case 0x96:
-          this->parse_motor_(payload, payload_len);
+          this->parse_motor_(payload);
           break;
         case 0xC8:
-          this->parse_energy_(payload, payload_len);
+          this->parse_energy_(payload);
           break;
         case 0x05:
-          this->parse_stats_(payload, payload_len);
+          this->parse_stats_(payload);
           break;
         case 0x60:
-          this->parse_meter_(payload, payload_len);
+          this->parse_meter_(payload);
           break;
         case 0x3C:
-          this->parse_speed_limit_(payload, payload_len);
+          this->parse_speed_limit_(payload);
           break;
         case 0x52:
-          this->parse_boost_(payload, payload_len);
+          this->parse_boost_(payload);
           break;
         case 0x57:
-          this->parse_display_(payload, payload_len);
+          this->parse_display_(payload);
           break;
         case 0x0D:
           ESP_LOGD(TAG, "[%s] HANDSHAKE response OK", this->parent_->address_str());
@@ -248,7 +247,7 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
           if (this->last_unknown_addr_log_ms_ == 0 ||
               (now - this->last_unknown_addr_log_ms_) >= BAD_NOTIFY_LOG_INTERVAL_MS) {
             ESP_LOGW(TAG, "[%s] NOTIFY unhandled addr=0x%02X (%u dropped since last log)", this->parent_->address_str(),
-                     addr, (unsigned)this->unknown_addr_count_);
+                     notify.addr, (unsigned)this->unknown_addr_count_);
             this->last_unknown_addr_log_ms_ = now;
             this->unknown_addr_count_ = 0;
           }
@@ -388,39 +387,35 @@ void FiidoBMSHub::send_burst_poll_() {
 }
 
 void FiidoBMSHub::send_handshake_() {
-  uint8_t frame[POLL_FRAME_LEN];
-  build_poll_frame(0x0D, 0x0D, frame);
-  this->send_frame_(frame, POLL_FRAME_LEN, "HANDSHAKE");
+  this->send_frame_(build_poll_frame(0x0D, 0x0D), "HANDSHAKE");
 }
 
 bool FiidoBMSHub::send_poll_(size_t idx, bool warn_on_fail) {
   const PollDef &poll = POLL_TABLE[idx];
-  uint8_t frame[POLL_FRAME_LEN];
-  build_poll_frame(poll.addr, poll.len, frame);
-  return this->send_frame_(frame, POLL_FRAME_LEN, poll.name, warn_on_fail);
+  return this->send_frame_(build_poll_frame(poll.addr, poll.len), poll.name, warn_on_fail);
 }
 
-bool FiidoBMSHub::send_raw_write(FrameType type, uint8_t addr, const std::vector<uint8_t> &payload) {
-  if (payload.size() > 250) {
+bool FiidoBMSHub::send_raw_write(FrameType type, uint8_t addr, std::span<const uint8_t> payload) {
+  const std::vector<uint8_t> frame = build_write_frame(type, addr, payload);
+  if (frame.empty()) {
     ESP_LOGW(TAG, "[%s] send_raw_write payload too long (%u)", this->parent_->address_str(), (unsigned)payload.size());
     return false;
   }
-  uint8_t frame[256];
-  size_t flen = build_write_frame(type, addr, payload.data(), (uint8_t)payload.size(), frame);
   ESP_LOGV(TAG, "[%s] RAW WRITE type=0x%02X addr=0x%02X len=%u -> %s", this->parent_->address_str(), type, addr,
-           (unsigned)payload.size(), format_hex_pretty(frame, flen).c_str());
-  return this->send_frame_(frame, flen, "RAW_WRITE");
+           (unsigned)payload.size(), format_hex_pretty(frame.data(), frame.size()).c_str());
+  return this->send_frame_(frame, "RAW_WRITE");
 }
 
-bool FiidoBMSHub::send_frame_(const uint8_t *frame, size_t len, const char *name, bool warn_on_fail) {
+bool FiidoBMSHub::send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail) {
   if (this->char_write_handle_ == 0) {
     ESP_LOGW(TAG, "[%s] send %s skipped, FFE2 handle not yet known", this->parent_->address_str(), name);
     return false;
   }
-  ESP_LOGV(TAG, "[%s] POLL %-9s -> %s", this->parent_->address_str(), name, format_hex_pretty(frame, len).c_str());
-  auto status =
-      esp_ble_gattc_write_char(this->parent_->get_gattc_if(), this->parent_->get_conn_id(), this->char_write_handle_,
-                               len, const_cast<uint8_t *>(frame), ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
+  ESP_LOGV(TAG, "[%s] POLL %-9s -> %s", this->parent_->address_str(), name,
+           format_hex_pretty(frame.data(), frame.size()).c_str());
+  auto status = esp_ble_gattc_write_char(this->parent_->get_gattc_if(), this->parent_->get_conn_id(),
+                                         this->char_write_handle_, frame.size(), const_cast<uint8_t *>(frame.data()),
+                                         ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
   if (status) {
     if (warn_on_fail) {
       ESP_LOGW(TAG, "[%s] write %s failed, status=%d", this->parent_->address_str(), name, status);
@@ -434,8 +429,8 @@ bool FiidoBMSHub::send_frame_(const uint8_t *frame, size_t len, const char *name
 
 // === Parse helpers ===
 
-void FiidoBMSHub::parse_battery_(const uint8_t *p, size_t len) {
-  if (len != 13)
+void FiidoBMSHub::parse_battery_(std::span<const uint8_t> p) {
+  if (p.size() != 13)
     return;
   publish_(this->battery_hw_version_sensor_, p[0]);
   publish_(this->battery_sw_version_sensor_, p[1]);
@@ -449,8 +444,8 @@ void FiidoBMSHub::parse_battery_(const uint8_t *p, size_t len) {
            u16be(p, 9) / 10.0, u16be(p, 2) / 10.0);
 }
 
-void FiidoBMSHub::parse_ctrl_(const uint8_t *p, size_t len) {
-  if (len != 12)
+void FiidoBMSHub::parse_ctrl_(std::span<const uint8_t> p) {
+  if (p.size() != 12)
     return;
   uint16_t current = u16be(p, 7);
   publish_(this->ctrl_hw_version_sensor_, p[0]);
@@ -465,8 +460,8 @@ void FiidoBMSHub::parse_ctrl_(const uint8_t *p, size_t len) {
            u16be(p, 2) / 10.0, u16be(p, 4) / 10.0, current / 10.0, p[9], p[10]);
 }
 
-void FiidoBMSHub::parse_motor_(const uint8_t *p, size_t len) {
-  if (len != 12)
+void FiidoBMSHub::parse_motor_(std::span<const uint8_t> p) {
+  if (p.size() != 12)
     return;
   publish_(this->motor_version_sensor_, p[0]);
   publish_(this->motor_magnetic_sensor_, p[1]);
@@ -484,8 +479,8 @@ void FiidoBMSHub::parse_motor_(const uint8_t *p, size_t len) {
            u16be(p, 5) / 10.0, u16be(p, 9));
 }
 
-void FiidoBMSHub::parse_energy_(const uint8_t *p, size_t len) {
-  if (len != 12)
+void FiidoBMSHub::parse_energy_(std::span<const uint8_t> p) {
+  if (p.size() != 12)
     return;
   uint16_t torque = u16be(p, 0);
   uint16_t rpm = u16be(p, 2);
@@ -614,8 +609,8 @@ void FiidoBMSHub::set_ble_user_enabled(bool en) {
   }
 }
 
-void FiidoBMSHub::parse_stats_(const uint8_t *p, size_t len) {
-  const StatsView sv = decode_stats(p, len);
+void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
+  const StatsView sv = decode_stats(p);
   if (!sv.valid)
     return;
   if (sv.total_km_ok)
@@ -1018,8 +1013,8 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
   }
 }
 
-void FiidoBMSHub::parse_meter_(const uint8_t *p, size_t len) {
-  if (len != 13)
+void FiidoBMSHub::parse_meter_(std::span<const uint8_t> p) {
+  if (p.size() != 13)
     return;
   publish_(this->meter_hw_version_sensor_, p[0]);
   publish_(this->meter_sw_version_sensor_, p[1]);
@@ -1028,8 +1023,8 @@ void FiidoBMSHub::parse_meter_(const uint8_t *p, size_t len) {
 }
 
 // Map (ADDR 0x3C value, bit 5 ADDR 0x27) pair to select option. Keep last good on ambiguous.
-void FiidoBMSHub::parse_speed_limit_(const uint8_t *p, size_t len) {
-  if (len != 1)
+void FiidoBMSHub::parse_speed_limit_(std::span<const uint8_t> p) {
+  if (p.size() != 1)
     return;
   this->addr_3C_cache_ = p[0];
   this->addr_3C_valid_ = true;
@@ -1524,8 +1519,8 @@ void FiidoBMSHub::pair_watch() {
   }
 }
 
-void FiidoBMSHub::parse_boost_(const uint8_t *p, size_t len) {
-  if (len != 1)
+void FiidoBMSHub::parse_boost_(std::span<const uint8_t> p) {
+  if (p.size() != 1)
     return;
   this->addr_52_cache_ = p[0];
   this->addr_52_valid_ = true;
@@ -1533,8 +1528,8 @@ void FiidoBMSHub::parse_boost_(const uint8_t *p, size_t len) {
   ESP_LOGV(TAG, "[%s] BOOST value=%u", this->parent_->address_str(), p[0]);
 }
 
-void FiidoBMSHub::parse_display_(const uint8_t *p, size_t len) {
-  if (len != 2)
+void FiidoBMSHub::parse_display_(std::span<const uint8_t> p) {
+  if (p.size() != 2)
     return;
   this->addr_57_cache_ = p[0];
   this->addr_58_cache_ = p[1];
