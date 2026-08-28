@@ -413,8 +413,9 @@ WriteError FiidoBMSHub::send_raw_write_(FrameType type, Addr addr, std::span<con
     ESP_LOGW(TAG, "[%s] send_raw_write payload too long (%u)", this->parent_->address_str(), (unsigned)payload.size());
     return WriteError::PAYLOAD_TOO_LONG;
   }
-  ESP_LOGV(TAG, "[%s] RAW WRITE type=0x%02X addr=0x%02X len=%u -> %s", this->parent_->address_str(), type,
-           static_cast<uint8_t>(addr), (unsigned)payload.size(), format_hex_pretty(frame.data(), frame.size()).c_str());
+  ESP_LOGV(TAG, "[%s] RAW WRITE type=0x%02X addr=0x%02X len=%u -> %s", this->parent_->address_str(),
+           static_cast<unsigned>(type), static_cast<uint8_t>(addr), (unsigned)payload.size(),
+           format_hex_pretty(frame.data(), frame.size()).c_str());
   return this->send_frame_(frame, "RAW_WRITE");
 }
 
@@ -1224,14 +1225,15 @@ bool FiidoBMSHub::defer_flag_write_(bool cache_valid, const char *name, std::fun
 
 void FiidoBMSHub::write_masked_bits_(Addr addr, uint8_t mask, uint8_t bits, uint8_t *cache, const char *name) {
   const MaskedWrite w = compute_masked_write(addr, *cache, mask, bits);
-  ESP_LOGI(TAG, "[%s] %s ADDR 0x%02X: 0x%02X -> 0x%02X (mask 0x%02X)", this->parent_->address_str(), name, addr, *cache,
-           w.value, mask);
+  ESP_LOGI(TAG, "[%s] %s ADDR 0x%02X: 0x%02X -> 0x%02X (mask 0x%02X)", this->parent_->address_str(), name,
+           static_cast<unsigned>(addr), *cache, w.value, mask);
   if (WriteError::NONE == this->send_raw_write_(w.type, addr, std::array<uint8_t, 1>{w.value})) {
     *cache = w.value;
     this->force_poll_stats_ = true;
     this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
   } else {
-    ESP_LOGW(TAG, "[%s] WRITE 0x%02X (%s) failed - cache not updated", this->parent_->address_str(), addr, name);
+    ESP_LOGW(TAG, "[%s] WRITE 0x%02X (%s) failed - cache not updated", this->parent_->address_str(),
+             static_cast<unsigned>(addr), name);
   }
 }
 
@@ -1393,10 +1395,11 @@ void FiidoBMSHub::set_bike_guard_enable(bool on) {
 
 // Raw 1-byte value write for number entities. Clamps to 0..255 then sends.
 bool FiidoBMSHub::write_value_byte_(FrameType type, Addr addr, uint8_t value, const char *name) {
-  ESP_LOGI(TAG, "[%s] %s WRITE ADDR 0x%02X = %u (type 0x%02X)", this->parent_->address_str(), name, addr, value,
-           static_cast<unsigned>(type));
+  ESP_LOGI(TAG, "[%s] %s WRITE ADDR 0x%02X = %u (type 0x%02X)", this->parent_->address_str(), name,
+           static_cast<unsigned>(addr), value, static_cast<unsigned>(type));
   if (WriteError::NONE != this->send_raw_write_(type, addr, std::array<uint8_t, 1>{value})) {
-    ESP_LOGW(TAG, "[%s] WRITE 0x%02X (%s) failed - cache not updated", this->parent_->address_str(), addr, name);
+    ESP_LOGW(TAG, "[%s] WRITE 0x%02X (%s) failed - cache not updated", this->parent_->address_str(),
+             static_cast<unsigned>(addr), name);
     return false;
   }
   this->force_poll_stats_ = true;
