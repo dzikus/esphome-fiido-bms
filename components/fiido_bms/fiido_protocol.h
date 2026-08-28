@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -74,9 +75,18 @@ static constexpr size_t NOTIFY_HDR_LEN = 5;  // [F][d][AA][len][addr]
 static constexpr size_t NOTIFY_CRC_LEN = 1;
 static constexpr size_t NOTIFY_OVERHEAD = NOTIFY_HDR_LEN + NOTIFY_CRC_LEN;  // 6
 
-// The length byte caps the payload at 0xFF.
 inline constexpr size_t WRITE_FRAME_OVERHEAD = 6;  // [F][d][type][len][addr] + crc
-inline constexpr size_t MAX_WRITE_PAYLOAD = 0xFF;
+// The length byte allows 255; the largest real command is the 6-byte watch MAC.
+inline constexpr size_t MAX_WRITE_PAYLOAD = 32;
+
+// size 0 = refused.
+struct WriteFrame {
+  std::array<uint8_t, MAX_WRITE_PAYLOAD + WRITE_FRAME_OVERHEAD> bytes;
+  size_t size;
+
+  [[nodiscard]] bool empty() const { return size == 0; }
+  [[nodiscard]] std::span<const uint8_t> span() const { return {bytes.data(), size}; }
+};
 
 [[nodiscard]] uint8_t compute_crc(std::span<const uint8_t> data);
 
@@ -84,7 +94,7 @@ inline constexpr size_t MAX_WRITE_PAYLOAD = 0xFF;
 [[nodiscard]] std::array<uint8_t, POLL_FRAME_LEN> build_poll_frame(Addr addr, uint8_t len);
 
 // [F][d][type][payload_len][addr][...payload][crc]. Empty = refused.
-[[nodiscard]] std::vector<uint8_t> build_write_frame(FrameType type, Addr addr, std::span<const uint8_t> payload);
+[[nodiscard]] WriteFrame build_write_frame(FrameType type, Addr addr, std::span<const uint8_t> payload);
 
 // payload views the caller's frame; empty unless valid.
 struct NotifyView {

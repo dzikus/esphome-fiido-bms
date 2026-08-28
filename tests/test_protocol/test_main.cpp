@@ -52,46 +52,46 @@ void test_build_poll_frame_all_polls() {
 void test_build_write_frame_motor_enable() {
   // L0 write (0xAA) to ADDR 0x27, one payload byte with bit 7 set.
   const uint8_t payload[] = {0x80};
-  const std::vector<uint8_t> out = build_write_frame(FrameType::WRITE_L0, Addr::FLAGS_27, payload);
+  const WriteFrame out = build_write_frame(FrameType::WRITE_L0, Addr::FLAGS_27, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xAA, 0x01, 0x27, 0x80, 0x2E};
-  TEST_ASSERT_EQUAL_UINT(7, out.size());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.bytes.data(), 7);
 }
 
 void test_build_write_frame_gear_mode() {
   // J0 write (0xFF) to ADDR 0x25, nibble-encoded 3-gear payload 0x30.
   const uint8_t payload[] = {0x30};
-  const std::vector<uint8_t> out = build_write_frame(FrameType::WRITE_J0, Addr::GEAR_RANGE, payload);
+  const WriteFrame out = build_write_frame(FrameType::WRITE_J0, Addr::GEAR_RANGE, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x25, 0x30, 0xC9};
-  TEST_ASSERT_EQUAL_UINT(7, out.size());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.bytes.data(), 7);
 }
 
 void test_build_write_frame_brightness() {
   // J0 write (0xFF) to ADDR 0x57, one raw payload byte (display brightness).
   const uint8_t payload[] = {0xFF};
-  const std::vector<uint8_t> out = build_write_frame(FrameType::WRITE_J0, Addr::DISPLAY, payload);
+  const WriteFrame out = build_write_frame(FrameType::WRITE_J0, Addr::DISPLAY, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x57, 0xFF, 0x74};
-  TEST_ASSERT_EQUAL_UINT(7, out.size());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.bytes.data(), 7);
 }
 
 void test_build_write_frame_boost() {
   // L0 write (0xAA) to ADDR 0x52, one raw payload byte (PAS boost level).
   const uint8_t payload[] = {100};
-  const std::vector<uint8_t> out = build_write_frame(FrameType::WRITE_L0, Addr::PAS_BOOST, payload);
+  const WriteFrame out = build_write_frame(FrameType::WRITE_L0, Addr::PAS_BOOST, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xAA, 0x01, 0x52, 0x64, 0xBF};
-  TEST_ASSERT_EQUAL_UINT(7, out.size());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.bytes.data(), 7);
 }
 
 void test_build_write_frame_guard_time() {
   // J0 write (0xFF) to ADDR 0x58, one raw payload byte (guard timeout seconds).
   const uint8_t payload[] = {0x00};
-  const std::vector<uint8_t> out = build_write_frame(FrameType::WRITE_J0, Addr::GUARD_TIME, payload);
+  const WriteFrame out = build_write_frame(FrameType::WRITE_J0, Addr::GUARD_TIME, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x58, 0x00, 0x84};
-  TEST_ASSERT_EQUAL_UINT(7, out.size());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.bytes.data(), 7);
 }
 
 void test_build_write_frame_addr_39() {
@@ -101,28 +101,28 @@ void test_build_write_frame_addr_39() {
   uint8_t b = 0xE8 & 0x1F;
   TEST_ASSERT_EQUAL_UINT8(0x08, b);
   const uint8_t payload[] = {b};
-  const std::vector<uint8_t> out = build_write_frame(FrameType::WRITE_J0, Addr::FLAGS_39, payload);
+  const WriteFrame out = build_write_frame(FrameType::WRITE_J0, Addr::FLAGS_39, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xFF, 0x01, 0x39, 0x08, 0xED};
-  TEST_ASSERT_EQUAL_UINT(7, out.size());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 7);
+  TEST_ASSERT_EQUAL_UINT(7, out.size);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.bytes.data(), 7);
 }
 
 void test_build_write_frame_multibyte_payload() {
   // Multi-byte payload exercises the copy loop and CRC offset (5 + payload_len).
   const uint8_t payload[] = {0x01, 0x02, 0x03};
-  const std::vector<uint8_t> out = build_write_frame(FrameType::WRITE_L0, Addr::WATCH_PAIR, payload);
+  const WriteFrame out = build_write_frame(FrameType::WRITE_L0, Addr::WATCH_PAIR, payload);
   const uint8_t expected[] = {0x46, 0x64, 0xAA, 0x03, 0x09, 0x01, 0x02, 0x03, 0x82};
-  TEST_ASSERT_EQUAL_UINT(9, out.size());
-  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.data(), 9);
+  TEST_ASSERT_EQUAL_UINT(9, out.size);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, out.bytes.data(), 9);
 }
 
-void test_build_write_frame_refuses_a_payload_the_length_byte_cannot_describe() {
+void test_build_write_frame_refuses_a_payload_over_the_cap() {
   const std::vector<uint8_t> payload(MAX_WRITE_PAYLOAD + 1, 0x00);
   TEST_ASSERT_TRUE(build_write_frame(FrameType::WRITE_L0, Addr::FLAGS_27, payload).empty());
   const std::vector<uint8_t> largest(MAX_WRITE_PAYLOAD, 0x00);
-  const std::vector<uint8_t> frame = build_write_frame(FrameType::WRITE_L0, Addr::FLAGS_27, largest);
-  TEST_ASSERT_EQUAL_UINT(MAX_WRITE_PAYLOAD + WRITE_FRAME_OVERHEAD, frame.size());
-  TEST_ASSERT_EQUAL_UINT8(MAX_WRITE_PAYLOAD, frame[3]);
+  const WriteFrame frame = build_write_frame(FrameType::WRITE_L0, Addr::FLAGS_27, largest);
+  TEST_ASSERT_EQUAL_UINT(MAX_WRITE_PAYLOAD + WRITE_FRAME_OVERHEAD, frame.size);
+  TEST_ASSERT_EQUAL_UINT8(MAX_WRITE_PAYLOAD, frame.bytes[3]);
 }
 
 // === compute_masked_write ===
@@ -896,7 +896,7 @@ int main() {
   RUN_TEST(test_build_write_frame_guard_time);
   RUN_TEST(test_build_write_frame_addr_39);
   RUN_TEST(test_build_write_frame_multibyte_payload);
-  RUN_TEST(test_build_write_frame_refuses_a_payload_the_length_byte_cannot_describe);
+  RUN_TEST(test_build_write_frame_refuses_a_payload_over_the_cap);
   RUN_TEST(test_masked_write_keeps_bits_outside_mask);
   RUN_TEST(test_masked_write_clears_bit_inside_mask);
   RUN_TEST(test_masked_write_is_idempotent);

@@ -409,15 +409,15 @@ WriteError FiidoBMSHub::send_poll_(size_t idx, bool warn_on_fail) {
 }
 
 WriteError FiidoBMSHub::send_raw_write_(FrameType type, Addr addr, std::span<const uint8_t> payload) {
-  const std::vector<uint8_t> frame = build_write_frame(type, addr, payload);
+  const WriteFrame frame = build_write_frame(type, addr, payload);
   if (frame.empty()) {
     ESP_LOGW(TAG, "[%s] send_raw_write payload too long (%u)", this->parent_->address_str(), (unsigned)payload.size());
     return WriteError::PAYLOAD_TOO_LONG;
   }
   ESP_LOGV(TAG, "[%s] RAW WRITE type=0x%02X addr=0x%02X len=%u -> %s", this->parent_->address_str(),
            static_cast<unsigned>(type), static_cast<uint8_t>(addr), (unsigned)payload.size(),
-           format_hex_pretty(frame.data(), frame.size()).c_str());
-  return this->send_frame_(frame, "RAW_WRITE");
+           format_hex_pretty(frame.bytes.data(), frame.size).c_str());
+  return this->send_frame_(frame.span(), "RAW_WRITE");
 }
 
 WriteError FiidoBMSHub::send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail) {
@@ -426,7 +426,7 @@ WriteError FiidoBMSHub::send_frame_(std::span<const uint8_t> frame, const char *
     return WriteError::NO_HANDLE;
   }
   ESP_LOGV(TAG, "[%s] POLL %-9s -> %s", this->parent_->address_str(), name,
-           format_hex_pretty(frame.data(), frame.size()).c_str());
+           format_hex_pretty(frame.bytes.data(), frame.size).c_str());
   auto status = esp_ble_gattc_write_char(this->parent_->get_gattc_if(), this->parent_->get_conn_id(),
                                          this->char_write_handle_, frame.size(), const_cast<uint8_t *>(frame.data()),
                                          ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);

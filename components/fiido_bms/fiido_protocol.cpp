@@ -45,18 +45,19 @@ std::array<uint8_t, POLL_FRAME_LEN> build_poll_frame(Addr addr, uint8_t len) {
   return frame;
 }
 
-std::vector<uint8_t> build_write_frame(FrameType type, Addr addr, std::span<const uint8_t> payload) {
+WriteFrame build_write_frame(FrameType type, Addr addr, std::span<const uint8_t> payload) {
+  WriteFrame frame{};
   if (payload.size() > MAX_WRITE_PAYLOAD)
-    return {};
-  std::vector<uint8_t> frame;
-  frame.reserve(payload.size() + WRITE_FRAME_OVERHEAD);
-  frame.push_back(FIIDO_SIG_0);
-  frame.push_back(FIIDO_SIG_1);
-  frame.push_back(static_cast<uint8_t>(type));
-  frame.push_back(static_cast<uint8_t>(payload.size()));
-  frame.push_back(static_cast<uint8_t>(addr));
-  frame.insert(frame.end(), payload.begin(), payload.end());
-  frame.push_back(compute_crc(frame));
+    return frame;
+  frame.bytes[0] = FIIDO_SIG_0;
+  frame.bytes[1] = FIIDO_SIG_1;
+  frame.bytes[2] = static_cast<uint8_t>(type);
+  frame.bytes[3] = static_cast<uint8_t>(payload.size());
+  frame.bytes[4] = static_cast<uint8_t>(addr);
+  std::copy(payload.begin(), payload.end(), frame.bytes.begin() + NOTIFY_HDR_LEN);
+  const size_t crc_at = NOTIFY_HDR_LEN + payload.size();
+  frame.bytes[crc_at] = compute_crc(std::span<const uint8_t>(frame.bytes).first(crc_at));
+  frame.size = crc_at + 1;
   return frame;
 }
 
