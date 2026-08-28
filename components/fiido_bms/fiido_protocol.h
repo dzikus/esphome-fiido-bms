@@ -18,8 +18,8 @@ static constexpr uint8_t FRAME_TYPE_NOTIFY = 0xAA;
 // acknowledged and dropped, so mixing them up must not compile. Shares its value
 // with FRAME_TYPE_NOTIFY, which means something else.
 enum class FrameType : uint8_t {
-  WriteL0 = 0xAA,
-  WriteJ0 = 0xFF,
+  WRITE_L0 = 0xAA,
+  WRITE_J0 = 0xFF,
 };
 
 // Register addresses. Poll targets and write targets share one space.
@@ -253,9 +253,10 @@ inline constexpr size_t GUARD_TIME = 1;
 
 // Poll length against what the parser reads.
 consteval uint8_t poll_len(Addr addr) {
-  for (const PollDef &poll : POLL_TABLE)
+  for (const PollDef &poll : POLL_TABLE) {
     if (poll.addr == addr)
       return poll.len;
+  }
   return 0;
 }
 static_assert(poll_len(Addr::BATTERY) == battery::PAYLOAD_LEN);
@@ -311,6 +312,6 @@ struct FlagView {
   bool ring_on;
 };
 
-[[nodiscard]] FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2B, uint8_t b2C, uint8_t b38, uint8_t b39);
+[[nodiscard]] FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2b, uint8_t b2c, uint8_t b38, uint8_t b39);
 
 }  // namespace esphome::fiido_bms

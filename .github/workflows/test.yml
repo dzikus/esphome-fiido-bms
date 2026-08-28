@@ -32,6 +32,10 @@ jobs:
         run: pip install "pre-commit==4.6.0"
       - name: Run pre-commit (ruff lint + format + hygiene)
         run: pre-commit run --all-files --show-diff-on-failure
+      - name: Install clang-tidy
+        run: pip install "clang-tidy==22.1.8"
+      - name: Run clang-tidy over the host-buildable sources
+        run: bash tests/run_clang_tidy.sh
   unit-tests:
     name: protocol unit tests (native)
     needs: lint

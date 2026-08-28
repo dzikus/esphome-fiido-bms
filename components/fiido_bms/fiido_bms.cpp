@@ -758,7 +758,7 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
     uint8_t b = this->addr_27_cache_ & ~0x08;
     ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)", this->parent_->address_str(),
              this->addr_27_cache_, b);
-    if (WriteError::NONE == this->send_raw_write(FrameType::WriteL0, Addr::FLAGS_27, std::vector<uint8_t>{b})) {
+    if (WriteError::NONE == this->send_raw_write(FrameType::WRITE_L0, Addr::FLAGS_27, std::vector<uint8_t>{b})) {
       this->addr_27_cache_ = b;
     } else {
       ESP_LOGW(TAG, "[%s] WRITE 0x27 (light auto-clear) failed - cache not updated", this->parent_->address_str());
@@ -857,7 +857,7 @@ void FiidoBMSHub::set_motor_enable(bool on) {
   }
   ESP_LOGI(TAG, "[%s] MOTOR %s ADDR 0x27: 0x%02X -> 0x%02X", this->parent_->address_str(), on ? "ENABLE" : "DISABLE",
            this->addr_27_cache_, b);
-  if (WriteError::NONE == this->send_raw_write(FrameType::WriteL0, Addr::FLAGS_27, std::vector<uint8_t>{b})) {
+  if (WriteError::NONE == this->send_raw_write(FrameType::WRITE_L0, Addr::FLAGS_27, std::vector<uint8_t>{b})) {
     this->addr_27_cache_ = b;
     this->force_poll_stats_ = true;
     this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
@@ -902,7 +902,7 @@ void FiidoBMSHub::set_light_enable(bool on) {
     b &= ~0x08;
   ESP_LOGI(TAG, "[%s] LIGHT %s ADDR 0x27: 0x%02X -> 0x%02X (bit3)", this->parent_->address_str(),
            on ? "ENABLE" : "DISABLE", this->addr_27_cache_, b);
-  if (WriteError::NONE == this->send_raw_write(FrameType::WriteL0, Addr::FLAGS_27, std::vector<uint8_t>{b})) {
+  if (WriteError::NONE == this->send_raw_write(FrameType::WRITE_L0, Addr::FLAGS_27, std::vector<uint8_t>{b})) {
     this->addr_27_cache_ = b;
     this->force_poll_stats_ = true;
     this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
@@ -949,7 +949,7 @@ void FiidoBMSHub::set_gear(uint8_t gear) {
     return;
   }
   ESP_LOGI(TAG, "[%s] GEAR set to %u (WRITE ADDR 0x26)", this->parent_->address_str(), gear);
-  if (WriteError::NONE == this->send_raw_write(FrameType::WriteL0, Addr::GEAR, std::vector<uint8_t>{gear})) {
+  if (WriteError::NONE == this->send_raw_write(FrameType::WRITE_L0, Addr::GEAR, std::vector<uint8_t>{gear})) {
     this->force_poll_stats_ = true;
     this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
   } else {
@@ -1002,7 +1002,7 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
   uint8_t encoded = (mode << 4) | (this->addr_25_cache_ & 0x0F);
   ESP_LOGI(TAG, "[%s] GEAR MODE set to %u (ADDR 0x25: 0x%02X -> 0x%02X) frame type 0xFF", this->parent_->address_str(),
            mode, this->addr_25_cache_, encoded);
-  if (WriteError::NONE == this->send_raw_write(FrameType::WriteJ0, Addr::GEAR_RANGE, std::vector<uint8_t>{encoded})) {
+  if (WriteError::NONE == this->send_raw_write(FrameType::WRITE_J0, Addr::GEAR_RANGE, std::vector<uint8_t>{encoded})) {
     this->addr_25_cache_ = encoded;
     this->force_poll_stats_ = true;
     this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
@@ -1106,7 +1106,7 @@ void FiidoBMSHub::set_speed_limit(const std::string &option) {
       b2C &= ~0x80;
     ESP_LOGI(TAG, "[%s] SPEED_LIMIT phase1: PAS %s ADDR 0x2C 0x%02X->0x%02X (bit 7)", this->parent_->address_str(),
              target_bit5 ? "ON" : "OFF", this->addr_2C_cache_, b2C);
-    if (WriteError::NONE == this->send_raw_write(FrameType::WriteL0, Addr::FLAGS_2C, std::vector<uint8_t>{b2C})) {
+    if (WriteError::NONE == this->send_raw_write(FrameType::WRITE_L0, Addr::FLAGS_2C, std::vector<uint8_t>{b2C})) {
       this->addr_2C_cache_ = b2C;
     } else {
       ESP_LOGW(TAG, "[%s] WRITE 0x2C (speed_limit PAS) failed - cache not updated", this->parent_->address_str());
@@ -1132,9 +1132,9 @@ void FiidoBMSHub::set_speed_limit(const std::string &option) {
              this->parent_->address_str(), option.c_str(), target_value, this->addr_27_cache_, b27,
              target_bit5 ? 1 : 0);
     const bool ok_3C = WriteError::NONE ==
-                       this->send_raw_write(FrameType::WriteL0, Addr::SPEED_LIMIT, std::vector<uint8_t>{target_value});
+                       this->send_raw_write(FrameType::WRITE_L0, Addr::SPEED_LIMIT, std::vector<uint8_t>{target_value});
     const bool ok_27 =
-        WriteError::NONE == this->send_raw_write(FrameType::WriteL0, Addr::FLAGS_27, std::vector<uint8_t>{b27});
+        WriteError::NONE == this->send_raw_write(FrameType::WRITE_L0, Addr::FLAGS_27, std::vector<uint8_t>{b27});
     if (ok_3C)
       this->addr_3C_cache_ = target_value;
     else
@@ -1201,7 +1201,7 @@ void FiidoBMSHub::set_speed_unit(const std::string &option) {
     b &= ~0x80;
   ESP_LOGI(TAG, "[%s] SPEED_UNIT %s ADDR 0x28: 0x%02X -> 0x%02X (bit7)", this->parent_->address_str(), option.c_str(),
            this->addr_28_cache_, b);
-  if (WriteError::NONE == this->send_raw_write(FrameType::WriteL0, Addr::FLAGS_28, std::vector<uint8_t>{b})) {
+  if (WriteError::NONE == this->send_raw_write(FrameType::WRITE_L0, Addr::FLAGS_28, std::vector<uint8_t>{b})) {
     this->addr_28_cache_ = b;
     this->force_poll_stats_ = true;
     this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
@@ -1429,7 +1429,7 @@ void FiidoBMSHub::set_brightness(float value) {
     this->ensure_enabled_for_write_();
     return;
   }
-  if (this->write_value_byte_(FrameType::WriteJ0, Addr::DISPLAY, v, "BRIGHTNESS")) {
+  if (this->write_value_byte_(FrameType::WRITE_J0, Addr::DISPLAY, v, "BRIGHTNESS")) {
     this->addr_57_cache_ = v;
     if (this->brightness_number_ != nullptr)
       this->brightness_number_->publish_state(v);
@@ -1454,7 +1454,7 @@ void FiidoBMSHub::set_boost(float value) {
     this->ensure_enabled_for_write_();
     return;
   }
-  if (this->write_value_byte_(FrameType::WriteL0, Addr::PAS_BOOST, v, "BOOST")) {
+  if (this->write_value_byte_(FrameType::WRITE_L0, Addr::PAS_BOOST, v, "BOOST")) {
     this->addr_52_cache_ = v;
     if (this->boost_number_ != nullptr)
       this->boost_number_->publish_state(v);
@@ -1479,7 +1479,7 @@ void FiidoBMSHub::set_guard_time(float value) {
     this->ensure_enabled_for_write_();
     return;
   }
-  if (this->write_value_byte_(FrameType::WriteJ0, Addr::GUARD_TIME, v, "GUARD_TIME")) {
+  if (this->write_value_byte_(FrameType::WRITE_J0, Addr::GUARD_TIME, v, "GUARD_TIME")) {
     this->addr_58_cache_ = v;
     if (this->guard_time_number_ != nullptr)
       this->guard_time_number_->publish_state(v);
@@ -1510,7 +1510,7 @@ void FiidoBMSHub::pair_watch() {
            format_hex_pretty(payload.data(), payload.size()).c_str());
   // Write-only address: no notify carries 0x09 back, so the send result is the
   // only signal there is.
-  if (WriteError::NONE != this->send_raw_write(FrameType::WriteJ0, Addr::WATCH_PAIR, payload)) {
+  if (WriteError::NONE != this->send_raw_write(FrameType::WRITE_J0, Addr::WATCH_PAIR, payload)) {
     ESP_LOGW(TAG, "[%s] PAIR_WATCH write failed", this->parent_->address_str());
   }
 }

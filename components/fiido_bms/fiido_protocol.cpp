@@ -63,9 +63,9 @@ std::vector<uint8_t> build_write_frame(FrameType type, Addr addr, std::span<cons
 MaskedWrite compute_masked_write(Addr addr, uint8_t cache, uint8_t mask, uint8_t new_bits) {
   uint8_t value = static_cast<uint8_t>((cache & ~mask) | (new_bits & mask));
   if (addr == Addr::FLAGS_39) {
-    return {FrameType::WriteJ0, static_cast<uint8_t>(value & 0x1F)};
+    return {FrameType::WRITE_J0, static_cast<uint8_t>(value & 0x1F)};
   }
-  return {FrameType::WriteL0, value};
+  return {FrameType::WRITE_L0, value};
 }
 
 StatsView decode_stats(std::span<const uint8_t> payload) {
@@ -101,7 +101,7 @@ StatsView decode_stats(std::span<const uint8_t> payload) {
   return v;
 }
 
-FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2B, uint8_t b2C, uint8_t b38, uint8_t b39) {
+FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2b, uint8_t b2c, uint8_t b38, uint8_t b39) {
   FlagView f{};
   f.motor_on = (b27 & 0x80) != 0;
   // With the controller off the lamp cannot be lit whatever the bit says.
@@ -112,12 +112,12 @@ FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2B, uint8_t b2C, uint8_
   f.insensitivity_on = (b27 & 0x01) != 0;
   f.speed_unit_mph = (b28 & 0x80) != 0;
   f.show_total_km_on = (b28 & 0x40) != 0;
-  f.throttle_on = (b2B & 0x02) == 0;  // inverted
-  f.double_speed_on = (b2B & 0x20) != 0;
-  f.bike_guard_on = (b2B & 0x40) != 0;
-  f.key_sound_on = (b2C & 0x10) == 0;  // inverted
-  f.slow_mode_on = (b2C & 0x40) != 0;
-  f.pas_limit_on = (b2C & 0x80) != 0;
+  f.throttle_on = (b2b & 0x02) == 0;  // inverted
+  f.double_speed_on = (b2b & 0x20) != 0;
+  f.bike_guard_on = (b2b & 0x40) != 0;
+  f.key_sound_on = (b2c & 0x10) == 0;  // inverted
+  f.slow_mode_on = (b2c & 0x40) != 0;
+  f.pas_limit_on = (b2c & 0x80) != 0;
   f.speaker_audible = (b38 & 0x0C) == 0;  // any non-zero pattern silences it
   f.auto_screen_off_on = (b39 & 0x08) != 0;
   f.ring_on = (b39 & 0x02) != 0;
