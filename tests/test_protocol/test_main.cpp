@@ -1,6 +1,7 @@
 // Unit tests for fiido_protocol. Run `pio test -e native` from tests/.
 // Fixtures in fixtures.h (sources: live BMS log + reconstructions from parsed values).
 #include <unity.h>
+
 #include "fiido_protocol.h"
 #include "fixtures.h"
 // Pure C++ functions in fiido_protocol via single-TU include (no separate .o linkage).
@@ -143,15 +144,13 @@ void test_masked_write_is_idempotent() {
 
 void test_masked_write_uses_l0_outside_0x39() {
   const MaskedWrite w = compute_masked_write(0x2C, 0x00, 0x10, 0x10);
-  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(FrameType::WriteL0),
-                          static_cast<uint8_t>(w.type));
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(FrameType::WriteL0), static_cast<uint8_t>(w.type));
 }
 
 void test_masked_write_0x39_uses_j0() {
   // ADDR 0x39 latches only under J0; an L0 write is acknowledged and dropped.
   const MaskedWrite w = compute_masked_write(0x39, 0x00, 0x08, 0x08);
-  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(FrameType::WriteJ0),
-                          static_cast<uint8_t>(w.type));
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(FrameType::WriteJ0), static_cast<uint8_t>(w.type));
 }
 
 void test_masked_write_0x39_drops_high_bits() {
@@ -211,10 +210,13 @@ void test_burst_gate_phase_separates_two_hubs() {
   for (uint32_t now = 0; now <= 60000; now += 1000) {
     const BurstGate a = evaluate_burst_gate(now, interval, 0, a_state, false);
     const BurstGate b = evaluate_burst_gate(now, interval, 1500, b_state, false);
-    if (a.start) a_state = {now, a.slot, true};
-    if (b.start) b_state = {now, b.slot, true};
+    if (a.start)
+      a_state = {now, a.slot, true};
+    if (b.start)
+      b_state = {now, b.slot, true};
     // Skip the warm-up: both hubs are due immediately on the first tick.
-    if (now >= 10000 && a.start && b.start) collided = true;
+    if (now >= 10000 && a.start && b.start)
+      collided = true;
   }
   TEST_ASSERT_FALSE(collided);
 }
@@ -227,7 +229,8 @@ void test_burst_gate_survives_zero_interval() {
 
 void test_skip_disabled_polls_stops_on_an_enabled_one() {
   bool enabled[POLL_TABLE_SIZE];
-  for (size_t i = 0; i < POLL_TABLE_SIZE; i++) enabled[i] = true;
+  for (size_t i = 0; i < POLL_TABLE_SIZE; i++)
+    enabled[i] = true;
   const PollCursor c = skip_disabled_polls({0, POLL_TABLE_SIZE}, enabled);
   TEST_ASSERT_EQUAL_UINT(0, c.index);
   TEST_ASSERT_EQUAL_UINT(POLL_TABLE_SIZE, c.remaining);
@@ -236,7 +239,8 @@ void test_skip_disabled_polls_stops_on_an_enabled_one() {
 void test_skip_disabled_polls_consumes_one_slot_each() {
   // Skipping must spend a slot, or a burst of nine could send more than nine.
   bool enabled[POLL_TABLE_SIZE];
-  for (size_t i = 0; i < POLL_TABLE_SIZE; i++) enabled[i] = true;
+  for (size_t i = 0; i < POLL_TABLE_SIZE; i++)
+    enabled[i] = true;
   enabled[0] = false;
   enabled[1] = false;
   const PollCursor c = skip_disabled_polls({0, POLL_TABLE_SIZE}, enabled);
@@ -246,7 +250,8 @@ void test_skip_disabled_polls_consumes_one_slot_each() {
 
 void test_skip_disabled_polls_terminates_when_all_are_off() {
   bool enabled[POLL_TABLE_SIZE];
-  for (size_t i = 0; i < POLL_TABLE_SIZE; i++) enabled[i] = false;
+  for (size_t i = 0; i < POLL_TABLE_SIZE; i++)
+    enabled[i] = false;
   const PollCursor c = skip_disabled_polls({0, POLL_TABLE_SIZE}, enabled);
   TEST_ASSERT_EQUAL_UINT(0, c.remaining);
 }
@@ -333,7 +338,8 @@ void test_decode_flags_each_bit_reads_its_own_byte() {
 
 void test_validate_notify_bad_crc() {
   uint8_t bad[sizeof(fixtures::BATTERY_NOTIFY)];
-  for (size_t i = 0; i < sizeof(bad); i++) bad[i] = fixtures::BATTERY_NOTIFY[i];
+  for (size_t i = 0; i < sizeof(bad); i++)
+    bad[i] = fixtures::BATTERY_NOTIFY[i];
   bad[sizeof(bad) - 1] ^= 0xFF;  // corrupted CRC
   uint8_t addr = 0;
   size_t payload_len = 0;
@@ -342,7 +348,8 @@ void test_validate_notify_bad_crc() {
 
 void test_validate_notify_bad_signature() {
   uint8_t bad[sizeof(fixtures::BATTERY_NOTIFY)];
-  for (size_t i = 0; i < sizeof(bad); i++) bad[i] = fixtures::BATTERY_NOTIFY[i];
+  for (size_t i = 0; i < sizeof(bad); i++)
+    bad[i] = fixtures::BATTERY_NOTIFY[i];
   bad[0] = 0x00;  // missing "Fd" signature
   uint8_t addr = 0;
   size_t payload_len = 0;
@@ -351,7 +358,8 @@ void test_validate_notify_bad_signature() {
 
 void test_validate_notify_wrong_length() {
   uint8_t bad[sizeof(fixtures::BATTERY_NOTIFY)];
-  for (size_t i = 0; i < sizeof(bad); i++) bad[i] = fixtures::BATTERY_NOTIFY[i];
+  for (size_t i = 0; i < sizeof(bad); i++)
+    bad[i] = fixtures::BATTERY_NOTIFY[i];
   bad[3] = 0x0E;  // declared_len 1 larger than actual
   uint8_t addr = 0;
   size_t payload_len = 0;
@@ -370,9 +378,8 @@ void test_validate_notify_too_short() {
 void test_validate_handshake() {
   uint8_t addr = 0;
   size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::HANDSHAKE_NOTIFY,
-                                   sizeof(fixtures::HANDSHAKE_NOTIFY),
-                                   &addr, &payload_len));
+  TEST_ASSERT_TRUE(
+      validate_notify(fixtures::HANDSHAKE_NOTIFY, sizeof(fixtures::HANDSHAKE_NOTIFY), &addr, &payload_len));
   TEST_ASSERT_EQUAL_UINT8(0x0D, addr);
   TEST_ASSERT_EQUAL_UINT(13, payload_len);
 }
@@ -386,9 +393,7 @@ void test_validate_handshake() {
 void test_fixture_battery_validate() {
   uint8_t addr = 0;
   size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::BATTERY_NOTIFY,
-                                   sizeof(fixtures::BATTERY_NOTIFY),
-                                   &addr, &payload_len));
+  TEST_ASSERT_TRUE(validate_notify(fixtures::BATTERY_NOTIFY, sizeof(fixtures::BATTERY_NOTIFY), &addr, &payload_len));
   TEST_ASSERT_EQUAL_UINT8(0x7B, addr);
   TEST_ASSERT_EQUAL_UINT(13, payload_len);
 }
@@ -425,9 +430,7 @@ void test_fixture_battery_idle_no_current() {
 void test_fixture_ctrl_validate() {
   uint8_t addr = 0;
   size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::CTRL_NOTIFY,
-                                   sizeof(fixtures::CTRL_NOTIFY),
-                                   &addr, &payload_len));
+  TEST_ASSERT_TRUE(validate_notify(fixtures::CTRL_NOTIFY, sizeof(fixtures::CTRL_NOTIFY), &addr, &payload_len));
   TEST_ASSERT_EQUAL_UINT8(0xAF, addr);
   TEST_ASSERT_EQUAL_UINT(12, payload_len);
 }
@@ -445,9 +448,7 @@ void test_fixture_ctrl_versions() {
 void test_fixture_motor_validate() {
   uint8_t addr = 0;
   size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::MOTOR_NOTIFY,
-                                   sizeof(fixtures::MOTOR_NOTIFY),
-                                   &addr, &payload_len));
+  TEST_ASSERT_TRUE(validate_notify(fixtures::MOTOR_NOTIFY, sizeof(fixtures::MOTOR_NOTIFY), &addr, &payload_len));
   TEST_ASSERT_EQUAL_UINT8(0x96, addr);
   TEST_ASSERT_EQUAL_UINT(12, payload_len);
 }
@@ -475,9 +476,7 @@ void test_fixture_motor_version() {
 void test_fixture_energy_validate() {
   uint8_t addr = 0;
   size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::ENERGY_NOTIFY,
-                                   sizeof(fixtures::ENERGY_NOTIFY),
-                                   &addr, &payload_len));
+  TEST_ASSERT_TRUE(validate_notify(fixtures::ENERGY_NOTIFY, sizeof(fixtures::ENERGY_NOTIFY), &addr, &payload_len));
   TEST_ASSERT_EQUAL_UINT8(0xC8, addr);
   TEST_ASSERT_EQUAL_UINT(12, payload_len);
 }
@@ -501,9 +500,7 @@ void test_fixture_energy_idle_zero_totals() {
 void test_fixture_stats_validate() {
   uint8_t addr = 0;
   size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::STATS_NOTIFY,
-                                   sizeof(fixtures::STATS_NOTIFY),
-                                   &addr, &payload_len));
+  TEST_ASSERT_TRUE(validate_notify(fixtures::STATS_NOTIFY, sizeof(fixtures::STATS_NOTIFY), &addr, &payload_len));
   TEST_ASSERT_EQUAL_UINT8(0x05, addr);
   TEST_ASSERT_EQUAL_UINT(53, payload_len);
 }
@@ -563,9 +560,7 @@ void test_fixture_stats_brake_off() {
 void test_fixture_meter_validate() {
   uint8_t addr = 0;
   size_t payload_len = 0;
-  TEST_ASSERT_TRUE(validate_notify(fixtures::METER_NOTIFY,
-                                   sizeof(fixtures::METER_NOTIFY),
-                                   &addr, &payload_len));
+  TEST_ASSERT_TRUE(validate_notify(fixtures::METER_NOTIFY, sizeof(fixtures::METER_NOTIFY), &addr, &payload_len));
   TEST_ASSERT_EQUAL_UINT8(0x60, addr);
   TEST_ASSERT_EQUAL_UINT(13, payload_len);
 }

@@ -1,19 +1,19 @@
 #pragma once
 
-#include "esphome/core/component.h"
-
 #include <functional>
 #include <vector>
 
+#include "esphome/core/component.h"
+
 #ifdef USE_ESP32
-#include "esphome/components/ble_client/ble_client.h"
-#include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
-#include "esphome/components/sensor/sensor.h"
-#include "esphome/components/binary_sensor/binary_sensor.h"
-#include "esphome/components/number/number.h"
-#include "esphome/components/select/select.h"
 #include <esp_gattc_api.h>
 
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/ble_client/ble_client.h"
+#include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
+#include "esphome/components/number/number.h"
+#include "esphome/components/select/select.h"
+#include "esphome/components/sensor/sensor.h"
 #include "fiido_protocol.h"
 
 namespace esphome {
@@ -62,8 +62,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                            esp_ble_gattc_cb_param_t *param) override;
 
-  void gap_event_handler(esp_gap_ble_cb_event_t event,
-                         esp_ble_gap_cb_param_t *param) override;
+  void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) override;
 
   void set_startup_delay(uint32_t ms) { this->startup_delay_ms_ = ms; }
   void set_hub_index(int i) { this->hub_index_ = i; }
@@ -217,13 +216,11 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t AMBIGUOUS_LIMIT_LOG_INTERVAL_MS = 60000;
   static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
 
-  [[nodiscard]] bool send_raw_write(FrameType type, uint8_t addr,
-                                    const std::vector<uint8_t> &payload);
+  [[nodiscard]] bool send_raw_write(FrameType type, uint8_t addr, const std::vector<uint8_t> &payload);
   void send_handshake_();
   [[nodiscard]] bool send_poll_(size_t idx, bool warn_on_fail);
   void send_burst_poll_();
-  bool send_frame_(const uint8_t *frame, size_t len, const char *name,
-                   bool warn_on_fail = true);
+  bool send_frame_(const uint8_t *frame, size_t len, const char *name, bool warn_on_fail = true);
   void publish_connected_(bool state);
   void mark_activity_(const char *reason);
 
@@ -241,16 +238,12 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void parse_speed_limit_(const uint8_t *payload, size_t len);
   void parse_boost_(const uint8_t *payload, size_t len);
   void parse_display_(const uint8_t *payload, size_t len);
-  [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name,
-                                       std::function<void()> retry);
-  void write_masked_bits_(uint8_t addr, uint8_t mask, uint8_t bits, uint8_t *cache,
-                          const char *name);
-  void write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache,
-                       const char *name);
+  [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name, std::function<void()> retry);
+  void write_masked_bits_(uint8_t addr, uint8_t mask, uint8_t bits, uint8_t *cache, const char *name);
+  void write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache, const char *name);
   // Raw 1-byte value write (no bit-masking) for number entities. False when the
   // frame did not go out, so the caller keeps its cache and entity unchanged.
-  [[nodiscard]] bool write_value_byte_(FrameType type, uint8_t addr, uint8_t value,
-                                       const char *name);
+  [[nodiscard]] bool write_value_byte_(FrameType type, uint8_t addr, uint8_t value, const char *name);
   // Republish the last shown value, undoing an optimistic UI change.
   static void revert_number_(number::Number *n);
 

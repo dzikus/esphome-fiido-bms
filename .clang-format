@@ -1,0 +1,19 @@
+---
+Language: Cpp
+BasedOnStyle: Google
+AccessModifierOffset: -1
+AlignAfterOpenBracket: Align
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBinaryOperators: None
+ColumnLimit: 120
+DerivePointerAlignment: false
+IndentWidth: 2
+PointerAlignment: Right
+ReflowComments: true
+SortIncludes: true
+SpacesBeforeTrailingComments: 2
+Standard: c++20
+...

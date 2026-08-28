@@ -25,30 +25,35 @@ static_assert(sizeof(POLL_TABLE) / sizeof(POLL_TABLE[0]) == POLL_TABLE_SIZE,
 PollCursor skip_disabled_polls(PollCursor cursor, const bool *enabled) {
   size_t safety = POLL_TABLE_SIZE;
   while (safety-- > 0 && cursor.remaining > 0) {
-    if (enabled[cursor.index]) break;
+    if (enabled[cursor.index])
+      break;
     cursor.index = (cursor.index + 1) % POLL_TABLE_SIZE;
     cursor.remaining--;
   }
   return cursor;
 }
 
-BurstGate evaluate_burst_gate(uint32_t now, uint32_t interval, uint32_t phase,
-                              BurstState state, bool forced) {
-  if (interval == 0) interval = 1;
+BurstGate evaluate_burst_gate(uint32_t now, uint32_t interval, uint32_t phase, BurstState state, bool forced) {
+  if (interval == 0)
+    interval = 1;
   const uint32_t slot = (now - (phase % interval)) / interval;
-  if (forced || !state.started) return {true, slot};
-  if (slot == state.last_slot) return {false, slot};
+  if (forced || !state.started)
+    return {true, slot};
+  if (slot == state.last_slot)
+    return {false, slot};
   // Half an interval, not a whole one. A full interval here would pace every hub
   // to the same period from whenever it last fired, which re-synchronises two
   // hubs that once fired together and holds them there, masking the phase. Half
   // is still wide enough to swallow a forced burst landing next to a boundary.
-  if ((now - state.last_ms) < interval / 2) return {false, slot};
+  if ((now - state.last_ms) < interval / 2)
+    return {false, slot};
   return {true, slot};
 }
 
 uint8_t compute_crc(const uint8_t *buf, size_t len) {
   uint8_t crc = 0;
-  for (size_t i = 0; i < len; i++) crc ^= buf[i];
+  for (size_t i = 0; i < len; i++)
+    crc ^= buf[i];
   return crc;
 }
 
@@ -61,21 +66,20 @@ void build_poll_frame(uint8_t addr, uint8_t len, uint8_t *out) {
   out[5] = compute_crc(out, 5);
 }
 
-size_t build_write_frame(FrameType type, uint8_t addr, const uint8_t *payload,
-                         uint8_t payload_len, uint8_t *out) {
+size_t build_write_frame(FrameType type, uint8_t addr, const uint8_t *payload, uint8_t payload_len, uint8_t *out) {
   out[0] = FIIDO_SIG_0;
   out[1] = FIIDO_SIG_1;
   out[2] = static_cast<uint8_t>(type);
   out[3] = payload_len;
   out[4] = addr;
-  for (uint8_t i = 0; i < payload_len; i++) out[5 + i] = payload[i];
+  for (uint8_t i = 0; i < payload_len; i++)
+    out[5 + i] = payload[i];
   size_t crc_off = 5 + payload_len;
   out[crc_off] = compute_crc(out, crc_off);
   return crc_off + 1;
 }
 
-MaskedWrite compute_masked_write(uint8_t addr, uint8_t cache, uint8_t mask,
-                                 uint8_t new_bits) {
+MaskedWrite compute_masked_write(uint8_t addr, uint8_t cache, uint8_t mask, uint8_t new_bits) {
   uint8_t value = static_cast<uint8_t>((cache & ~mask) | (new_bits & mask));
   if (addr == 0x39) {
     return {FrameType::WriteJ0, static_cast<uint8_t>(value & 0x1F)};
@@ -85,7 +89,8 @@ MaskedWrite compute_masked_write(uint8_t addr, uint8_t cache, uint8_t mask,
 
 StatsView decode_stats(const uint8_t *payload, size_t len) {
   StatsView v{};
-  if (len != stats::PAYLOAD_LEN) return v;
+  if (len != stats::PAYLOAD_LEN)
+    return v;
   v.valid = true;
   v.total_km = u32be(payload, stats::TOTAL_KM_OFFSET) / 10.0f;
   v.total_km_ok = v.total_km <= stats::MAX_TOTAL_KM;
@@ -115,8 +120,7 @@ StatsView decode_stats(const uint8_t *payload, size_t len) {
   return v;
 }
 
-FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2B, uint8_t b2C, uint8_t b38,
-                      uint8_t b39) {
+FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2B, uint8_t b2C, uint8_t b38, uint8_t b39) {
   FlagView f{};
   f.motor_on = (b27 & 0x80) != 0;
   // With the controller off the lamp cannot be lit whatever the bit says.
@@ -127,10 +131,10 @@ FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2B, uint8_t b2C, uint8_
   f.insensitivity_on = (b27 & 0x01) != 0;
   f.speed_unit_mph = (b28 & 0x80) != 0;
   f.show_total_km_on = (b28 & 0x40) != 0;
-  f.throttle_on = (b2B & 0x02) == 0;      // inverted
+  f.throttle_on = (b2B & 0x02) == 0;  // inverted
   f.double_speed_on = (b2B & 0x20) != 0;
   f.bike_guard_on = (b2B & 0x40) != 0;
-  f.key_sound_on = (b2C & 0x10) == 0;     // inverted
+  f.key_sound_on = (b2C & 0x10) == 0;  // inverted
   f.slow_mode_on = (b2C & 0x40) != 0;
   f.pas_limit_on = (b2C & 0x80) != 0;
   f.speaker_audible = (b38 & 0x0C) == 0;  // any non-zero pattern silences it
@@ -140,14 +144,19 @@ FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2B, uint8_t b2C, uint8_
 }
 
 bool validate_notify(const uint8_t *buf, size_t len, uint8_t *out_addr, size_t *out_payload_len) {
-  if (len < NOTIFY_OVERHEAD) return false;
-  if (buf[0] != FIIDO_SIG_0 || buf[1] != FIIDO_SIG_1) return false;
-  if (buf[2] != FRAME_TYPE_NOTIFY) return false;
+  if (len < NOTIFY_OVERHEAD)
+    return false;
+  if (buf[0] != FIIDO_SIG_0 || buf[1] != FIIDO_SIG_1)
+    return false;
+  if (buf[2] != FRAME_TYPE_NOTIFY)
+    return false;
   uint8_t declared_len = buf[3];
   // Frame total = 5 header bytes + declared_len payload + 1 CRC
-  if (size_t(declared_len) + NOTIFY_OVERHEAD != len) return false;
+  if (size_t(declared_len) + NOTIFY_OVERHEAD != len)
+    return false;
   uint8_t expected_crc = compute_crc(buf, len - 1);
-  if (buf[len - 1] != expected_crc) return false;
+  if (buf[len - 1] != expected_crc)
+    return false;
   *out_addr = buf[4];
   *out_payload_len = declared_len;
   return true;

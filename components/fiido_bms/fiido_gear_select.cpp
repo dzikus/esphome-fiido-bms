@@ -1,7 +1,6 @@
 #include "fiido_gear_select.h"
 
 #include "esphome/core/log.h"
-
 #include "fiido_bms.h"
 
 #ifdef USE_ESP32
@@ -10,7 +9,8 @@ namespace esphome {
 namespace fiido_bms {
 
 void FiidoGearSelect::set_gear_count(uint8_t count) {
-  if (count != 3 && count != 5) count = 5;
+  if (count != 3 && count != 5)
+    count = 5;
   this->gear_count_ = count;
   // HA caches the option list from setup-time ListEntitiesSelectResponse; runtime
   // traits changes are ignored. select.py registers the 5-gear list by default,
@@ -36,9 +36,10 @@ void FiidoGearSelect::control(const std::string &value) {
   size_t next_active = 0;
   for (const auto &name : this->names_5_) {
     if (name == value) {
-      if (fallback < 0) break;
-      ESP_LOGI(FIIDO_BMS_TAG, "value '%s' not valid in %u-gear mode - falling back to '%s'",
-               value.c_str(), this->gear_count_, active[fallback].c_str());
+      if (fallback < 0)
+        break;
+      ESP_LOGI(FIIDO_BMS_TAG, "value '%s' not valid in %u-gear mode - falling back to '%s'", value.c_str(),
+               this->gear_count_, active[fallback].c_str());
       this->parent_->set_gear(static_cast<uint8_t>(fallback));
       return;
     }
@@ -46,8 +47,8 @@ void FiidoGearSelect::control(const std::string &value) {
       fallback = static_cast<int>(next_active++);
     }
   }
-  ESP_LOGW(FIIDO_BMS_TAG, "value '%s' is not valid in current gear mode (count=%u) - rejected",
-           value.c_str(), this->gear_count_);
+  ESP_LOGW(FIIDO_BMS_TAG, "value '%s' is not valid in current gear mode (count=%u) - rejected", value.c_str(),
+           this->gear_count_);
   auto opt = this->current_option();
   if (!opt.empty()) {
     this->publish_state(opt.c_str());

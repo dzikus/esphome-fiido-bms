@@ -2,12 +2,12 @@
 
 #ifdef USE_ESP32
 
-#include <vector>
 #include <string>
+#include <vector>
 
+#include "esphome/components/select/select.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
-#include "esphome/components/select/select.h"
 #include "fiido_bms.h"
 
 namespace esphome {

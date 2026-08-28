@@ -2,9 +2,8 @@
 
 #ifdef USE_ESP32
 
-#include "esphome/core/helpers.h"
 #include "esphome/components/button/button.h"
-
+#include "esphome/core/helpers.h"
 #include "fiido_bms.h"
 
 namespace esphome {
@@ -14,9 +13,7 @@ namespace fiido_bms {
 // sends it as the pairing payload.
 class FiidoPairWatchButton : public button::Button, public Parented<FiidoBMSHub> {
  public:
-  void press_action() override {
-    this->parent_->pair_watch();
-  }
+  void press_action() override { this->parent_->pair_watch(); }
 };
 
 }  // namespace fiido_bms
