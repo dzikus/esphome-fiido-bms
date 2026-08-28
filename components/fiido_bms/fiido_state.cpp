@@ -2,6 +2,23 @@
 
 namespace esphome::fiido_bms {
 
+StatsSamples stats_samples(const StatsView &view) {
+  StatsSamples out{};
+  auto add = [&out](StatsChannel channel, float value) { out.items[out.size++] = {channel, value}; };
+  if (!view.valid)
+    return out;
+  if (view.total_km_ok)
+    add(StatsChannel::TOTAL_KM, view.total_km);
+  if (view.trip_km_ok)
+    add(StatsChannel::TRIP_KM, view.trip_km);
+  if (view.speed_ok)
+    add(StatsChannel::SPEED, view.speed_kmh);
+  if (view.soc_ok)
+    add(StatsChannel::SOC, static_cast<float>(view.soc_pct));
+  add(StatsChannel::GEAR_START, static_cast<float>(view.gear_start));
+  return out;
+}
+
 LifecycleAction decide_lifecycle(const LifecycleInput &in) {
   if (in.enabled && in.connected) {
     if (in.motor_off_since_ms != 0 && (in.now - in.motor_off_since_ms) >= in.idle_disconnect_ms && !in.pending_writes)

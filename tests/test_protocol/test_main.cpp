@@ -882,6 +882,50 @@ void test_speed_limit_plan_and_readback_agree() {
   }
 }
 
+static const StatsSample *find_sample(const StatsSamples &s, StatsChannel c) {
+  for (const auto &item : s)
+    if (item.channel == c)
+      return &item;
+  return nullptr;
+}
+
+// Fails the test instead of dereferencing a missing channel.
+static float sample_value(const StatsSamples &s, StatsChannel c) {
+  const StatsSample *found = find_sample(s, c);
+  TEST_ASSERT_NOT_NULL(found);
+  return found->value;
+}
+
+void test_stats_samples_carry_each_reading_to_its_own_channel() {
+  const StatsView v = decode_stats(std::span<const uint8_t>(fixtures::STATS_NOTIFY).subspan(NOTIFY_HDR_LEN, 53));
+  const StatsSamples s = stats_samples(v);
+  TEST_ASSERT_EQUAL_UINT(5, s.size);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 42.8f, sample_value(s, StatsChannel::TOTAL_KM));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, v.trip_km, sample_value(s, StatsChannel::TRIP_KM));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, v.speed_kmh, sample_value(s, StatsChannel::SPEED));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 90.0f, sample_value(s, StatsChannel::SOC));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, (float)v.gear_start, sample_value(s, StatsChannel::GEAR_START));
+}
+
+void test_stats_samples_drop_a_reading_that_failed_its_bound() {
+  uint8_t p[53] = {0};
+  p[stats::TOTAL_KM_OFFSET] = 0xFF;
+  p[stats::TOTAL_KM_OFFSET + 1] = 0xFF;
+  p[stats::TOTAL_KM_OFFSET + 2] = 0xFF;
+  p[stats::TOTAL_KM_OFFSET + 3] = 0xFF;
+  p[stats::ADDR_24_OFFSET] = 200;
+  const StatsSamples s = stats_samples(decode_stats(p));
+  TEST_ASSERT_NULL(find_sample(s, StatsChannel::TOTAL_KM));
+  TEST_ASSERT_NULL(find_sample(s, StatsChannel::SOC));
+  TEST_ASSERT_NOT_NULL(find_sample(s, StatsChannel::SPEED));
+  TEST_ASSERT_EQUAL_UINT(3, s.size);
+}
+
+void test_stats_samples_are_empty_for_an_invalid_frame() {
+  const uint8_t too_short[4] = {0, 0, 0, 0};
+  TEST_ASSERT_EQUAL_UINT(0, stats_samples(decode_stats(too_short)).size);
+}
+
 int main() {
   UNITY_BEGIN();
 
@@ -994,6 +1038,9 @@ int main() {
   RUN_TEST(test_pending_writes_drain_empties_the_queue);
   RUN_TEST(test_pending_writes_requeue_during_drain_waits_for_the_next_one);
   RUN_TEST(test_should_retry_send_stops_at_the_retry_cap);
+  RUN_TEST(test_stats_samples_carry_each_reading_to_its_own_channel);
+  RUN_TEST(test_stats_samples_drop_a_reading_that_failed_its_bound);
+  RUN_TEST(test_stats_samples_are_empty_for_an_invalid_frame);
   RUN_TEST(test_probe_outcome_motor_on_keeps_the_link);
   RUN_TEST(test_probe_outcome_holds_the_link_while_a_write_is_being_verified);
   RUN_TEST(test_resolve_gear_count_keeps_what_the_select_has);

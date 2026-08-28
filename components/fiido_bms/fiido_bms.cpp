@@ -631,15 +631,25 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   const StatsView sv = decode_stats(p);
   if (!sv.valid)
     return;
-  if (sv.total_km_ok)
-    publish_changed(this->total_kilometers_sensor_, sv.total_km);
-  if (sv.trip_km_ok)
-    publish_changed(this->current_kilometers_sensor_, sv.trip_km);
-  if (sv.speed_ok)
-    publish_changed(this->bicycle_speed_sensor_, sv.speed_kmh);
-  if (sv.soc_ok)
-    publish_changed(this->battery_soc_sensor_, sv.soc_pct);
-  publish_changed(this->bicycle_gear_start_sensor_, sv.gear_start);
+  for (const StatsSample &sample : stats_samples(sv)) {
+    switch (sample.channel) {
+      case StatsChannel::TOTAL_KM:
+        publish_changed(this->total_kilometers_sensor_, sample.value);
+        break;
+      case StatsChannel::TRIP_KM:
+        publish_changed(this->current_kilometers_sensor_, sample.value);
+        break;
+      case StatsChannel::SPEED:
+        publish_changed(this->bicycle_speed_sensor_, sample.value);
+        break;
+      case StatsChannel::SOC:
+        publish_changed(this->battery_soc_sensor_, sample.value);
+        break;
+      case StatsChannel::GEAR_START:
+        publish_changed(this->bicycle_gear_start_sensor_, sample.value);
+        break;
+    }
+  }
 
   // Resolved before the gear label below, which reads the resulting list.
   // max_gear is 0 when the nibble pair is not 3 or 5, which keeps the last-good

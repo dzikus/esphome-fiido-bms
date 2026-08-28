@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -8,7 +9,33 @@
 #include <utility>
 #include <vector>
 
+#include "fiido_protocol.h"
+
 namespace esphome::fiido_bms {
+
+enum class StatsChannel : uint8_t {
+  TOTAL_KM = 0,
+  TRIP_KM,
+  SPEED,
+  SOC,
+  GEAR_START,
+};
+
+struct StatsSample {
+  StatsChannel channel;
+  float value;
+};
+
+// Only readings that passed their bounds.
+struct StatsSamples {
+  std::array<StatsSample, 5> items;
+  size_t size;
+
+  [[nodiscard]] const StatsSample *begin() const { return items.data(); }
+  [[nodiscard]] const StatsSample *end() const { return items.data() + size; }
+};
+
+[[nodiscard]] StatsSamples stats_samples(const StatsView &view);
 
 enum class LifecycleAction : uint8_t {
   NONE = 0,
