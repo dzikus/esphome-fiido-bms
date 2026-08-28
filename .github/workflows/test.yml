@@ -85,10 +85,10 @@ jobs:
           set -euo pipefail
           esphome compile .github/ci-build.yaml
   config-floor:
-    name: config check at the ESPHome floor
+    name: config check and build at the ESPHome floor
     needs: lint
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -106,3 +106,7 @@ jobs:
           set -euo pipefail
           esphome config .github/ci-build.yaml
           esphome config .intellisense.yaml
+      - name: Compile at the floor
+        run: |
+          set -euo pipefail
+          esphome compile .github/ci-build.yaml
