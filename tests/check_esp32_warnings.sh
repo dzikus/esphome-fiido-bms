@@ -8,9 +8,9 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 config="${1:?usage: $0 <esphome-config.yaml> [board]}"
 board="${2:-esp32dev}"
 esphome_bin="${ESPHOME:-esphome}"
-log="${repo_dir}/.build/esp32-warnings.log"
+# Outside the repo, out of reach of git add.
+log="$(mktemp -t esp32-warnings-XXXXXX.log)"
 
-mkdir -p "$(dirname "${log}")"
 
 # esphome copies a source into the build tree only when its content changed, so
 # touching it does not force a rebuild. Drop the objects instead.

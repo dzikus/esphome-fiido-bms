@@ -19,7 +19,8 @@ if [[ -z "${ci_config}" ]]; then
 fi
 board="${BOARD:-esp32-c3-devkitm-1}"
 esphome_bin="${ESPHOME:-esphome}"
-work="${repo_dir}/.build/clang-tidy"
+# Outside the repo, out of reach of git add.
+work="$(mktemp -d -t clang-tidy-XXXXXX)"
 
 if [[ ! -f "${repo_dir}/${ci_config}" ]]; then
   echo "no CI config at ${ci_config}; set CI_CONFIG" >&2
@@ -44,7 +45,6 @@ if [[ ! -f "${db}" ]]; then
   exit 1
 fi
 
-mkdir -p "${work}"
 python3 - "${db}" "${work}" <<'PY'
 import json, shlex, subprocess, sys
 
