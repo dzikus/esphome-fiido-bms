@@ -313,8 +313,6 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t PROBE_WINDOW_MS = 60 * 1000;
   // Probe stays alive this long after dispatch to verify writes via STATS.
   static constexpr uint32_t WRITE_VERIFY_WINDOW_MS = 10 * 1000;
-  // Cap pending_writes_ to bound RAM under spam clicking during disconnect.
-  static constexpr size_t MAX_PENDING_WRITES = 32;
   // Delay between speed_limit PAS bit clear and 0x3C/0x27 override.
   // BMS side-effects 0x3C=25 when PAS bit clears; must wait past that.
   static constexpr uint32_t SPEED_LIMIT_PHASE2_DELAY_MS = 50;
@@ -336,6 +334,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   WriteError send_poll_(size_t idx, bool warn_on_fail);
   void send_burst_poll_();
   WriteError send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail = true);
+  // A write is fire and forget; the next STATS is the only confirmation.
+  void schedule_write_verify_();
   void publish_flag_entities_(const FlagView &flags);
   void settle_probe_(bool motor_on);
   void publish_connected_(bool state);

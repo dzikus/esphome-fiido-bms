@@ -162,6 +162,11 @@ void FiidoBMSHub::dump_config() {
   LOG_SELECT("  ", "Gear", this->gear_select_);
 }
 
+void FiidoBMSHub::schedule_write_verify_() {
+  this->force_poll_stats_ = true;
+  this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+}
+
 void FiidoBMSHub::settle_probe_(bool motor_on) {
   if (this->probe_started_ms_ == 0)
     return;
@@ -591,7 +596,7 @@ void FiidoBMSHub::manage_lifecycle_() {
 void FiidoBMSHub::enqueue_pending_write_(PendingWrite fn) {
   if (!this->pending_writes_.push(fn)) {
     ESP_LOGW(TAG, "[%s] pending_writes_ at cap %u - dropping oldest", this->parent_->address_str(),
-             (unsigned)MAX_PENDING_WRITES);
+             (unsigned)PENDING_WRITE_SLOTS);
   }
 }
 
@@ -827,8 +832,7 @@ void FiidoBMSHub::set_motor_enable(bool on) {
            cached, b);
   if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b})) {
     this->registers_.set<Addr::FLAGS_27>(b);
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+    this->schedule_write_verify_();
   } else {
     ESP_LOGW(TAG, "[%s] WRITE 0x27 (motor) failed - cache not updated", this->parent_->address_str());
   }
@@ -854,8 +858,7 @@ void FiidoBMSHub::set_light_enable(bool on) {
            on ? "ENABLE" : "DISABLE", cached, b);
   if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b})) {
     this->registers_.set<Addr::FLAGS_27>(b);
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+    this->schedule_write_verify_();
   } else {
     ESP_LOGW(TAG, "[%s] WRITE 0x27 (light) failed - cache not updated", this->parent_->address_str());
   }
@@ -875,8 +878,7 @@ void FiidoBMSHub::set_gear(uint8_t gear) {
     return;
   ESP_LOGI(TAG, "[%s] GEAR set to %u (WRITE ADDR 0x26)", this->parent_->address_str(), gear);
   if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::GEAR, std::array<uint8_t, 1>{gear})) {
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+    this->schedule_write_verify_();
   } else {
     ESP_LOGW(TAG, "[%s] WRITE 0x26 (gear) failed", this->parent_->address_str());
   }
@@ -902,8 +904,7 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
   if (WriteError::NONE ==
       this->send_raw_write_(FrameType::WRITE_J0, Addr::GEAR_RANGE, std::array<uint8_t, 1>{encoded})) {
     this->registers_.set<Addr::GEAR_RANGE>(encoded);
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+    this->schedule_write_verify_();
   } else {
     ESP_LOGW(TAG, "[%s] WRITE 0x25 (gear_mode) failed - cache not updated", this->parent_->address_str());
   }
@@ -1006,10 +1007,8 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
     } else {
       ESP_LOGW(TAG, "[%s] WRITE 0x27 (speed_limit bit5) failed - cache not updated", this->parent_->address_str());
     }
-    if (ok_3c || ok_27) {
-      this->force_poll_stats_ = true;
-      this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
-    }
+    if (ok_3c || ok_27)
+      this->schedule_write_verify_();
   };
   if (plan.delay_phase2) {
     this->set_timeout("speed_limit_phase2", SPEED_LIMIT_PHASE2_DELAY_MS, phase2);
@@ -1079,8 +1078,7 @@ void FiidoBMSHub::write_masked_bits_(Addr addr, size_t slot, uint8_t mask, uint8
            static_cast<unsigned>(addr), *cache, w.value, mask);
   if (WriteError::NONE == this->send_raw_write_(w.type, addr, std::array<uint8_t, 1>{w.value})) {
     cache = w.value;
-    this->force_poll_stats_ = true;
-    this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+    this->schedule_write_verify_();
   } else {
     ESP_LOGW(TAG, "[%s] WRITE 0x%02X (%s) failed - cache not updated", this->parent_->address_str(),
              static_cast<unsigned>(addr), name);
@@ -1147,8 +1145,7 @@ bool FiidoBMSHub::write_value_byte_(FrameType type, Addr addr, uint8_t value, co
              static_cast<unsigned>(addr), name);
     return false;
   }
-  this->force_poll_stats_ = true;
-  this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+  this->schedule_write_verify_();
   return true;
 }
 
