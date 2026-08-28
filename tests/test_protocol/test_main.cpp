@@ -3,9 +3,11 @@
 #include <unity.h>
 
 #include "fiido_protocol.h"
+#include "fiido_state.h"
 #include "fixtures.h"
 // Pure C++ functions in fiido_protocol via single-TU include (no separate .o linkage).
 #include "../../components/fiido_bms/fiido_protocol.cpp"
+#include "../../components/fiido_bms/fiido_state.cpp"
 
 using namespace esphome::fiido_bms;
 
@@ -588,6 +590,106 @@ void test_u32be_basic() {
   TEST_ASSERT_EQUAL_UINT32(0xDEADBEEFu, u32be(buf, 4));
 }
 
+static LifecycleInput lifecycle_base() {
+  LifecycleInput in{};
+  in.now = 1'000'000;
+  in.idle_disconnect_ms = 15 * 60 * 1000;
+  in.probe_window_ms = 60 * 1000;
+  in.periodic_probe_ms = 5 * 60 * 1000;
+  in.write_verify_window_ms = 10 * 1000;
+  return in;
+}
+
+void test_lifecycle_idle_disconnect_needs_the_full_window() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+}
+
+void test_lifecycle_never_drops_the_link_with_a_write_queued() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms * 10;
+  in.pending_writes = true;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+void test_lifecycle_zero_timestamp_is_not_an_elapsed_window() {
+  // millis() is 0 once per boot; 0 means "not started", not "long ago".
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.motor_off_since_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+
+  in.connected = false;
+  in.probe_started_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+
+  in.enabled = false;
+  in.disconnected_since_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+void test_lifecycle_probe_timeout_waits_for_the_write_verify_window() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = false;
+  in.probe_started_ms = in.now - in.probe_window_ms;
+  in.last_dispatch_ms = in.now - in.write_verify_window_ms + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.last_dispatch_ms = in.now - in.write_verify_window_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::PROBE_TIMEOUT, decide_lifecycle(in));
+  in.last_dispatch_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::PROBE_TIMEOUT, decide_lifecycle(in));
+}
+
+void test_lifecycle_disconnected_probes_on_its_period() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = false;
+  in.disconnected_since_ms = in.now - in.periodic_probe_ms + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.disconnected_since_ms = in.now - in.periodic_probe_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::START_PROBE, decide_lifecycle(in));
+}
+
+void test_lifecycle_survives_the_millis_wrap() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.now = 1000;
+  in.motor_off_since_ms = 0xFFFFFFFFu - (in.idle_disconnect_ms - 1000) + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+}
+
+void test_speed_limit_option_needs_the_enable_bit() {
+  TEST_ASSERT_EQUAL_STRING("No limit", resolve_speed_limit_option(100, false));
+  TEST_ASSERT_EQUAL_STRING("6 km/h", resolve_speed_limit_option(6, true));
+  TEST_ASSERT_EQUAL_STRING("25 km/h", resolve_speed_limit_option(25, true));
+  TEST_ASSERT_NULL(resolve_speed_limit_option(6, false));
+  TEST_ASSERT_NULL(resolve_speed_limit_option(25, false));
+  TEST_ASSERT_NULL(resolve_speed_limit_option(30, true));
+}
+
+void test_should_log_now_lets_the_first_one_through() {
+  TEST_ASSERT_TRUE(should_log_now(0, 0, 5000));
+  TEST_ASSERT_TRUE(should_log_now(1, 0, 5000));
+  TEST_ASSERT_FALSE(should_log_now(6000, 5000, 5000));
+  TEST_ASSERT_TRUE(should_log_now(10000, 5000, 5000));
+}
+
+void test_auto_shutdown_only_with_the_motor_on_and_enabled() {
+  TEST_ASSERT_TRUE(should_auto_shutdown(20000, 5000, 15000, true, true));
+  TEST_ASSERT_FALSE(should_auto_shutdown(20000, 5000, 15000, false, true));
+  TEST_ASSERT_FALSE(should_auto_shutdown(20000, 5000, 15000, true, false));
+  TEST_ASSERT_FALSE(should_auto_shutdown(19999, 5000, 15000, true, true));
+}
+
 int main() {
   UNITY_BEGIN();
 
@@ -681,6 +783,15 @@ int main() {
   RUN_TEST(test_u16be_basic);
   RUN_TEST(test_u32be_basic);
   RUN_TEST(test_endian_helpers_read_zero_past_the_end);
+  RUN_TEST(test_lifecycle_idle_disconnect_needs_the_full_window);
+  RUN_TEST(test_lifecycle_never_drops_the_link_with_a_write_queued);
+  RUN_TEST(test_lifecycle_zero_timestamp_is_not_an_elapsed_window);
+  RUN_TEST(test_lifecycle_probe_timeout_waits_for_the_write_verify_window);
+  RUN_TEST(test_lifecycle_disconnected_probes_on_its_period);
+  RUN_TEST(test_lifecycle_survives_the_millis_wrap);
+  RUN_TEST(test_speed_limit_option_needs_the_enable_bit);
+  RUN_TEST(test_should_log_now_lets_the_first_one_through);
+  RUN_TEST(test_auto_shutdown_only_with_the_motor_on_and_enabled);
 
   return UNITY_END();
 }

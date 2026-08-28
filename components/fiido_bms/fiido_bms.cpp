@@ -7,6 +7,7 @@
 #include "fiido_number.h"
 #include "fiido_speed_limit_select.h"
 #include "fiido_speed_unit_select.h"
+#include "fiido_state.h"
 
 #ifdef USE_ESP32
 
@@ -198,7 +199,7 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       if (!notify.valid) {
         this->bad_notify_count_++;
         uint32_t now = millis();
-        if (this->last_bad_notify_log_ms_ == 0 || (now - this->last_bad_notify_log_ms_) >= BAD_NOTIFY_LOG_INTERVAL_MS) {
+        if (should_log_now(now, this->last_bad_notify_log_ms_, BAD_NOTIFY_LOG_INTERVAL_MS)) {
           size_t dump = len < BAD_NOTIFY_DUMP_LEN ? len : BAD_NOTIFY_DUMP_LEN;
           ESP_LOGW(TAG, "[%s] NOTIFY invalid (len=%u, %u dropped since last log), head: %s",
                    this->parent_->address_str(), (unsigned)len, (unsigned)this->bad_notify_count_,
@@ -243,8 +244,7 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
         default: {
           this->unknown_addr_count_++;
           uint32_t now = millis();
-          if (this->last_unknown_addr_log_ms_ == 0 ||
-              (now - this->last_unknown_addr_log_ms_) >= BAD_NOTIFY_LOG_INTERVAL_MS) {
+          if (should_log_now(now, this->last_unknown_addr_log_ms_, BAD_NOTIFY_LOG_INTERVAL_MS)) {
             ESP_LOGW(TAG, "[%s] NOTIFY unhandled addr=0x%02X (%u dropped since last log)", this->parent_->address_str(),
                      static_cast<uint8_t>(notify.addr), (unsigned)this->unknown_addr_count_);
             this->last_unknown_addr_log_ms_ = now;
@@ -496,40 +496,44 @@ void FiidoBMSHub::parse_energy_(std::span<const uint8_t> p) {
 void FiidoBMSHub::manage_lifecycle_() {
   if (!this->ble_user_enabled_)
     return;
-  uint32_t now = millis();
-  bool enabled = this->parent_->enabled;
-  bool connected = this->node_state == espbt::ClientState::ESTABLISHED;
+  const uint32_t now = millis();
+  const LifecycleInput in{now,
+                          this->parent_->enabled,
+                          this->node_state == espbt::ClientState::ESTABLISHED,
+                          this->motor_off_since_ms_,
+                          this->disconnected_since_ms_,
+                          this->probe_started_ms_,
+                          this->last_dispatch_ms_,
+                          !this->pending_writes_.empty(),
+                          this->idle_disconnect_ms_,
+                          PROBE_WINDOW_MS,
+                          PERIODIC_PROBE_MS,
+                          WRITE_VERIFY_WINDOW_MS};
 
-  if (enabled && connected) {
-    // Idle disconnect: motor has been OFF long enough and no pending writes.
-    if (this->motor_off_since_ms_ != 0 && (now - this->motor_off_since_ms_) >= this->idle_disconnect_ms_ &&
-        this->pending_writes_.empty()) {
+  switch (decide_lifecycle(in)) {
+    case LifecycleAction::IDLE_DISCONNECT:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: motor OFF for %u min, disabling ble_client", this->parent_->address_str(),
                (unsigned)((now - this->motor_off_since_ms_) / 60000));
       this->parent_->set_enabled(false);
       this->disconnected_since_ms_ = now;
       this->motor_off_since_ms_ = 0;
       this->probe_started_ms_ = 0;
-    }
-  } else if (enabled && !connected) {
-    // Probe in progress (or transient reconnect). Time out if probe window passed.
-    if (this->probe_started_ms_ != 0 && (now - this->probe_started_ms_) >= PROBE_WINDOW_MS &&
-        this->pending_writes_.empty() &&
-        (this->last_dispatch_ms_ == 0 || (now - this->last_dispatch_ms_) >= WRITE_VERIFY_WINDOW_MS)) {
+      break;
+    case LifecycleAction::PROBE_TIMEOUT:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: probe window expired without reconnect, disabling", this->parent_->address_str());
       this->parent_->set_enabled(false);
       this->disconnected_since_ms_ = now;
       this->probe_started_ms_ = 0;
-    }
-  } else {
-    // Disconnected. Trigger periodic probe.
-    if (this->disconnected_since_ms_ != 0 && (now - this->disconnected_since_ms_) >= PERIODIC_PROBE_MS) {
+      break;
+    case LifecycleAction::START_PROBE:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: %u min elapsed, starting probe", this->parent_->address_str(),
                (unsigned)((now - this->disconnected_since_ms_) / 60000));
       this->parent_->set_enabled(true);
       this->probe_started_ms_ = now;
       this->disconnected_since_ms_ = 0;
-    }
+      break;
+    case LifecycleAction::NONE:
+      break;
   }
 }
 
@@ -703,15 +707,7 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   // STATS arrives more often than the 0x3C poll, so publish whichever combination
   // is on hand.
   if (this->speed_limit_select_ != nullptr && this->addr_3C_valid_) {
-    bool limit_on = f.speed_limit_on;
-    uint8_t v = this->addr_3C_cache_;
-    const char *opt = nullptr;
-    if (v == 100)
-      opt = "No limit";
-    else if (limit_on && v == 6)
-      opt = "6 km/h";
-    else if (limit_on && v == 25)
-      opt = "25 km/h";
+    const char *opt = resolve_speed_limit_option(this->addr_3C_cache_, f.speed_limit_on);
     if (opt != nullptr) {
       publish_(this->speed_limit_select_, opt);
     }
@@ -781,7 +777,8 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
     this->mark_activity_("light");
   this->prev_light_on_ = light_on;
   // Trigger auto-shutdown after IDLE_SHUTDOWN_MS of no activity (if enabled).
-  if (this->auto_shutdown_enabled_ && motor_on && (millis() - this->last_activity_ms_) >= IDLE_SHUTDOWN_MS) {
+  if (should_auto_shutdown(millis(), this->last_activity_ms_, IDLE_SHUTDOWN_MS, this->auto_shutdown_enabled_,
+                           motor_on)) {
     ESP_LOGI(TAG, "[%s] AUTO-SHUTDOWN: no activity for %u min, disabling motor", this->parent_->address_str(),
              (unsigned)((millis() - this->last_activity_ms_) / 60000));
     this->last_activity_ms_ = millis();  // prevent re-trigger before STATS verify
@@ -1034,13 +1031,7 @@ void FiidoBMSHub::parse_speed_limit_(std::span<const uint8_t> p) {
            p[speed_limit::VALUE_KMH]);
   if (this->speed_limit_select_ != nullptr && this->addr_27_valid_) {
     bool limit_on = (this->addr_27_cache_ & 0x20) != 0;
-    const char *opt = nullptr;
-    if (p[speed_limit::VALUE_KMH] == speed_limit::NO_LIMIT)
-      opt = "No limit";
-    else if (limit_on && p[speed_limit::VALUE_KMH] == 6)
-      opt = "6 km/h";
-    else if (limit_on && p[speed_limit::VALUE_KMH] == 25)
-      opt = "25 km/h";
+    const char *opt = resolve_speed_limit_option(p[speed_limit::VALUE_KMH], limit_on);
     if (opt != nullptr) {
       publish_(this->speed_limit_select_, opt);
     } else {
@@ -1048,8 +1039,7 @@ void FiidoBMSHub::parse_speed_limit_(std::span<const uint8_t> p) {
       // re-arms the PAS cap itself. Rate limit or it warns on every SPEEDLIM poll.
       this->ambiguous_limit_count_++;
       uint32_t now = millis();
-      if (this->last_ambiguous_limit_log_ms_ == 0 ||
-          (now - this->last_ambiguous_limit_log_ms_) >= AMBIGUOUS_LIMIT_LOG_INTERVAL_MS) {
+      if (should_log_now(now, this->last_ambiguous_limit_log_ms_, AMBIGUOUS_LIMIT_LOG_INTERVAL_MS)) {
         ESP_LOGW(TAG, "[%s] SPEED_LIMIT ambiguous (value=%u bit5=%u, %u since last log) keep prev",
                  this->parent_->address_str(), p[speed_limit::VALUE_KMH], limit_on ? 1 : 0,
                  (unsigned)this->ambiguous_limit_count_);
