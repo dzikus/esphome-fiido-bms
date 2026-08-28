@@ -22,6 +22,30 @@ enum class FrameType : uint8_t {
   WriteJ0 = 0xFF,
 };
 
+// Register addresses. Poll targets and write targets share one space.
+enum class Addr : uint8_t {
+  STATS = 0x05,
+  WATCH_PAIR = 0x09,
+  HANDSHAKE = 0x0D,
+  GEAR_RANGE = 0x25,
+  GEAR = 0x26,
+  FLAGS_27 = 0x27,
+  FLAGS_28 = 0x28,
+  FLAGS_2B = 0x2B,
+  FLAGS_2C = 0x2C,
+  SPEED_LIMIT = 0x3C,
+  PAS_BOOST = 0x52,
+  DISPLAY = 0x57,
+  GUARD_TIME = 0x58,
+  METER = 0x60,
+  BATTERY = 0x7B,
+  MOTOR = 0x96,
+  CTRL = 0xAF,
+  ENERGY = 0xC8,
+  FLAGS_38 = 0x38,
+  FLAGS_39 = 0x39,
+};
+
 struct MaskedWrite {
   FrameType type;
   uint8_t value;
@@ -29,11 +53,11 @@ struct MaskedWrite {
 
 // Bits outside mask keep their cached value. ADDR 0x39 defines only bits 4..0 and
 // latches only under J0, so it is masked down and switched.
-[[nodiscard]] MaskedWrite compute_masked_write(uint8_t addr, uint8_t cache, uint8_t mask, uint8_t new_bits);
+[[nodiscard]] MaskedWrite compute_masked_write(Addr addr, uint8_t cache, uint8_t mask, uint8_t new_bits);
 
 // Poll table entry: addr/len pair.
 struct PollDef {
-  uint8_t addr;
+  Addr addr;
   uint8_t len;
   const char *name;
 };
@@ -50,15 +74,15 @@ inline constexpr size_t MAX_WRITE_PAYLOAD = 0xFF;
 [[nodiscard]] uint8_t compute_crc(std::span<const uint8_t> data);
 
 // [F][d][55][len][addr][crc]
-[[nodiscard]] std::array<uint8_t, POLL_FRAME_LEN> build_poll_frame(uint8_t addr, uint8_t len);
+[[nodiscard]] std::array<uint8_t, POLL_FRAME_LEN> build_poll_frame(Addr addr, uint8_t len);
 
 // [F][d][type][payload_len][addr][...payload][crc]. Empty = refused.
-[[nodiscard]] std::vector<uint8_t> build_write_frame(FrameType type, uint8_t addr, std::span<const uint8_t> payload);
+[[nodiscard]] std::vector<uint8_t> build_write_frame(FrameType type, Addr addr, std::span<const uint8_t> payload);
 
 // payload views the caller's frame; empty unless valid.
 struct NotifyView {
   bool valid;
-  uint8_t addr;
+  Addr addr;
   std::span<const uint8_t> payload;
 };
 
@@ -81,19 +105,19 @@ struct NotifyView {
 
 // Rotated by the hub. POLL_TABLE_SIZE is the table's own size().
 inline constexpr std::array<PollDef, 9> POLL_TABLE = {{
-    {0x7B, 13, "BATTERY"},
-    {0xAF, 12, "CTRL"},
-    {0x96, 12, "MOTOR"},
-    {0xC8, 12, "ENERGY"},
-    {0x05, 53, "STATS"},
-    {0x60, 13, "METER"},
+    {Addr::BATTERY, 13, "BATTERY"},
+    {Addr::CTRL, 12, "CTRL"},
+    {Addr::MOTOR, 12, "MOTOR"},
+    {Addr::ENERGY, 12, "ENERGY"},
+    {Addr::STATS, 53, "STATS"},
+    {Addr::METER, 13, "METER"},
     // Speed limit value (read-only baseline, log-only). Frame: 46 64 55 01 3C 4A.
-    {0x3C, 1, "SPEEDLIM"},
+    {Addr::SPEED_LIMIT, 1, "SPEEDLIM"},
     // Boost level read-back (1 byte). Frame: 46 64 55 01 52 24.
-    {0x52, 1, "BOOST"},
+    {Addr::PAS_BOOST, 1, "BOOST"},
     // Display block read-back: 0x57 brightness + 0x58 guard time (2 bytes).
     // Frame: 46 64 55 02 57 22.
-    {0x57, 2, "DISPLAY"},
+    {Addr::DISPLAY, 2, "DISPLAY"},
 }};
 inline constexpr size_t POLL_TABLE_SIZE = POLL_TABLE.size();
 
@@ -149,6 +173,93 @@ inline constexpr float MAX_TRIP_KM = 1000.0f;
 inline constexpr float MAX_SPEED_KMH = 100.0f;
 inline constexpr uint8_t MAX_SOC_PCT = 100;
 }  // namespace stats
+
+namespace battery {
+inline constexpr size_t PAYLOAD_LEN = 13;
+inline constexpr size_t HW_VERSION = 0;
+inline constexpr size_t SW_VERSION = 1;
+inline constexpr size_t CAPACITY_AH = 2;        // 2B BE, tenths
+inline constexpr size_t VOLTAGE_V = 4;          // 2B BE, tenths
+inline constexpr size_t CURRENT_VOLTAGE_V = 7;  // 2B BE, tenths
+inline constexpr size_t CURRENT_A = 9;          // 2B BE, tenths
+inline constexpr size_t MANUFACTURER = 12;
+}  // namespace battery
+
+namespace ctrl {
+inline constexpr size_t PAYLOAD_LEN = 12;
+inline constexpr size_t HW_VERSION = 0;
+inline constexpr size_t SW_VERSION = 1;
+inline constexpr size_t UPPER_VOLTAGE_V = 2;  // 2B BE, tenths
+inline constexpr size_t LOWER_VOLTAGE_V = 4;  // 2B BE, tenths
+inline constexpr size_t CURRENT_A = 7;        // 2B BE, tenths
+inline constexpr size_t TEMPERATURE_C = 9;
+inline constexpr size_t VERSION = 10;
+inline constexpr size_t MANUFACTURER = 11;
+}  // namespace ctrl
+
+namespace motor {
+inline constexpr size_t PAYLOAD_LEN = 12;
+inline constexpr size_t VERSION = 0;
+inline constexpr size_t MAGNETIC = 1;
+inline constexpr size_t WIRE_COUNT = 2;
+inline constexpr size_t STEEL_COUNT = 3;
+inline constexpr size_t REDUCTION_RATIO = 4;    // tenths
+inline constexpr size_t WHEEL_DIAMETER_IN = 5;  // 2B BE, tenths
+inline constexpr size_t TEMPERATURE_C = 7;      // 2B BE, signed
+inline constexpr size_t CAPACITY_W = 9;         // 2B BE
+inline constexpr int16_t MIN_TEMPERATURE_C = -40;
+inline constexpr int16_t MAX_TEMPERATURE_C = 125;
+}  // namespace motor
+
+namespace energy {
+inline constexpr size_t PAYLOAD_LEN = 12;
+inline constexpr size_t CRANK_TORQUE_NM = 0;  // 2B BE, tenths
+inline constexpr size_t CRANK_RPM = 2;        // 2B BE
+inline constexpr size_t THIS_TAKE_WH = 4;     // 2B BE, tenths
+inline constexpr size_t TOTAL_TAKE_WH = 6;    // 4B BE, tenths
+inline constexpr size_t STARTUP_TIME_S = 10;  // 2B BE
+}  // namespace energy
+
+namespace meter {
+inline constexpr size_t PAYLOAD_LEN = 13;
+inline constexpr size_t HW_VERSION = 0;
+inline constexpr size_t SW_VERSION = 1;
+inline constexpr size_t MODE_DATA = 7;
+}  // namespace meter
+
+namespace speed_limit {
+inline constexpr size_t PAYLOAD_LEN = 1;
+inline constexpr size_t VALUE_KMH = 0;
+inline constexpr uint8_t NO_LIMIT = 100;
+}  // namespace speed_limit
+
+namespace pas_boost {
+inline constexpr size_t PAYLOAD_LEN = 1;
+inline constexpr size_t LEVEL = 0;
+}  // namespace pas_boost
+
+namespace display {
+inline constexpr size_t PAYLOAD_LEN = 2;
+inline constexpr size_t BRIGHTNESS = 0;
+inline constexpr size_t GUARD_TIME = 1;
+}  // namespace display
+
+// Poll length against what the parser reads.
+consteval uint8_t poll_len(Addr addr) {
+  for (const PollDef &poll : POLL_TABLE)
+    if (poll.addr == addr)
+      return poll.len;
+  return 0;
+}
+static_assert(poll_len(Addr::BATTERY) == battery::PAYLOAD_LEN);
+static_assert(poll_len(Addr::CTRL) == ctrl::PAYLOAD_LEN);
+static_assert(poll_len(Addr::MOTOR) == motor::PAYLOAD_LEN);
+static_assert(poll_len(Addr::ENERGY) == energy::PAYLOAD_LEN);
+static_assert(poll_len(Addr::METER) == meter::PAYLOAD_LEN);
+static_assert(poll_len(Addr::SPEED_LIMIT) == speed_limit::PAYLOAD_LEN);
+static_assert(poll_len(Addr::PAS_BOOST) == pas_boost::PAYLOAD_LEN);
+static_assert(poll_len(Addr::DISPLAY) == display::PAYLOAD_LEN);
+static_assert(poll_len(Addr::STATS) == stats::PAYLOAD_LEN);
 
 // *_ok false means the value failed its bound and the caller keeps the previous
 // one. Flag bytes stay raw so the caller can cache them and decode bits from the

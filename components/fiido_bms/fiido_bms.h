@@ -178,8 +178,6 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t LIFECYCLE_TICK_MS = 1000;
   // Minimum gap between two enforce_gear_mode_3 writes triggered by parse_stats_.
   static constexpr uint32_t ENFORCE_GEAR_MODE_3_COOLDOWN_MS = 60000;
-  static constexpr int16_t MIN_MOTOR_TEMP_C = -40;
-  static constexpr int16_t MAX_MOTOR_TEMP_C = 125;
   // Rate limit for rejected-frame logs; a fragmented stream rejects every frame.
   static constexpr uint32_t BAD_NOTIFY_LOG_INTERVAL_MS = 5000;
   // Ambiguous speed limit is a resting state, not an event, and SPEEDLIM is
@@ -187,7 +185,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t AMBIGUOUS_LIMIT_LOG_INTERVAL_MS = 60000;
   static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
 
-  [[nodiscard]] bool send_raw_write(FrameType type, uint8_t addr, std::span<const uint8_t> payload);
+  [[nodiscard]] bool send_raw_write(FrameType type, Addr addr, std::span<const uint8_t> payload);
   void send_handshake_();
   [[nodiscard]] bool send_poll_(size_t idx, bool warn_on_fail);
   void send_burst_poll_();
@@ -210,11 +208,11 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void parse_boost_(std::span<const uint8_t> payload);
   void parse_display_(std::span<const uint8_t> payload);
   [[nodiscard]] bool defer_flag_write_(bool cache_valid, const char *name, std::function<void()> retry);
-  void write_masked_bits_(uint8_t addr, uint8_t mask, uint8_t bits, uint8_t *cache, const char *name);
-  void write_flag_bit_(uint8_t addr, uint8_t mask, bool set, uint8_t *cache, const char *name);
+  void write_masked_bits_(Addr addr, uint8_t mask, uint8_t bits, uint8_t *cache, const char *name);
+  void write_flag_bit_(Addr addr, uint8_t mask, bool set, uint8_t *cache, const char *name);
   // Raw 1-byte value write (no bit-masking) for number entities. False when the
   // frame did not go out, so the caller keeps its cache and entity unchanged.
-  [[nodiscard]] bool write_value_byte_(FrameType type, uint8_t addr, uint8_t value, const char *name);
+  [[nodiscard]] bool write_value_byte_(FrameType type, Addr addr, uint8_t value, const char *name);
   // Republish the last shown value, undoing an optimistic UI change.
   static void revert_number_(number::Number *n);
 

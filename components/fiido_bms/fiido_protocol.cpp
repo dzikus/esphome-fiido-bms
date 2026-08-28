@@ -38,13 +38,14 @@ uint8_t compute_crc(std::span<const uint8_t> data) {
   return crc;
 }
 
-std::array<uint8_t, POLL_FRAME_LEN> build_poll_frame(uint8_t addr, uint8_t len) {
-  std::array<uint8_t, POLL_FRAME_LEN> frame{FIIDO_SIG_0, FIIDO_SIG_1, FRAME_TYPE_POLL, len, addr, 0};
+std::array<uint8_t, POLL_FRAME_LEN> build_poll_frame(Addr addr, uint8_t len) {
+  std::array<uint8_t, POLL_FRAME_LEN> frame{
+      FIIDO_SIG_0, FIIDO_SIG_1, FRAME_TYPE_POLL, len, static_cast<uint8_t>(addr), 0};
   frame.back() = compute_crc(std::span<const uint8_t>(frame).first(POLL_FRAME_LEN - 1));
   return frame;
 }
 
-std::vector<uint8_t> build_write_frame(FrameType type, uint8_t addr, std::span<const uint8_t> payload) {
+std::vector<uint8_t> build_write_frame(FrameType type, Addr addr, std::span<const uint8_t> payload) {
   if (payload.size() > MAX_WRITE_PAYLOAD)
     return {};
   std::vector<uint8_t> frame;
@@ -53,15 +54,15 @@ std::vector<uint8_t> build_write_frame(FrameType type, uint8_t addr, std::span<c
   frame.push_back(FIIDO_SIG_1);
   frame.push_back(static_cast<uint8_t>(type));
   frame.push_back(static_cast<uint8_t>(payload.size()));
-  frame.push_back(addr);
+  frame.push_back(static_cast<uint8_t>(addr));
   frame.insert(frame.end(), payload.begin(), payload.end());
   frame.push_back(compute_crc(frame));
   return frame;
 }
 
-MaskedWrite compute_masked_write(uint8_t addr, uint8_t cache, uint8_t mask, uint8_t new_bits) {
+MaskedWrite compute_masked_write(Addr addr, uint8_t cache, uint8_t mask, uint8_t new_bits) {
   uint8_t value = static_cast<uint8_t>((cache & ~mask) | (new_bits & mask));
-  if (addr == 0x39) {
+  if (addr == Addr::FLAGS_39) {
     return {FrameType::WriteJ0, static_cast<uint8_t>(value & 0x1F)};
   }
   return {FrameType::WriteL0, value};
@@ -136,7 +137,7 @@ NotifyView validate_notify(std::span<const uint8_t> frame) {
     return {};
   if (frame.back() != compute_crc(frame.first(frame.size() - 1)))
     return {};
-  return {true, frame[4], frame.subspan(NOTIFY_HDR_LEN, declared_len)};
+  return {true, static_cast<Addr>(frame[4]), frame.subspan(NOTIFY_HDR_LEN, declared_len)};
 }
 
 }  // namespace esphome::fiido_bms
