@@ -15,9 +15,8 @@
 
 #include <array>
 #include <cmath>
+#include <vector>
 
-#include "esphome/components/button/button.h"
-#include "esphome/components/number/number.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 

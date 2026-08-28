@@ -1,9 +1,11 @@
 #pragma once
 
-#include <functional>
-#include <optional>
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <span>
-#include <vector>
+#include <string>
+#include <utility>
 
 #include "esphome/core/component.h"
 
