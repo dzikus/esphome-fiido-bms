@@ -19,26 +19,22 @@ void FiidoGearSelect::set_gear_count(uint8_t count) {
 }
 
 void FiidoGearSelect::control(const std::string &value) {
-  // Direct match: label valid in active list.
-  const auto &active = this->gear_names();
+  const auto active = this->gear_names();
   for (size_t i = 0; i < active.size(); i++) {
     if (active[i] == value) {
       this->parent_->set_gear(static_cast<uint8_t>(i));
       return;
     }
   }
-  // HA keeps offering the 5-gear labels it cached at setup even when the active
-  // list is 3-gear. The active list is a subsequence of names_5_ in order, so one
-  // walk finds the last active entry at or before the clicked label:
-  // "turbo+" -> "turbo", "normal" -> "eco".
+  // HA keeps offering the 5-gear labels it cached at setup even in 3-gear mode.
   int fallback = -1;
   size_t next_active = 0;
-  for (const auto &name : this->names_5_) {
+  for (const auto &name : NAMES_5) {
     if (name == value) {
       if (fallback < 0)
         break;
       ESP_LOGI(FIIDO_BMS_TAG, "value '%s' not valid in %u-gear mode - falling back to '%s'", value.c_str(),
-               this->gear_count_, active[fallback].c_str());
+               this->gear_count_, active[fallback].data());
       this->parent_->set_gear(static_cast<uint8_t>(fallback));
       return;
     }

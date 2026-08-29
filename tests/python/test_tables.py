@@ -8,6 +8,7 @@ entity visible, and a duplicate default name only fails once two hubs exist.
 """
 
 import os
+import re
 import sys
 import unittest
 
@@ -42,6 +43,26 @@ class PollGroups(unittest.TestCase):
         # AttributeError at code generation, long after validation passed.
         groups = {g for g in fb_sensor.SENSOR_POLL_GROUP.values() if g is not None}
         self.assertEqual(groups, {"battery", "ctrl", "motor", "energy", "meter"})
+
+
+class GearNames(unittest.TestCase):
+    def test_the_two_gear_name_tables_agree(self):
+        path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "components",
+            "fiido_bms",
+            "fiido_gear_select.h",
+        )
+        with open(path, encoding="utf-8") as handle:
+            header = handle.read()
+        for symbol, expected in (
+            ("NAMES_3", fb_select.GEAR_NAMES_3),
+            ("NAMES_5", fb_select.GEAR_NAMES_5),
+        ):
+            line = next(ln for ln in header.splitlines() if symbol + "{" in ln)
+            self.assertEqual(re.findall(r'"([^"]*)"', line), expected)
 
 
 class KeySets(unittest.TestCase):

@@ -666,9 +666,9 @@ void FiidoBMSHub::sync_gear_entities_(const StatsView &sv) {
     this->gear_select_->set_gear_count(count);
   if (this->mode_select_ != nullptr)
     publish_changed(this->mode_select_, resolve_mode_option(this->gear_select_->get_gear_count()));
-  const auto &names = this->gear_select_->gear_names();
+  const auto names = this->gear_select_->gear_names();
   if (sv.gear < names.size()) {
-    publish_changed(this->gear_select_, names[sv.gear].c_str());
+    publish_changed(this->gear_select_, names[sv.gear].data());
     return;
   }
   // The BMS keeps its gear across a mode change.
