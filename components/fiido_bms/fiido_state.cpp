@@ -101,6 +101,13 @@ uint8_t clamp_gear(uint8_t gear, uint8_t max_gear) {
   return gear > max_gear ? max_gear : gear;
 }
 
+uint8_t gear_in_mode(uint8_t index_of_five, uint8_t gear_count) {
+  if (gear_count != 3)
+    return index_of_five;
+  constexpr std::array<uint8_t, 6> to_three{0, 1, 1, 2, 3, 3};
+  return index_of_five < to_three.size() ? to_three[index_of_five] : 3;
+}
+
 std::optional<SpeedLimitOption> parse_speed_limit_option(std::string_view option) {
   if (option == "6 km/h")
     return SpeedLimitOption::SIX_KMH;

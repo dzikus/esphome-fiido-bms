@@ -350,6 +350,18 @@ static void test_enforce_gear_mode_3_respects_every_gate() {
   TEST_ASSERT_TRUE(should_enforce_gear_mode_3(past_cooldown));
 }
 
+static void test_gear_in_mode_maps_the_five_gear_labels_down() {
+  for (uint8_t i = 0; i < 6; i++)
+    TEST_ASSERT_EQUAL_UINT8(i, gear_in_mode(i, 5));
+  TEST_ASSERT_EQUAL_UINT8(0, gear_in_mode(0, 3));
+  TEST_ASSERT_EQUAL_UINT8(1, gear_in_mode(1, 3));
+  TEST_ASSERT_EQUAL_UINT8(1, gear_in_mode(2, 3));
+  TEST_ASSERT_EQUAL_UINT8(2, gear_in_mode(3, 3));
+  TEST_ASSERT_EQUAL_UINT8(3, gear_in_mode(4, 3));
+  TEST_ASSERT_EQUAL_UINT8(3, gear_in_mode(5, 3));
+  TEST_ASSERT_EQUAL_UINT8(3, gear_in_mode(9, 3));
+}
+
 static void test_speed_limit_option_needs_the_enable_bit() {
   TEST_ASSERT_EQUAL_STRING("No limit", resolve_speed_limit_option(100, false));
   TEST_ASSERT_EQUAL_STRING("6 km/h", resolve_speed_limit_option(6, true));
@@ -420,6 +432,7 @@ void run_state_tests() {
   RUN_TEST(test_encode_gear_mode_preserves_the_low_nibble);
   RUN_TEST(test_encode_gear_mode_refuses_anything_but_3_or_5);
   RUN_TEST(test_clamp_gear_holds_the_ceiling);
+  RUN_TEST(test_gear_in_mode_maps_the_five_gear_labels_down);
   RUN_TEST(test_pending_writes_drops_the_oldest_at_capacity);
   RUN_TEST(test_pending_writes_drain_empties_the_queue);
   RUN_TEST(test_pending_writes_requeue_during_drain_waits_for_the_next_one);

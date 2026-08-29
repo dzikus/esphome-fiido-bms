@@ -48,6 +48,15 @@ void publish_changed(select::Select *s, const char *option) {
   s->publish_state(option);
 }
 
+void publish_changed(select::Select *s, size_t index) {
+  if (s == nullptr)
+    return;
+  const auto current = s->active_index();
+  if (s->has_state() && current.has_value() && *current == index)
+    return;
+  s->publish_state(index);
+}
+
 #ifdef USE_FIIDO_BMS_DEV
 void publish_changed(number::Number *n, float value) {
   if (n == nullptr || (n->has_state() && n->state == value))
@@ -292,15 +301,15 @@ void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
     return;
   }
   static constexpr auto PARSERS = std::to_array<NotifyParser>({
-      {Addr::BATTERY, &FiidoBMSHub::parse_battery_},
-      {Addr::CTRL, &FiidoBMSHub::parse_ctrl_},
-      {Addr::MOTOR, &FiidoBMSHub::parse_motor_},
-      {Addr::ENERGY, &FiidoBMSHub::parse_energy_},
-      {Addr::STATS, &FiidoBMSHub::parse_stats_},
-      {Addr::METER, &FiidoBMSHub::parse_meter_},
-      {Addr::SPEED_LIMIT, &FiidoBMSHub::parse_speed_limit_},
-      {Addr::PAS_BOOST, &FiidoBMSHub::parse_boost_},
-      {Addr::DISPLAY, &FiidoBMSHub::parse_display_},
+      {.addr = Addr::BATTERY, .parse = &FiidoBMSHub::parse_battery_},
+      {.addr = Addr::CTRL, .parse = &FiidoBMSHub::parse_ctrl_},
+      {.addr = Addr::MOTOR, .parse = &FiidoBMSHub::parse_motor_},
+      {.addr = Addr::ENERGY, .parse = &FiidoBMSHub::parse_energy_},
+      {.addr = Addr::STATS, .parse = &FiidoBMSHub::parse_stats_},
+      {.addr = Addr::METER, .parse = &FiidoBMSHub::parse_meter_},
+      {.addr = Addr::SPEED_LIMIT, .parse = &FiidoBMSHub::parse_speed_limit_},
+      {.addr = Addr::PAS_BOOST, .parse = &FiidoBMSHub::parse_boost_},
+      {.addr = Addr::DISPLAY, .parse = &FiidoBMSHub::parse_display_},
   });
   static_assert(
       [] {
@@ -666,7 +675,7 @@ void FiidoBMSHub::sync_gear_entities_(const StatsView &sv) {
     publish_changed(this->mode_select_, resolve_mode_option(this->gear_select_->get_gear_count()));
   const auto names = this->gear_select_->gear_names();
   if (sv.gear < names.size()) {
-    publish_changed(this->gear_select_, names[sv.gear].data());
+    publish_changed(this->gear_select_, size_t{sv.gear});
     return;
   }
   // The BMS keeps its gear across a mode change.

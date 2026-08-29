@@ -27,20 +27,14 @@ void FiidoGearSelect::control(const std::string &value) {
     }
   }
   // HA keeps offering the 5-gear labels it cached at setup even in 3-gear mode.
-  int fallback = -1;
-  size_t next_active = 0;
-  for (const auto &name : NAMES_5) {
-    if (name == value) {
-      if (fallback < 0)
-        break;
-      ESP_LOGI(FIIDO_BMS_TAG, "value '%s' not valid in %u-gear mode - falling back to '%s'", value.c_str(),
-               this->gear_count_, active[fallback].data());
-      this->parent_->set_gear(static_cast<uint8_t>(fallback));
-      return;
-    }
-    if (next_active < active.size() && name == active[next_active]) {
-      fallback = static_cast<int>(next_active++);
-    }
+  for (size_t i = 0; i < NAMES_5.size(); i++) {
+    if (NAMES_5[i] != value)
+      continue;
+    const uint8_t gear = gear_in_mode(static_cast<uint8_t>(i), this->gear_count_);
+    ESP_LOGI(FIIDO_BMS_TAG, "value '%s' not valid in %u-gear mode - falling back to '%.*s'", value.c_str(),
+             this->gear_count_, static_cast<int>(active[gear].size()), active[gear].data());
+    this->parent_->set_gear(gear);
+    return;
   }
   ESP_LOGW(FIIDO_BMS_TAG, "value '%s' is not valid in current gear mode (count=%u) - rejected", value.c_str(),
            this->gear_count_);

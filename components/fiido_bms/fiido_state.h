@@ -125,6 +125,8 @@ struct WriteGateInput {
 
 [[nodiscard]] uint8_t clamp_gear(uint8_t gear, uint8_t max_gear);
 
+[[nodiscard]] uint8_t gear_in_mode(uint8_t index_of_five, uint8_t gear_count);
+
 enum class SpeedLimitOption : uint8_t {
   SIX_KMH = 0,
   TWENTY_FIVE_KMH,
@@ -286,8 +288,8 @@ class PendingWrite {
 inline constexpr size_t PENDING_WRITE_SLOTS = 32;
 
 struct DrainedWrites {
-  std::array<PendingWrite, PENDING_WRITE_SLOTS> items;
-  size_t size;
+  std::array<PendingWrite, PENDING_WRITE_SLOTS> items{};
+  size_t size{0};
 
   [[nodiscard]] const PendingWrite *begin() const { return items.data(); }
   [[nodiscard]] const PendingWrite *end() const { return items.data() + size; }
