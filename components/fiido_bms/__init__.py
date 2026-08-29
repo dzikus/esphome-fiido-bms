@@ -79,6 +79,21 @@ DEV_BINARY_SENSOR_KEYS = frozenset(
     }
 )
 
+DEV_SWITCH_KEYS = frozenset(
+    {
+        "start_mode",
+        "auto_screen_off",
+        "ring",
+        "double_speed",
+    }
+)
+
+DEV_NUMBER_KEYS = frozenset(
+    {
+        "brightness",
+    }
+)
+
 # disabled_by_default in HA but not gated by expose_dev_sensors
 HIDDEN_SENSOR_KEYS = frozenset(
     {
