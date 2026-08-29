@@ -291,44 +291,43 @@ void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
     }
     return;
   }
-  const std::span<const uint8_t> payload = notify.payload;
-  switch (notify.addr) {
-    case Addr::BATTERY:
-      this->parse_battery_(payload);
-      break;
-    case Addr::CTRL:
-      this->parse_ctrl_(payload);
-      break;
-    case Addr::MOTOR:
-      this->parse_motor_(payload);
-      break;
-    case Addr::ENERGY:
-      this->parse_energy_(payload);
-      break;
-    case Addr::STATS:
-      this->parse_stats_(payload);
-      break;
-    case Addr::METER:
-      this->parse_meter_(payload);
-      break;
-    case Addr::SPEED_LIMIT:
-      this->parse_speed_limit_(payload);
-      break;
-    case Addr::PAS_BOOST:
-      this->parse_boost_(payload);
-      break;
-    case Addr::DISPLAY:
-      this->parse_display_(payload);
-      break;
-    case Addr::HANDSHAKE:
-      ESP_LOGD(TAG, "[%s] HANDSHAKE response OK", this->parent_->address_str());
-      break;
-    default:
-      if (const uint32_t dropped = this->unknown_addr_log_.tick(millis(), BAD_NOTIFY_LOG_INTERVAL_MS); dropped != 0) {
-        ESP_LOGW(TAG, "[%s] NOTIFY unhandled addr=0x%02X (%u dropped since last log)", this->parent_->address_str(),
-                 static_cast<uint8_t>(notify.addr), (unsigned)dropped);
-      }
-      break;
+  static constexpr auto PARSERS = std::to_array<NotifyParser>({
+      {Addr::BATTERY, &FiidoBMSHub::parse_battery_},
+      {Addr::CTRL, &FiidoBMSHub::parse_ctrl_},
+      {Addr::MOTOR, &FiidoBMSHub::parse_motor_},
+      {Addr::ENERGY, &FiidoBMSHub::parse_energy_},
+      {Addr::STATS, &FiidoBMSHub::parse_stats_},
+      {Addr::METER, &FiidoBMSHub::parse_meter_},
+      {Addr::SPEED_LIMIT, &FiidoBMSHub::parse_speed_limit_},
+      {Addr::PAS_BOOST, &FiidoBMSHub::parse_boost_},
+      {Addr::DISPLAY, &FiidoBMSHub::parse_display_},
+  });
+  static_assert(
+      [] {
+        for (const PollDef &poll : POLL_TABLE) {
+          bool found = false;
+          for (const NotifyParser &entry : PARSERS)
+            found = found || entry.addr == poll.addr;
+          if (!found)
+            return false;
+        }
+        return true;
+      }(),
+      "a polled address with no parser drops its reply without a word");
+
+  for (const NotifyParser &entry : PARSERS) {
+    if (entry.addr == notify.addr) {
+      (this->*(entry.parse))(notify.payload);
+      return;
+    }
+  }
+  if (notify.addr == Addr::HANDSHAKE) {
+    ESP_LOGD(TAG, "[%s] HANDSHAKE response OK", this->parent_->address_str());
+    return;
+  }
+  if (const uint32_t dropped = this->unknown_addr_log_.tick(millis(), BAD_NOTIFY_LOG_INTERVAL_MS); dropped != 0) {
+    ESP_LOGW(TAG, "[%s] NOTIFY unhandled addr=0x%02X (%u dropped since last log)", this->parent_->address_str(),
+             static_cast<uint8_t>(notify.addr), (unsigned)dropped);
   }
 }
 

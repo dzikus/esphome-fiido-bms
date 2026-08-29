@@ -127,6 +127,11 @@ struct ByteControl {
   number::Number *FiidoBMSHub::*entity;
 };
 
+struct NotifyParser {
+  Addr addr;
+  void (FiidoBMSHub::*parse)(std::span<const uint8_t>);
+};
+
 class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
  public:
   void setup() override;
