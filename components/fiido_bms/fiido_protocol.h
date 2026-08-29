@@ -187,19 +187,19 @@ struct NotifyView {
 
 // Rotated by the hub. POLL_TABLE_SIZE is the table's own size().
 inline constexpr std::array<PollDef, 9> POLL_TABLE = {{
-    {Addr::BATTERY, 13, "BATTERY"},
-    {Addr::CTRL, 12, "CTRL"},
-    {Addr::MOTOR, 12, "MOTOR"},
-    {Addr::ENERGY, 12, "ENERGY"},
-    {Addr::STATS, 53, "STATS"},
-    {Addr::METER, 13, "METER"},
+    {.addr = Addr::BATTERY, .len = 13, .name = "BATTERY"},
+    {.addr = Addr::CTRL, .len = 12, .name = "CTRL"},
+    {.addr = Addr::MOTOR, .len = 12, .name = "MOTOR"},
+    {.addr = Addr::ENERGY, .len = 12, .name = "ENERGY"},
+    {.addr = Addr::STATS, .len = 53, .name = "STATS"},
+    {.addr = Addr::METER, .len = 13, .name = "METER"},
     // Speed limit value (read-only baseline, log-only). Frame: 46 64 55 01 3C 4A.
-    {Addr::SPEED_LIMIT, 1, "SPEEDLIM"},
+    {.addr = Addr::SPEED_LIMIT, .len = 1, .name = "SPEEDLIM"},
     // Boost level read-back (1 byte). Frame: 46 64 55 01 52 24.
-    {Addr::PAS_BOOST, 1, "BOOST"},
+    {.addr = Addr::PAS_BOOST, .len = 1, .name = "BOOST"},
     // Display block read-back: 0x57 brightness + 0x58 guard time (2 bytes).
     // Frame: 46 64 55 02 57 22.
-    {Addr::DISPLAY, 2, "DISPLAY"},
+    {.addr = Addr::DISPLAY, .len = 2, .name = "DISPLAY"},
 }};
 inline constexpr size_t POLL_TABLE_SIZE = POLL_TABLE.size();
 

@@ -18,22 +18,22 @@ BurstGate evaluate_burst_gate(uint32_t now, uint32_t interval, uint32_t phase, B
     interval = 1;
   const uint32_t slot = (now - (phase % interval)) / interval;
   if (forced || !state.started)
-    return {true, slot};
+    return {.start = true, .slot = slot};
   if (slot == state.last_slot)
-    return {false, slot};
+    return {.start = false, .slot = slot};
   // Half an interval, not a whole one. A full interval here would pace every hub
   // to the same period from whenever it last fired, which re-synchronises two
   // hubs that once fired together and holds them there, masking the phase. Half
   // is still wide enough to swallow a forced burst landing next to a boundary.
   if ((now - state.last_ms) < interval / 2)
-    return {false, slot};
-  return {true, slot};
+    return {.start = false, .slot = slot};
+  return {.start = true, .slot = slot};
 }
 
 // CRC is the XOR of all preceding bytes, confirmed against a live BMS.
 uint8_t compute_crc(std::span<const uint8_t> data) {
   uint8_t crc = 0;
-  for (uint8_t byte : data)
+  for (const uint8_t byte : data)
     crc ^= byte;
   return crc;
 }
@@ -64,9 +64,9 @@ WriteFrame build_write_frame(FrameType type, Addr addr, std::span<const uint8_t>
 MaskedWrite compute_masked_write(Addr addr, uint8_t cache, uint8_t mask, uint8_t new_bits) {
   const uint8_t value = static_cast<uint8_t>((cache & ~mask) | (new_bits & mask));
   if (addr == Addr::FLAGS_39) {
-    return {FrameType::WRITE_J0, flags_39::DEFINED.keep({value}).raw};
+    return {.type = FrameType::WRITE_J0, .value = flags_39::DEFINED.keep({value}).raw};
   }
-  return {FrameType::WRITE_L0, value};
+  return {.type = FrameType::WRITE_L0, .value = value};
 }
 
 StatsView decode_stats(std::span<const uint8_t> payload) {
@@ -139,7 +139,7 @@ NotifyView validate_notify(std::span<const uint8_t> frame) {
     return {};
   if (frame.back() != compute_crc(frame.first(frame.size() - 1)))
     return {};
-  return {true, static_cast<Addr>(frame[4]), frame.subspan(NOTIFY_HDR_LEN, declared_len)};
+  return {.valid = true, .addr = static_cast<Addr>(frame[4]), .payload = frame.subspan(NOTIFY_HDR_LEN, declared_len)};
 }
 
 }  // namespace esphome::fiido_bms

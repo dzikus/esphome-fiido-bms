@@ -4,7 +4,9 @@ namespace esphome::fiido_bms {
 
 StatsSamples stats_samples(const StatsView &view) {
   StatsSamples out{};
-  auto add = [&out](StatsChannel channel, float value) { out.items[out.size++] = {channel, value}; };
+  auto add = [&out](StatsChannel channel, float value) {
+    out.items[out.size++] = {.channel = channel, .value = value};
+  };
   if (!view.valid)
     return out;
   if (view.total_km_ok)
