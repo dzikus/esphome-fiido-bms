@@ -125,12 +125,12 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          # Contemporary with the floor below: the 2025.8.0 dependency set has no
+          # Contemporary with the floor below: the 2025.11.0 dependency set has no
           # wheels for 3.14, so pip falls back to building Pillow from source.
           python-version: "3.12"
       # Pin to the declared floor so min_version is actually exercised.
       - name: Install ESPHome (component floor)
-        run: pip install "esphome==2025.8.0"
+        run: pip install "esphome==2025.11.0"
       - name: Validate CI and IntelliSense configs
         run: |
           set -euo pipefail

@@ -8,8 +8,8 @@ substitutions:
 
 esphome:
   name: ci-build
-  # Two hubs need the device-aware duplicate-name check, added in 2025.8.0.
-  min_version: 2025.8.0
+  # select::Select::current_option arrived in 2025.11.0.
+  min_version: 2025.11.0
   devices:
     - id: dev_second
       name: "Second Bike"
