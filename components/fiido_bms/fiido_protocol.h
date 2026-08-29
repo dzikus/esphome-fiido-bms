@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <vector>
 
 namespace esphome::fiido_bms {
 
@@ -186,7 +185,7 @@ struct NotifyView {
 }
 
 // Rotated by the hub. POLL_TABLE_SIZE is the table's own size().
-inline constexpr std::array<PollDef, 9> POLL_TABLE = {{
+inline constexpr auto POLL_TABLE = std::to_array<PollDef>({
     {.addr = Addr::BATTERY, .len = 13, .name = "BATTERY"},
     {.addr = Addr::CTRL, .len = 12, .name = "CTRL"},
     {.addr = Addr::MOTOR, .len = 12, .name = "MOTOR"},
@@ -200,7 +199,7 @@ inline constexpr std::array<PollDef, 9> POLL_TABLE = {{
     // Display block read-back: 0x57 brightness + 0x58 guard time (2 bytes).
     // Frame: 46 64 55 02 57 22.
     {.addr = Addr::DISPLAY, .len = 2, .name = "DISPLAY"},
-}};
+});
 inline constexpr size_t POLL_TABLE_SIZE = POLL_TABLE.size();
 
 struct PollCursor {
@@ -362,7 +361,7 @@ consteval uint8_t poll_len(Addr addr) {
     if (poll.addr == addr)
       return poll.len;
   }
-  return 0;
+  return static_cast<uint8_t>(address_not_in_table());
 }
 static_assert(poll_len(Addr::BATTERY) == battery::PAYLOAD_LEN);
 static_assert(poll_len(Addr::CTRL) == ctrl::PAYLOAD_LEN);
