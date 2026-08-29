@@ -121,10 +121,14 @@ jobs:
       - name: Compile full component and fail on any warning from it
         run: bash tests/check_esp32_warnings.sh .github/ci-build.yaml ${{ matrix.board }} ${{ matrix.expose_dev }}
   config-build-floor:
-    name: config check and build at the ESPHome floor
+    name: config check and build at the ESPHome floor (expose_dev=${{ matrix.expose_dev }})
     needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        expose_dev: ["true", "false"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -145,4 +149,4 @@ jobs:
       - name: Compile at the floor
         run: |
           set -euo pipefail
-          esphome compile .github/ci-build.yaml
+          esphome -s expose_dev ${{ matrix.expose_dev }} compile .github/ci-build.yaml
