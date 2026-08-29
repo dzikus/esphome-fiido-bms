@@ -291,6 +291,8 @@ async def to_code(config):
     cg.add(var.set_update_interval_off_ms(config[CONF_UPDATE_INTERVAL_OFF]))
     cg.add(var.set_idle_disconnect_ms(config[CONF_IDLE_DISCONNECT]))
     cg.add(var.set_enforce_gear_mode_3(config[CONF_ENFORCE_GEAR_MODE_3]))
+    if config[CONF_EXPOSE_DEV_SENSORS]:
+        cg.add_define("USE_FIIDO_BMS_DEV")
     # Track every hub created so we can broadcast the final count back to all
     # of them. Each call re-emits set_total_hubs(N) for every hub so the value
     # baked into generated code is the final total.

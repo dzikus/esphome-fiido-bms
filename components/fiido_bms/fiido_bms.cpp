@@ -48,6 +48,7 @@ void publish_changed(select::Select *s, const char *option) {
   s->publish_state(option);
 }
 
+#ifdef USE_FIIDO_BMS_DEV
 void publish_changed(number::Number *n, float value) {
   if (n == nullptr || (n->has_state() && n->state == value))
     return;
@@ -58,6 +59,7 @@ void revert_number(number::Number *n) {
   if (n != nullptr && n->has_state())
     n->publish_state(n->state);
 }
+#endif
 
 // publish_changed dedups; the entity still holds the old value.
 void revert_select(select::Select *s) {
@@ -113,13 +115,17 @@ void FiidoBMSHub::dump_config() {
   LOG_SWITCH("  ", "Ble", this->ble_switch_);
   for (const FlagControl &control : FLAG_CONTROLS)
     LOG_SWITCH("  ", control.name, this->*(control.entity));
+#ifdef USE_FIIDO_BMS_DEV
   for (const ByteControl &control : BYTE_CONTROLS)
     LOG_NUMBER("  ", control.name, this->*(control.entity));
+#endif
   LOG_SELECT("  ", "Mode", this->mode_select_);
   LOG_SELECT("  ", "Speed Limit", this->speed_limit_select_);
   LOG_SELECT("  ", "Speed Unit", this->speed_unit_select_);
   LOG_SELECT("  ", "Gear", this->gear_select_);
+#ifdef USE_FIIDO_BMS_DEV
   LOG_BUTTON("  ", "Pair Watch", this->pair_watch_button_);
+#endif
 }
 
 void FiidoBMSHub::log_sensors_(std::span<const SensorField> fields) const {
@@ -1077,6 +1083,11 @@ void FiidoBMSHub::set_throttle_enable(bool on) {
 void FiidoBMSHub::set_slow_mode_enable(bool on) {
   this->set_flag_(FlagId::SLOW_MODE, on);
 }
+void FiidoBMSHub::set_bike_guard_enable(bool on) {
+  this->set_flag_(FlagId::BIKE_GUARD, on);
+}
+
+#ifdef USE_FIIDO_BMS_DEV
 void FiidoBMSHub::set_cruise_enable(bool on) {
   this->set_flag_(FlagId::CRUISE, on);
 }
@@ -1098,10 +1109,9 @@ void FiidoBMSHub::set_ring_enable(bool on) {
 void FiidoBMSHub::set_double_speed_enable(bool on) {
   this->set_flag_(FlagId::DOUBLE_SPEED, on);
 }
-void FiidoBMSHub::set_bike_guard_enable(bool on) {
-  this->set_flag_(FlagId::BIKE_GUARD, on);
-}
+#endif
 
+#ifdef USE_FIIDO_BMS_DEV
 // Raw 1-byte value write for number entities. Clamps to 0..255 then sends.
 bool FiidoBMSHub::write_value_byte_(FrameType type, Addr addr, uint8_t value, const char *name) {
   ESP_LOGI(TAG, "[%s] %s WRITE ADDR 0x%02X = %u (type 0x%02X)", this->parent_->address_str(), name,
@@ -1175,12 +1185,15 @@ void FiidoBMSHub::pair_watch() {
     ESP_LOGW(TAG, "[%s] PAIR_WATCH write failed", this->parent_->address_str());
   }
 }
+#endif
 
 void FiidoBMSHub::parse_boost_(std::span<const uint8_t> p) {
   if (p.size() != pas_boost::PAYLOAD_LEN)
     return;
   this->registers_.set<Addr::PAS_BOOST>({p[pas_boost::LEVEL]});
+#ifdef USE_FIIDO_BMS_DEV
   publish_changed(this->boost_number_, p[pas_boost::LEVEL]);
+#endif
   ESP_LOGD(TAG, "[%s] BOOST value=%u", this->parent_->address_str(), p[pas_boost::LEVEL]);
 }
 
@@ -1189,8 +1202,10 @@ void FiidoBMSHub::parse_display_(std::span<const uint8_t> p) {
     return;
   this->registers_.set<Addr::DISPLAY>({p[display::BRIGHTNESS]});
   this->registers_.set<Addr::GUARD_TIME>({p[display::GUARD_TIME]});
+#ifdef USE_FIIDO_BMS_DEV
   publish_changed(this->brightness_number_, p[display::BRIGHTNESS]);
   publish_changed(this->guard_time_number_, p[display::GUARD_TIME]);
+#endif
   ESP_LOGD(TAG, "[%s] DISPLAY brightness=%u guard_time=%u", this->parent_->address_str(), p[display::BRIGHTNESS],
            p[display::GUARD_TIME]);
 }

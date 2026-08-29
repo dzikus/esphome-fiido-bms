@@ -46,6 +46,9 @@ class FiidoKeySoundSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_key_sound_e
 class FiidoThrottleSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_throttle_enable> {};
 class FiidoSlowModeSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_slow_mode_enable> {};
 
+class FiidoBikeGuardSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_bike_guard_enable> {};
+
+#ifdef USE_FIIDO_BMS_DEV
 class FiidoCruiseSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_cruise_enable> {};
 class FiidoStartModeSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_start_mode_enable> {};
 class FiidoInsensitivitySwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_insensitivity_enable> {};
@@ -53,7 +56,7 @@ class FiidoShowTotalKmSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_show_tot
 class FiidoAutoScreenOffSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_auto_screen_off_enable> {};
 class FiidoRingSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_ring_enable> {};
 class FiidoDoubleSpeedSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_double_speed_enable> {};
-class FiidoBikeGuardSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_bike_guard_enable> {};
+#endif
 
 class FiidoAutoshutdownSwitch : public FiidoBoolSwitchWithRestore<&FiidoBMSHub::set_auto_shutdown_enabled> {};
 class FiidoBleSwitch : public FiidoBoolSwitchWithRestore<&FiidoBMSHub::set_ble_user_enabled> {};

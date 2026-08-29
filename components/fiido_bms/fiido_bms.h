@@ -39,6 +39,8 @@ enum class FlagId : size_t {
   KEY_SOUND,
   THROTTLE,
   SLOW_MODE,
+  BIKE_GUARD,
+#ifdef USE_FIIDO_BMS_DEV
   CRUISE,
   START_MODE,
   INSENSITIVITY,
@@ -46,7 +48,7 @@ enum class FlagId : size_t {
   AUTO_SCREEN_OFF,
   RING,
   DOUBLE_SPEED,
-  BIKE_GUARD,
+#endif
   COUNT,
 };
 
@@ -96,12 +98,14 @@ template <Addr A>
 }
 
 // Row order in BYTE_CONTROLS.
+#ifdef USE_FIIDO_BMS_DEV
 enum class ByteId : size_t {
   BRIGHTNESS = 0,
   BOOST,
   GUARD_TIME,
   COUNT,
 };
+#endif
 
 enum class FieldWidth : uint8_t { U8, U16BE, U32BE };
 
@@ -154,6 +158,9 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void set_throttle_enable(bool on);
   void set_slow_mode_enable(bool on);
   void set_ble_user_enabled(bool en);
+  void set_bike_guard_enable(bool on);
+
+#ifdef USE_FIIDO_BMS_DEV
   void set_cruise_enable(bool on);
   void set_start_mode_enable(bool on);
   void set_insensitivity_enable(bool on);
@@ -161,12 +168,12 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void set_auto_screen_off_enable(bool on);
   void set_ring_enable(bool on);
   void set_double_speed_enable(bool on);
-  void set_bike_guard_enable(bool on);
 
   void set_brightness(float value);
   void set_boost(float value);
   void set_guard_time(float value);
   void pair_watch();
+#endif
 
   SUB_SENSOR(battery_voltage)
   SUB_SENSOR(battery_current_voltage)
@@ -217,6 +224,13 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   SUB_SWITCH(throttle)
   SUB_SWITCH(slow_mode)
   SUB_SWITCH(ble)
+  SUB_SWITCH(bike_guard)
+
+  SUB_SELECT(mode)
+  SUB_SELECT(speed_limit)
+  SUB_SELECT(speed_unit)
+
+#ifdef USE_FIIDO_BMS_DEV
   SUB_SWITCH(cruise)
   SUB_SWITCH(start_mode)
   SUB_SWITCH(insensitivity)
@@ -224,17 +238,13 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   SUB_SWITCH(auto_screen_off)
   SUB_SWITCH(ring)
   SUB_SWITCH(double_speed)
-  SUB_SWITCH(bike_guard)
-
-  SUB_SELECT(mode)
-  SUB_SELECT(speed_limit)
-  SUB_SELECT(speed_unit)
 
   SUB_NUMBER(brightness)
   SUB_NUMBER(boost)
   SUB_NUMBER(guard_time)
 
   SUB_BUTTON(pair_watch)
+#endif
 
   void set_gear_select(FiidoGearSelect *s) { this->gear_select_ = s; }
 
@@ -255,13 +265,15 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void enable_meter_poll() { this->poll_enabled_[poll_index(Addr::METER)] = true; }
 
  protected:
-  static constexpr std::array<FlagControl, 12> FLAG_CONTROLS{{
+  static constexpr auto FLAG_CONTROLS = std::to_array<FlagControl>({
       flag_control(flags_38::SPEAKER_SILENT, 0x00, flags_38::SPEAKER_SILENCE_PATTERN, "SPEAKER",
                    &FiidoBMSHub::speaker_switch_, &FlagView::speaker_audible),
       inverted_flag_control(flags_2c::KEY_SOUND_OFF, "KEY_SOUND", &FiidoBMSHub::key_sound_switch_,
                             &FlagView::key_sound_on),
       inverted_flag_control(flags_2b::THROTTLE_OFF, "THROTTLE", &FiidoBMSHub::throttle_switch_, &FlagView::throttle_on),
       flag_control(flags_2c::SLOW_MODE, "SLOW_MODE", &FiidoBMSHub::slow_mode_switch_, &FlagView::slow_mode_on),
+      flag_control(flags_2b::BIKE_GUARD, "BIKE_GUARD", &FiidoBMSHub::bike_guard_switch_, &FlagView::bike_guard_on),
+#ifdef USE_FIIDO_BMS_DEV
       flag_control(flags_27::CRUISE, "CRUISE", &FiidoBMSHub::cruise_switch_, &FlagView::cruise_on),
       flag_control(flags_27::START_MODE, "START_MODE", &FiidoBMSHub::start_mode_switch_, &FlagView::start_mode_on),
       flag_control(flags_27::INSENSITIVITY, "INSENS", &FiidoBMSHub::insensitivity_switch_, &FlagView::insensitivity_on),
@@ -272,11 +284,12 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
       flag_control(flags_39::RING, "RING", &FiidoBMSHub::ring_switch_, &FlagView::ring_on),
       flag_control(flags_2b::DOUBLE_SPEED, "DOUBLE_SPEED", &FiidoBMSHub::double_speed_switch_,
                    &FlagView::double_speed_on),
-      flag_control(flags_2b::BIKE_GUARD, "BIKE_GUARD", &FiidoBMSHub::bike_guard_switch_, &FlagView::bike_guard_on),
-  }};
+#endif
+  });
   static_assert(FLAG_CONTROLS.size() == static_cast<size_t>(FlagId::COUNT), "FlagId and FLAG_CONTROLS disagree");
   void set_flag_(FlagId id, bool on);
 
+#ifdef USE_FIIDO_BMS_DEV
   static constexpr std::array<ByteControl, 3> BYTE_CONTROLS{{
       {.type = FrameType::WRITE_J0,
        .addr = Addr::DISPLAY,
@@ -296,6 +309,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   }};
   static_assert(BYTE_CONTROLS.size() == static_cast<size_t>(ByteId::COUNT), "ByteId and BYTE_CONTROLS disagree");
   void set_byte_(ByteId id, float value);
+#endif
 
   static constexpr std::array<SensorField, 7> BATTERY_FIELDS{{
       {.entity = &FiidoBMSHub::battery_hw_version_sensor_,
@@ -559,7 +573,9 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void write_masked_bits_(Addr addr, size_t slot, uint8_t mask, uint8_t bits, const char *name);
   // Raw 1-byte value write (no bit-masking) for number entities. False when the
   // frame did not go out, so the caller keeps its cache and entity unchanged.
+#ifdef USE_FIIDO_BMS_DEV
   [[nodiscard]] bool write_value_byte_(FrameType type, Addr addr, uint8_t value, const char *name);
+#endif
 
   // Everything the session has to forget when the link drops.
   void reset_session_state_();
