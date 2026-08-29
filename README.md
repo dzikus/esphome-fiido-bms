@@ -86,13 +86,14 @@ hidden in HA until you enable them per entity.
 - 4 selects: `gear` (3 or 5 options depending on mode), `mode` (3 / 5, hidden on
   bikes pinned to 3-gear), `speed_limit` (6 km/h / 25 km/h / No limit), `speed_unit`
   (km/h / mph).
-- 8 stable switches: `motor` (Power), `light`, `auto_shutdown`, `speaker` (Horn),
-  `key_sound`, `throttle`, `slow_mode_on_boot`, `bluetooth` (BLE link master switch).
-- 8 experimental switches: `cruise`, `start_mode`, `insensitivity`, `show_total_km`,
-  `auto_screen_off`, `ring`, `double_speed`, `bike_guard`. Created `disabled_by_default`
-  except `bike_guard`. See Experimental controls.
-- 3 numbers: `guard_time` (visible), `brightness` and `boost` (`disabled_by_default`).
-- 1 button: `pair_watch` (`disabled_by_default`).
+- 9 stable switches: `motor` (Power), `light`, `auto_shutdown`, `speaker` (Horn),
+  `key_sound`, `throttle`, `slow_mode_on_boot`, `bluetooth` (BLE link master switch),
+  `bike_guard`.
+- 7 dev switches gated by `expose_dev_sensors`: `cruise`, `start_mode`,
+  `insensitivity`, `show_total_km`, `auto_screen_off`, `ring`, `double_speed`. See
+  Experimental controls.
+- 3 numbers gated by `expose_dev_sensors`: `guard_time`, `brightness`, `boost`.
+- 1 button gated by `expose_dev_sensors`: `pair_watch`.
 
 ### Screenshots
 
@@ -172,7 +173,7 @@ Set on the `fiido_bms:` entry, not on the platforms.
 | `update_interval_on`  | time     | `3s`    | Burst rotation period while motor controller is ON (bit 7 ADDR 0x27 set).                       |
 | `update_interval_off` | time     | `15s`   | Burst rotation period while motor controller is OFF. Fast enough to catch a physical power-on.  |
 | `idle_disconnect`     | time     | `15min` | After motor has been OFF this long with no pending writes, the BLE link is dropped.             |
-| `expose_dev_sensors`  | bool     | `false` | When true, dev sensors and dev binary sensors are created (disabled in HA).                     |
+| `expose_dev_sensors`  | bool     | `false` | When true, the dev sensors, the dev binary sensor, the 7 dev switches, all 3 numbers and the `pair_watch` button are created (disabled in HA). When false none of them reach the build at all. |
 | `name_prefix`         | string   | unset   | Prepended to the **default** name of every entity of this hub, so two bikes on one node stop sharing entity names. A name you set yourself is never touched. Set to `""` to keep the defaults and silence the multi-hub warning. See **Entity names with two bikes**. |
 | `ui_gear_mode_3`      | bool     | `false` | HA UI only: hides the `mode` select and shrinks `gear` to 4 options. Does not change BMS state. |
 | `enforce_gear_mode_3` | bool     | `false` | Runtime: writes mode 3 to BMS when STATS reports 5-gear while the motor controller is ON (60s cooldown, ble_user_enabled). |
@@ -294,14 +295,14 @@ Restore mode is overridable per entity.
 | `double_speed`       | Double Speed        | STATS 0x2B bit 5    | WRITE L0 ADDR 0x2B (R-M-W, bit 5)    |
 | `bike_guard`         | Bike Guard          | STATS 0x2B bit 6    | WRITE L0 ADDR 0x2B (R-M-W, bit 6)    |
 
-The eight rows from `cruise` down are experimental and capability-gated (see
-Experimental controls). All except `bike_guard` are created `disabled_by_default`.
+The seven rows from `cruise` down need `expose_dev_sensors: true` and are created
+`disabled_by_default`. See Experimental controls. `bike_guard` is a normal switch.
 
 ### Entities (number)
 
-Add a `number:` platform block for the hub (same shape as `switch:`) to expose these.
-All three use BOX input mode and the config entity category. Real hardware ranges are
-unknown, so each spans the full byte (0 - 255, step 1).
+These need `expose_dev_sensors: true` on the hub plus a `number:` platform block (same
+shape as `switch:`). All three use BOX input mode and the config entity category. Real
+hardware ranges are unknown, so each spans the full byte (0 - 255, step 1).
 
 | Key          | Default name       | Unit | Range   | Source / write                            |
 |--------------|--------------------|------|---------|-------------------------------------------|
@@ -309,12 +310,13 @@ unknown, so each spans the full byte (0 - 255, step 1).
 | `brightness` | Display Brightness | -    | 0 - 255 | DISPLAY 0x57, WRITE J0 ADDR 0x57 (1B raw) |
 | `boost`      | Boost              | -    | 0 - 255 | BOOST 0x52, WRITE L0 ADDR 0x52 (1B raw)   |
 
-`brightness` and `boost` are experimental and created `disabled_by_default`;
-`guard_time` is visible. See Experimental controls.
+All three are experimental and created `disabled_by_default`. See Experimental
+controls.
 
 ### Entities (button)
 
-Add a `button:` platform block for the hub (same shape as `switch:`) to expose this.
+This needs `expose_dev_sensors: true` on the hub plus a `button:` platform block (same
+shape as `switch:`).
 
 | Key          | Default name | Write                                          |
 |--------------|--------------|------------------------------------------------|
@@ -327,20 +329,22 @@ unverified on C11 / M1. See Experimental controls.
 ### Experimental controls
 
 `cruise`, `start_mode`, `insensitivity`, `show_total_km`, `auto_screen_off`, `ring`,
-`double_speed`, `bike_guard`, the numbers `brightness`, `boost`, `guard_time`, and the
-`pair_watch` button drive registers that exist in the protocol but are not confirmed to
-have any effect on the C11 Pro or M1 Pro 2025. Those bikes report the matching
-capability as unsupported, and toggling the controls produced no observable change in
-testing. The BMS still latches the written bit and returns it on the next read, which
-is not proof the feature works.
+`double_speed`, the numbers `brightness`, `boost`, `guard_time`, and the `pair_watch`
+button drive registers that exist in the protocol but are not confirmed to have any
+effect on the C11 Pro or M1 Pro 2025. Those bikes report the matching capability as
+unsupported, and toggling the controls produced no observable change in testing. On
+`cruise` and `guard_time` the bike goes further and reverts the write on the next
+poll, on both bikes, in every automated run. The BMS latching a written bit and
+returning it on the next read is not proof the feature works.
 
-They are capability-gated: other Fiido models that report the capability as supported
-may honour them. Because they are unverified, every switch above except `bike_guard`,
-plus `brightness`, `boost`, and `pair_watch`, is created `disabled_by_default` and
-stays hidden in HA until you enable it per entity. `bike_guard` and `guard_time` are
-created visible, but `bike_guard` ON is incomplete: the app performs an extra unlock
-step the component does not send. If any of these work on your bike, a report or PR is
-welcome.
+All of them sit behind `expose_dev_sensors`, so a default build does not create them
+and their code is not compiled in. Set it to true and they appear
+`disabled_by_default`, hidden in HA until you enable them per entity. Other Fiido
+models that report the capability as supported may honour them; if any work on your
+bike, a report or PR is welcome.
+
+`bike_guard` stays a normal switch. Its ON path is incomplete: the app performs an
+extra unlock step the component does not send.
 
 ### Override per-entity
 
@@ -612,9 +616,9 @@ components/fiido_bms/
   sensor.py                    sensor platform: 36 keys (10 always on, 26 dev), schema + to_code
   binary_sensor.py             binary_sensor platform: 2 keys (1 always on, 1 dev)
   select.py                    4 select classes + platform
-  switch.py                    16 switch classes + platform (8 stable, 8 experimental)
-  number.py                    3 number classes + platform (guard_time, brightness, boost)
-  button.py                    1 button class + platform (pair_watch)
+  switch.py                    16 switch classes + platform (9 stable, 7 dev)
+  number.py                    3 number classes + platform, all dev
+  button.py                    1 button class + platform, dev (pair_watch)
 
   fiido_protocol.{h,cpp}       pure C++: CRC XOR, frame builders, validate, POLL_TABLE
   fiido_bms.{h,cpp}            FiidoBMSHub: BLE client + PollingComponent + state machine
@@ -623,8 +627,8 @@ components/fiido_bms/
                                FiidoBoolSwitch<Setter>             write_state only
                                FiidoBoolSwitchWithRestore<Setter>  setup() restore + defer
                                motor / light / speaker / key_sound / throttle / slow_mode
-                                 and the 8 experimental switches are write-only; the bit
-                                 + ADDR live in the hub setter
+                                 / bike_guard and the 7 dev switches are write-only; the
+                                 bit + ADDR live in the hub setter
                                bluetooth / auto_shutdown use the with-restore template
                                  (local state, re-applied on boot)
   fiido_number.h               3 numbers via one template (brightness / boost / guard_time)
