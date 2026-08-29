@@ -7,6 +7,9 @@ on:
     paths: ["components/fiido_bms/**", "tests/**", ".github/**", "example.yaml", ".intellisense.yaml", "pyproject.toml", ".pre-commit-config.yaml"]
 permissions:
   contents: read
+env:
+  ESPHOME_VERSION: "2026.8.1"
+  ESPHOME_FLOOR: "2026.1.0"
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -59,14 +62,10 @@ jobs:
           echo "--- re-run built binary as source of truth ---"
           tests/.pio/build/native/program
   clang-tidy:
-    name: clang-tidy (expose_dev=${{ matrix.expose_dev }})
+    name: clang-tidy (esp32 compile database)
     needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        expose_dev: ["true", "false"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -77,18 +76,21 @@ jobs:
       - name: Cache PlatformIO
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: ~/.platformio
-          key: ${{ runner.os }}-esphome-esp32-c3-devkitm-1-${{ hashFiles('.github/ci-build.yaml') }}
-          restore-keys: ${{ runner.os }}-esphome-esp32-c3-devkitm-1-
+          path: |
+            ~/.platformio
+            ~/.cache/esphome
+          key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-esp32-c3-devkitm-1
+          restore-keys: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-
       - name: Install ESPHome and clang-tidy
-        run: pip install "esphome==2026.8.1" "clang-tidy==22.1.8"
-      - name: Run clang-tidy
-        env:
-          EXPOSE_DEV: ${{ matrix.expose_dev }}
-        run: bash tests/run_clang_tidy.sh
+        run: pip install "esphome==${{ env.ESPHOME_VERSION }}" "clang-tidy==22.1.8"
+      - name: Run clang-tidy over both variants
+        run: |
+          set -euo pipefail
+          EXPOSE_DEV=true bash tests/run_clang_tidy.sh
+          EXPOSE_DEV=false bash tests/run_clang_tidy.sh
 
   esphome-build:
-    name: esphome compile (${{ matrix.board }}, expose_dev=${{ matrix.expose_dev }})
+    name: esphome compile (${{ matrix.board }})
     needs: unit-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -100,7 +102,6 @@ jobs:
           - esp32-s3-devkitc-1
           - esp32-c3-devkitm-1
           - esp32-c6-devkitc-1
-        expose_dev: ["true", "false"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -111,24 +112,25 @@ jobs:
       - name: Cache PlatformIO
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: ~/.platformio
-          key: ${{ runner.os }}-esphome-${{ matrix.board }}-${{ hashFiles('.github/ci-build.yaml') }}
-          restore-keys: ${{ runner.os }}-esphome-${{ matrix.board }}-
+          path: |
+            ~/.platformio
+            ~/.cache/esphome
+          key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-${{ matrix.board }}
+          restore-keys: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-
       - name: Install ESPHome
-        run: pip install "esphome==2026.8.1"
+        run: pip install "esphome==${{ env.ESPHOME_VERSION }}"
       - name: Run codegen unit tests
         run: python -m unittest discover -s tests/python -v
-      - name: Compile full component and fail on any warning from it
-        run: bash tests/check_esp32_warnings.sh .github/ci-build.yaml ${{ matrix.board }} ${{ matrix.expose_dev }}
+      - name: Compile both variants and fail on any warning from the component
+        run: |
+          set -euo pipefail
+          bash tests/check_esp32_warnings.sh .github/ci-build.yaml ${{ matrix.board }} true
+          bash tests/check_esp32_warnings.sh .github/ci-build.yaml ${{ matrix.board }} false
   config-build-floor:
-    name: config check and build at the ESPHome floor (expose_dev=${{ matrix.expose_dev }})
+    name: config check and build at the ESPHome floor
     needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        expose_dev: ["true", "false"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -140,7 +142,7 @@ jobs:
           python-version: "3.12"
       # Pin to the declared floor so min_version is actually exercised.
       - name: Install ESPHome (component floor)
-        run: pip install "esphome==2026.1.0"
+        run: pip install "esphome==${{ env.ESPHOME_FLOOR }}"
       - name: Validate CI and IntelliSense configs
         run: |
           set -euo pipefail
@@ -149,4 +151,5 @@ jobs:
       - name: Compile at the floor
         run: |
           set -euo pipefail
-          esphome -s expose_dev ${{ matrix.expose_dev }} compile .github/ci-build.yaml
+          esphome -s expose_dev true compile .github/ci-build.yaml
+          esphome -s expose_dev false compile .github/ci-build.yaml
