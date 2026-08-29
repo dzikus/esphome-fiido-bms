@@ -180,10 +180,6 @@ bool should_enforce_gear_mode_3(bool enabled, uint8_t max_gear, bool ble_enabled
   return should_log_now(now, last_write_ms, cooldown_ms);
 }
 
-bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok) {
-  return !send_ok && retry_count < max_retries;
-}
-
 bool PendingWrites::push(PendingWrite fn) {
   const bool dropped = this->size_ >= PENDING_WRITE_SLOTS;
   if (dropped) {

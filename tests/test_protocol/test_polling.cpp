@@ -89,6 +89,42 @@ static void test_skip_disabled_polls_terminates_when_all_are_off() {
   TEST_ASSERT_EQUAL_UINT(0, c.remaining);
 }
 
+static void test_advance_burst_repeats_the_same_poll_until_the_retries_run_out() {
+  const PollCursor at{.index = 3, .remaining = 5};
+  const BurstStep first = advance_burst(at, 0, 2, false);
+  TEST_ASSERT_TRUE(first.retry);
+  TEST_ASSERT_EQUAL_UINT8(1, first.retry_count);
+  TEST_ASSERT_EQUAL_UINT(3, first.cursor.index);
+  TEST_ASSERT_EQUAL_UINT(5, first.cursor.remaining);
+
+  const BurstStep second = advance_burst(at, 1, 2, false);
+  TEST_ASSERT_TRUE(second.retry);
+  TEST_ASSERT_EQUAL_UINT8(2, second.retry_count);
+}
+
+static void test_advance_burst_gives_up_after_the_last_retry() {
+  // The failing poll is spent, not retried forever.
+  const BurstStep step = advance_burst({.index = 3, .remaining = 5}, 2, 2, false);
+  TEST_ASSERT_FALSE(step.retry);
+  TEST_ASSERT_EQUAL_UINT8(0, step.retry_count);
+  TEST_ASSERT_EQUAL_UINT(4, step.cursor.index);
+  TEST_ASSERT_EQUAL_UINT(4, step.cursor.remaining);
+}
+
+static void test_advance_burst_moves_on_after_a_good_send() {
+  const BurstStep step = advance_burst({.index = 3, .remaining = 5}, 1, 2, true);
+  TEST_ASSERT_FALSE(step.retry);
+  TEST_ASSERT_EQUAL_UINT8(0, step.retry_count);
+  TEST_ASSERT_EQUAL_UINT(4, step.cursor.index);
+  TEST_ASSERT_EQUAL_UINT(4, step.cursor.remaining);
+}
+
+static void test_advance_burst_wraps_the_index_at_the_table_end() {
+  const BurstStep step = advance_burst({.index = POLL_TABLE_SIZE - 1, .remaining = 2}, 0, 2, true);
+  TEST_ASSERT_EQUAL_UINT(0, step.cursor.index);
+  TEST_ASSERT_EQUAL_UINT(1, step.cursor.remaining);
+}
+
 void run_polling_tests() {
   RUN_TEST(test_burst_gate_first_burst_after_connect_is_free);
   RUN_TEST(test_burst_gate_blocks_inside_the_same_slot);
@@ -99,4 +135,8 @@ void run_polling_tests() {
   RUN_TEST(test_skip_disabled_polls_stops_on_an_enabled_one);
   RUN_TEST(test_skip_disabled_polls_consumes_one_slot_each);
   RUN_TEST(test_skip_disabled_polls_terminates_when_all_are_off);
+  RUN_TEST(test_advance_burst_repeats_the_same_poll_until_the_retries_run_out);
+  RUN_TEST(test_advance_burst_gives_up_after_the_last_retry);
+  RUN_TEST(test_advance_burst_moves_on_after_a_good_send);
+  RUN_TEST(test_advance_burst_wraps_the_index_at_the_table_end);
 }

@@ -420,15 +420,13 @@ void FiidoBMSHub::send_burst_poll_() {
   }
   const bool last_try = this->burst_retry_ >= BURST_SEND_RETRIES;
   const bool send_ok = this->send_poll_(this->burst_idx_, last_try) == WriteError::NONE;
-  if (should_retry_send(this->burst_retry_, BURST_SEND_RETRIES, send_ok)) {
-    this->burst_retry_++;
+  const BurstStep step = advance_burst(cursor, this->burst_retry_, BURST_SEND_RETRIES, send_ok);
+  this->burst_retry_ = step.retry_count;
+  this->burst_idx_ = step.cursor.index;
+  this->burst_remaining_ = step.cursor.remaining;
+  if (step.retry) {
     this->set_timeout("burst", BURST_RETRY_MS, [this]() { this->send_burst_poll_(); });
-    return;
-  }
-  this->burst_retry_ = 0;
-  this->burst_idx_ = (this->burst_idx_ + 1) % POLL_TABLE_SIZE;
-  this->burst_remaining_--;
-  if (this->burst_remaining_ > 0) {
+  } else if (this->burst_remaining_ > 0) {
     this->set_timeout("burst", BURST_INTERVAL_MS, [this]() { this->send_burst_poll_(); });
   }
 }

@@ -13,6 +13,18 @@ PollCursor skip_disabled_polls(PollCursor cursor, std::span<const bool, POLL_TAB
   return cursor;
 }
 
+bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok) {
+  return !send_ok && retry_count < max_retries;
+}
+
+BurstStep advance_burst(PollCursor cursor, uint8_t retry_count, uint8_t max_retries, bool send_ok) {
+  if (should_retry_send(retry_count, max_retries, send_ok))
+    return {.retry = true, .retry_count = static_cast<uint8_t>(retry_count + 1), .cursor = cursor};
+  return {.retry = false,
+          .retry_count = 0,
+          .cursor = {.index = (cursor.index + 1) % POLL_TABLE_SIZE, .remaining = cursor.remaining - 1}};
+}
+
 BurstGate evaluate_burst_gate(uint32_t now, uint32_t interval, uint32_t phase, BurstState state, bool forced) {
   if (interval == 0)
     interval = 1;
@@ -54,7 +66,7 @@ WriteFrame build_write_frame(FrameType type, Addr addr, std::span<const uint8_t>
   frame.bytes[2] = static_cast<uint8_t>(type);
   frame.bytes[3] = static_cast<uint8_t>(payload.size());
   frame.bytes[4] = static_cast<uint8_t>(addr);
-  std::copy(payload.begin(), payload.end(), frame.bytes.begin() + NOTIFY_HDR_LEN);
+  std::ranges::copy(payload, frame.bytes.begin() + NOTIFY_HDR_LEN);
   const size_t crc_at = NOTIFY_HDR_LEN + payload.size();
   frame.bytes[crc_at] = compute_crc(std::span<const uint8_t>(frame.bytes).first(crc_at));
   frame.size = crc_at + 1;

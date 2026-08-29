@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <new>
@@ -135,8 +136,6 @@ enum class ProbeOutcome : uint8_t {
 [[nodiscard]] bool should_enforce_gear_mode_3(bool enabled, uint8_t max_gear, bool ble_enabled, bool controller_on,
                                               uint32_t now, uint32_t last_write_ms, uint32_t cooldown_ms);
 
-[[nodiscard]] bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok);
-
 // What the rider is doing, as far as one STATS frame can tell.
 struct RideState {
   uint8_t gear;
@@ -216,19 +215,24 @@ class RegisterCache {
 };
 
 // A capture is this plus one small value.
+inline constexpr size_t PENDING_WRITE_CAPACITY = 24;
+
+// Nothing runs a destructor on the stored bytes, and a queued write is copied
+// by value into the slot array.
+template <typename F>
+concept QueuedWrite = sizeof(F) <= PENDING_WRITE_CAPACITY && std::is_trivially_copyable_v<F> &&
+                      std::is_trivially_destructible_v<F> && std::invocable<F>;
+
 class PendingWrite {
  public:
-  static constexpr size_t CAPACITY = 24;
+  static constexpr size_t CAPACITY = PENDING_WRITE_CAPACITY;
 
   PendingWrite() = default;
 
-  template <typename F>
-  PendingWrite(F callable) {  // NOLINT(google-explicit-constructor)
-    static_assert(sizeof(F) <= CAPACITY, "queued write captures too much");
-    static_assert(std::is_trivially_copyable_v<F>, "queued write must be trivially copyable");
-    static_assert(std::is_trivially_destructible_v<F>, "queued write must be trivially destructible");
+  template <QueuedWrite F>
+  PendingWrite(F callable)  // NOLINT(google-explicit-constructor)
+      : invoke_([](const std::byte *storage) { (*std::launder(reinterpret_cast<const F *>(storage)))(); }) {
     new (this->storage_.data()) F(callable);
-    this->invoke_ = [](const std::byte *storage) { (*std::launder(reinterpret_cast<const F *>(storage)))(); };
   }
 
   void operator()() const { this->invoke_(this->storage_.data()); }

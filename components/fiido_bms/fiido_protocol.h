@@ -211,6 +211,17 @@ struct PollCursor {
 // Skipping a poll spends a slot, so a burst still ends after POLL_TABLE_SIZE steps.
 [[nodiscard]] PollCursor skip_disabled_polls(PollCursor cursor, std::span<const bool, POLL_TABLE_SIZE> enabled);
 
+// Where the burst stands after one send attempt.
+struct BurstStep {
+  bool retry;  // resend the same index
+  uint8_t retry_count;
+  PollCursor cursor;
+};
+
+[[nodiscard]] BurstStep advance_burst(PollCursor cursor, uint8_t retry_count, uint8_t max_retries, bool send_ok);
+
+[[nodiscard]] bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok);
+
 struct BurstGate {
   bool start;
   uint32_t slot;
