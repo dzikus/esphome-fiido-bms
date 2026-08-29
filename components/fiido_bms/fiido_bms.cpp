@@ -771,7 +771,8 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   this->publish_stats_samples_(sv);
   this->sync_gear_entities_(sv);
   this->enforce_gear_mode_(sv);
-  // ADDR 0x2A bit 5 = brake. Not user-verified on physical bike yet.
+  // ADDR 0x2A bit 5 = brake. Squeezing the lever moves nothing on C11 Pro or
+  // M1 Pro 2025 (physical test 2026-08-29).
   publish_changed(this->brake_binary_sensor_, sv.brake);
   this->cache_flag_registers_(sv);
   this->dispatch_pending_writes_();

@@ -22,7 +22,8 @@ CODEOWNERS = ["@dzikus"]
 
 # Exposed binary sensors:
 #   connected: BLE link state (observable in esp32 log).
-#   brake: ADDR 0x2A bit 5. Not user-verified on physical bike yet.
+#   brake: ADDR 0x2A bit 5. Squeezing the lever moves nothing on C11 Pro or
+#          M1 Pro 2025 (physical test 2026-08-29).
 # Each entry: (yaml_key, setter_cpp_method, device_class|None, icon|None,
 #             entity_category|None, default_name)
 BINARY_SENSORS = [
