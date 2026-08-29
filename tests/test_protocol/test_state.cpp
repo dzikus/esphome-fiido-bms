@@ -176,15 +176,15 @@ static void test_write_gate_cold_cache_beats_controller_check() {
 }
 
 static void test_encode_gear_mode_preserves_the_low_nibble() {
-  TEST_ASSERT_EQUAL_UINT8(0x35, encode_gear_mode(3, 0x55));
-  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(5, 0x35));
-  TEST_ASSERT_EQUAL_UINT8(0x30, encode_gear_mode(3, 0x50));
+  TEST_ASSERT_EQUAL_UINT8(0x35, encode_gear_mode(3, {0x55}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(5, {0x35}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x30, encode_gear_mode(3, {0x50}).raw);
 }
 
 static void test_encode_gear_mode_refuses_anything_but_3_or_5() {
-  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(4, 0x55));
-  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(0, 0x55));
-  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(255, 0x55));
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(4, {0x55}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(0, {0x55}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(255, {0x55}).raw);
 }
 
 static void test_clamp_gear_holds_the_ceiling() {
@@ -281,11 +281,11 @@ static void test_resolve_mode_option_is_3_only_for_three_gears() {
 }
 
 static void test_light_bit_clears_only_on_the_motor_off_edge() {
-  TEST_ASSERT_TRUE(should_clear_light_bit(true, true, false, 0x08));
-  TEST_ASSERT_FALSE(should_clear_light_bit(true, true, false, 0x00));
-  TEST_ASSERT_FALSE(should_clear_light_bit(true, false, false, 0x08));
-  TEST_ASSERT_FALSE(should_clear_light_bit(true, true, true, 0x08));
-  TEST_ASSERT_FALSE(should_clear_light_bit(false, true, false, 0x08));
+  TEST_ASSERT_TRUE(should_clear_light_bit(true, true, false, {0x08}));
+  TEST_ASSERT_FALSE(should_clear_light_bit(true, true, false, {0x00}));
+  TEST_ASSERT_FALSE(should_clear_light_bit(true, false, false, {0x08}));
+  TEST_ASSERT_FALSE(should_clear_light_bit(true, true, true, {0x08}));
+  TEST_ASSERT_FALSE(should_clear_light_bit(false, true, false, {0x08}));
 }
 
 static void test_enforce_gear_mode_3_respects_every_gate() {
@@ -316,35 +316,36 @@ static void test_speed_limit_option_parsing_rejects_anything_else() {
 }
 
 static void test_speed_limit_plan_writes_the_pas_bit_only_when_it_differs() {
-  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::SIX_KMH, 0x80).needs_pas_write);
-  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::SIX_KMH, 0x00).needs_pas_write);
-  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0x00).needs_pas_write);
-  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0x80).needs_pas_write);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::SIX_KMH, {0x80}).needs_pas_write);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::SIX_KMH, {0x00}).needs_pas_write);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0x00}).needs_pas_write);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0x80}).needs_pas_write);
 }
 
 static void test_speed_limit_plan_keeps_the_other_bits_of_0x2c() {
-  TEST_ASSERT_EQUAL_UINT8(0xD5, plan_speed_limit(SpeedLimitOption::SIX_KMH, 0x55).pas_byte);
-  TEST_ASSERT_EQUAL_UINT8(0x55, plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0xD5).pas_byte);
+  TEST_ASSERT_EQUAL_UINT8(0xD5, plan_speed_limit(SpeedLimitOption::SIX_KMH, {0x55}).pas_byte.raw);
+  TEST_ASSERT_EQUAL_UINT8(0x55, plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0xD5}).pas_byte.raw);
 }
 
 static void test_speed_limit_phase2_is_delayed_only_when_clearing_the_cap() {
-  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0x80).delay_phase2);
-  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, 0x00).delay_phase2);
-  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::SIX_KMH, 0x00).delay_phase2);
-  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::TWENTY_FIVE_KMH, 0x00).delay_phase2);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0x80}).delay_phase2);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0x00}).delay_phase2);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::SIX_KMH, {0x00}).delay_phase2);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::TWENTY_FIVE_KMH, {0x00}).delay_phase2);
 }
 
 static void test_speed_limit_bit_keeps_the_other_bits_of_0x27() {
-  TEST_ASSERT_EQUAL_UINT8(0xA8, apply_speed_limit_bit(0x88, true));
-  TEST_ASSERT_EQUAL_UINT8(0x88, apply_speed_limit_bit(0xA8, false));
-  TEST_ASSERT_EQUAL_UINT8(0xA8, apply_speed_limit_bit(0xA8, true));
+  TEST_ASSERT_EQUAL_UINT8(0xA8, apply_speed_limit_bit({0x88}, true).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x88, apply_speed_limit_bit({0xA8}, false).raw);
+  TEST_ASSERT_EQUAL_UINT8(0xA8, apply_speed_limit_bit({0xA8}, true).raw);
 }
 
 static void test_speed_limit_plan_and_readback_agree() {
   // What the writer sends must be what the reader turns back into the option.
   for (const auto option : {SpeedLimitOption::SIX_KMH, SpeedLimitOption::TWENTY_FIVE_KMH, SpeedLimitOption::NO_LIMIT}) {
-    const SpeedLimitPlan plan = plan_speed_limit(option, 0x00);
-    TEST_ASSERT_EQUAL_STRING(speed_limit_option_name(option), resolve_speed_limit_option(plan.value, plan.limit_on));
+    const SpeedLimitPlan plan = plan_speed_limit(option, {0x00});
+    TEST_ASSERT_EQUAL_STRING(speed_limit_option_name(option),
+                             resolve_speed_limit_option(plan.value.raw, plan.limit_on));
   }
 }
 

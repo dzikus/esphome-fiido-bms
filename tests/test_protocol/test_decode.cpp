@@ -24,7 +24,7 @@ static void test_decode_stats_reads_the_captured_frame() {
 static void test_decode_stats_masks_0x39_to_low_bits() {
   uint8_t p[53] = {0};
   p[stats::ADDR_39_OFFSET] = 0xE8;
-  TEST_ASSERT_EQUAL_UINT8(0x08, decode_stats(p).b39);
+  TEST_ASSERT_EQUAL_UINT8(0x08, decode_stats(p).b39.raw);
 }
 
 static void test_decode_stats_gear_count_from_nibble_pair() {
@@ -59,30 +59,32 @@ static void test_decode_stats_bounds_reject_impossible_values() {
 
 static void test_decode_flags_light_needs_the_controller_on() {
   // Bit 3 can be set with the controller off; the lamp is not lit then.
-  TEST_ASSERT_FALSE(decode_flags(0x08, 0, 0, 0, 0, 0).light_on);
-  TEST_ASSERT_TRUE(decode_flags(0x88, 0, 0, 0, 0, 0).light_on);
+  TEST_ASSERT_FALSE(decode_flags({0x08}, {}, {}, {}, {}, {}).light_on);
+  TEST_ASSERT_TRUE(decode_flags({0x88}, {}, {}, {}, {}, {}).light_on);
 }
 
 static void test_decode_flags_inverted_bits() {
   // throttle and key sound read the opposite way round.
-  TEST_ASSERT_TRUE(decode_flags(0, 0, 0x00, 0x00, 0, 0).throttle_on);
-  TEST_ASSERT_FALSE(decode_flags(0, 0, 0x02, 0x00, 0, 0).throttle_on);
-  TEST_ASSERT_TRUE(decode_flags(0, 0, 0, 0x00, 0, 0).key_sound_on);
-  TEST_ASSERT_FALSE(decode_flags(0, 0, 0, 0x10, 0, 0).key_sound_on);
+  TEST_ASSERT_TRUE(decode_flags({}, {}, {0x00}, {0x00}, {}, {}).throttle_on);
+  TEST_ASSERT_FALSE(decode_flags({}, {}, {0x02}, {0x00}, {}, {}).throttle_on);
+  TEST_ASSERT_TRUE(decode_flags({}, {}, {}, {0x00}, {}, {}).key_sound_on);
+  TEST_ASSERT_FALSE(decode_flags({}, {}, {}, {0x10}, {}, {}).key_sound_on);
 }
 
 static void test_decode_flags_speaker_is_audible_only_on_zero() {
-  TEST_ASSERT_TRUE(decode_flags(0, 0, 0, 0, 0x00, 0).speaker_audible);
-  TEST_ASSERT_FALSE(decode_flags(0, 0, 0, 0, 0x04, 0).speaker_audible);
-  TEST_ASSERT_FALSE(decode_flags(0, 0, 0, 0, 0x0C, 0).speaker_audible);
+  TEST_ASSERT_TRUE(decode_flags({}, {}, {}, {}, {0x00}, {}).speaker_audible);
+  TEST_ASSERT_FALSE(decode_flags({}, {}, {}, {}, {0x04}, {}).speaker_audible);
+  TEST_ASSERT_FALSE(decode_flags({}, {}, {}, {}, {0x0C}, {}).speaker_audible);
 }
 
+// The register each mask belongs to is now a compile-time fact; this covers the
+// bit position within the byte.
 static void test_decode_flags_each_bit_reads_its_own_byte() {
-  TEST_ASSERT_TRUE(decode_flags(0x40, 0, 0, 0, 0, 0).cruise_on);
-  TEST_ASSERT_TRUE(decode_flags(0, 0x40, 0, 0, 0, 0).show_total_km_on);
-  TEST_ASSERT_TRUE(decode_flags(0, 0, 0x40, 0, 0, 0).bike_guard_on);
-  TEST_ASSERT_TRUE(decode_flags(0, 0, 0, 0x80, 0, 0).pas_limit_on);
-  TEST_ASSERT_TRUE(decode_flags(0, 0, 0, 0, 0, 0x02).ring_on);
+  TEST_ASSERT_TRUE(decode_flags({0x40}, {}, {}, {}, {}, {}).cruise_on);
+  TEST_ASSERT_TRUE(decode_flags({}, {0x40}, {}, {}, {}, {}).show_total_km_on);
+  TEST_ASSERT_TRUE(decode_flags({}, {}, {0x40}, {}, {}, {}).bike_guard_on);
+  TEST_ASSERT_TRUE(decode_flags({}, {}, {}, {0x80}, {}, {}).pas_limit_on);
+  TEST_ASSERT_TRUE(decode_flags({}, {}, {}, {}, {}, {0x02}).ring_on);
 }
 
 static const StatsSample *find_sample(const StatsSamples &s, StatsChannel c) {

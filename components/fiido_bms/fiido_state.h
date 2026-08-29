@@ -89,7 +89,7 @@ struct WriteGateInput {
 [[nodiscard]] WriteGate gate_write(const WriteGateInput &in);
 
 // Upper nibble = gear count, lower = bike config. Cache unchanged unless mode is 3 or 5.
-[[nodiscard]] uint8_t encode_gear_mode(uint8_t mode, uint8_t cache_25);
+[[nodiscard]] RegValue<Addr::GEAR_RANGE> encode_gear_mode(uint8_t mode, RegValue<Addr::GEAR_RANGE> cache_25);
 
 [[nodiscard]] uint8_t clamp_gear(uint8_t gear, uint8_t max_gear);
 
@@ -104,16 +104,16 @@ enum class SpeedLimitOption : uint8_t {
 [[nodiscard]] const char *speed_limit_option_name(SpeedLimitOption option);
 
 struct SpeedLimitPlan {
-  uint8_t value;         // ADDR 0x3C
+  RegValue<Addr::SPEED_LIMIT> value;
   bool limit_on;         // ADDR 0x27 bit 5
   bool needs_pas_write;  // ADDR 0x2C bit 7 differs from the target
-  uint8_t pas_byte;      // ADDR 0x2C after the bit is applied
-  bool delay_phase2;     // clearing the PAS bit makes the BMS force 0x3C=25
+  RegValue<Addr::FLAGS_2C> pas_byte;
+  bool delay_phase2;  // clearing the PAS bit makes the BMS force 0x3C=25
 };
 
-[[nodiscard]] SpeedLimitPlan plan_speed_limit(SpeedLimitOption option, uint8_t cache_2c);
+[[nodiscard]] SpeedLimitPlan plan_speed_limit(SpeedLimitOption option, RegValue<Addr::FLAGS_2C> cache_2c);
 
-[[nodiscard]] uint8_t apply_speed_limit_bit(uint8_t cache_27, bool limit_on);
+[[nodiscard]] RegValue<Addr::FLAGS_27> apply_speed_limit_bit(RegValue<Addr::FLAGS_27> cache_27, bool limit_on);
 
 enum class ProbeOutcome : uint8_t {
   STAY_BIKE_ON = 0,
@@ -129,7 +129,8 @@ enum class ProbeOutcome : uint8_t {
 
 [[nodiscard]] const char *resolve_mode_option(uint8_t gear_count);
 
-[[nodiscard]] bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on, uint8_t cache_27);
+[[nodiscard]] bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on,
+                                          RegValue<Addr::FLAGS_27> cache_27);
 
 [[nodiscard]] bool should_enforce_gear_mode_3(bool enabled, uint8_t max_gear, bool ble_enabled, bool controller_on,
                                               uint32_t now, uint32_t last_write_ms, uint32_t cooldown_ms);
@@ -191,20 +192,17 @@ static_assert([] {
 class RegisterCache {
  public:
   template <Addr A>
-  [[nodiscard]] std::optional<uint8_t> get() const {
-    return this->slots_[cache_slot(A)];
-  }
-  template <Addr A>
   [[nodiscard]] bool has() const {
     return this->slots_[cache_slot(A)].has_value();
   }
+  // Zero for a cold slot.
   template <Addr A>
-  [[nodiscard]] uint8_t value_or(uint8_t fallback) const {
-    return this->slots_[cache_slot(A)].value_or(fallback);
+  [[nodiscard]] RegValue<A> value_or(RegValue<A> fallback = {}) const {
+    return {this->slots_[cache_slot(A)].value_or(fallback.raw)};
   }
   template <Addr A>
-  void set(uint8_t value) {
-    this->slots_[cache_slot(A)] = value;
+  void set(RegValue<A> value) {
+    this->slots_[cache_slot(A)] = value.raw;
   }
 
   [[nodiscard]] std::optional<uint8_t> &at(size_t slot) { return this->slots_[slot]; }

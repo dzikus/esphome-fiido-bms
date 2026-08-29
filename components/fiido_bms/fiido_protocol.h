@@ -47,17 +47,25 @@ enum class Addr : uint8_t {
   FLAGS_39 = 0x39,
 };
 
+// Constructing one from a bare byte asserts the register; nothing checks it.
+template <Addr A>
+struct RegValue {
+  uint8_t raw;
+
+  [[nodiscard]] constexpr bool operator==(const RegValue &) const = default;
+};
+
 template <Addr A>
 struct RegBit {
   uint8_t mask;
 
-  static constexpr Addr ADDR = A;
-
-  [[nodiscard]] constexpr bool in(uint8_t reg) const { return (reg & this->mask) != 0; }
-  [[nodiscard]] constexpr uint8_t with(uint8_t reg, bool on) const {
-    return static_cast<uint8_t>(on ? (reg | this->mask) : (reg & ~this->mask));
+  [[nodiscard]] constexpr bool in(RegValue<A> reg) const { return (reg.raw & this->mask) != 0; }
+  [[nodiscard]] constexpr RegValue<A> with(RegValue<A> reg, bool on) const {
+    return {static_cast<uint8_t>(on ? (reg.raw | this->mask) : (reg.raw & ~this->mask))};
   }
-  [[nodiscard]] constexpr uint8_t keep(uint8_t reg) const { return static_cast<uint8_t>(reg & this->mask); }
+  [[nodiscard]] constexpr RegValue<A> keep(RegValue<A> reg) const {
+    return {static_cast<uint8_t>(reg.raw & this->mask)};
+  }
 };
 
 // A name ending in _OFF is set when the feature is off; decode_flags inverts it.
@@ -372,7 +380,13 @@ struct StatsView {
   uint8_t gear_start;
   uint8_t max_gear;  // 3 or 5 when the nibble pair is meaningful, else 0
   bool brake;
-  uint8_t b25, b27, b28, b2b, b2c, b38, b39;
+  RegValue<Addr::GEAR_RANGE> b25;
+  RegValue<Addr::FLAGS_27> b27;
+  RegValue<Addr::FLAGS_28> b28;
+  RegValue<Addr::FLAGS_2B> b2b;
+  RegValue<Addr::FLAGS_2C> b2c;
+  RegValue<Addr::FLAGS_38> b38;
+  RegValue<Addr::FLAGS_39> b39;
 };
 
 [[nodiscard]] StatsView decode_stats(std::span<const uint8_t> payload);
@@ -398,6 +412,8 @@ struct FlagView {
   bool ring_on;
 };
 
-[[nodiscard]] FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2b, uint8_t b2c, uint8_t b38, uint8_t b39);
+[[nodiscard]] FlagView decode_flags(RegValue<Addr::FLAGS_27> b27, RegValue<Addr::FLAGS_28> b28,
+                                    RegValue<Addr::FLAGS_2B> b2b, RegValue<Addr::FLAGS_2C> b2c,
+                                    RegValue<Addr::FLAGS_38> b38, RegValue<Addr::FLAGS_39> b39);
 
 }  // namespace esphome::fiido_bms

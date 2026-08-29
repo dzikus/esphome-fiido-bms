@@ -64,7 +64,7 @@ WriteFrame build_write_frame(FrameType type, Addr addr, std::span<const uint8_t>
 MaskedWrite compute_masked_write(Addr addr, uint8_t cache, uint8_t mask, uint8_t new_bits) {
   const uint8_t value = static_cast<uint8_t>((cache & ~mask) | (new_bits & mask));
   if (addr == Addr::FLAGS_39) {
-    return {FrameType::WRITE_J0, flags_39::DEFINED.keep(value)};
+    return {FrameType::WRITE_J0, flags_39::DEFINED.keep({value}).raw};
   }
   return {FrameType::WRITE_L0, value};
 }
@@ -91,18 +91,19 @@ StatsView decode_stats(std::span<const uint8_t> payload) {
   const uint8_t max_gear = upper > lower ? upper : lower;
   v.max_gear = (max_gear == 3 || max_gear == 5) ? max_gear : 0;
   v.brake = (payload[stats::ADDR_2A_OFFSET] & ADDR_2A_BRAKE) != 0;
-  v.b25 = payload[stats::ADDR_25_OFFSET];
-  v.b27 = payload[stats::ADDR_27_OFFSET];
-  v.b28 = payload[stats::ADDR_28_OFFSET];
-  v.b2b = payload[stats::ADDR_2B_OFFSET];
-  v.b2c = payload[stats::ADDR_2C_OFFSET];
-  v.b38 = payload[stats::ADDR_38_OFFSET];
+  v.b25 = {payload[stats::ADDR_25_OFFSET]};
+  v.b27 = {payload[stats::ADDR_27_OFFSET]};
+  v.b28 = {payload[stats::ADDR_28_OFFSET]};
+  v.b2b = {payload[stats::ADDR_2B_OFFSET]};
+  v.b2c = {payload[stats::ADDR_2C_OFFSET]};
+  v.b38 = {payload[stats::ADDR_38_OFFSET]};
   // Only bits 4..0 of 0x39 are defined; a write must send the rest as zero.
-  v.b39 = flags_39::DEFINED.keep(payload[stats::ADDR_39_OFFSET]);
+  v.b39 = flags_39::DEFINED.keep({payload[stats::ADDR_39_OFFSET]});
   return v;
 }
 
-FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2b, uint8_t b2c, uint8_t b38, uint8_t b39) {
+FlagView decode_flags(RegValue<Addr::FLAGS_27> b27, RegValue<Addr::FLAGS_28> b28, RegValue<Addr::FLAGS_2B> b2b,
+                      RegValue<Addr::FLAGS_2C> b2c, RegValue<Addr::FLAGS_38> b38, RegValue<Addr::FLAGS_39> b39) {
   FlagView f{};
   f.motor_on = flags_27::CONTROLLER.in(b27);
   // With the controller off the lamp cannot be lit whatever the bit says.

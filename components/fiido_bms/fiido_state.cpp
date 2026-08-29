@@ -89,10 +89,10 @@ WriteGate gate_write(const WriteGateInput &in) {
   return WriteGate::SEND;
 }
 
-uint8_t encode_gear_mode(uint8_t mode, uint8_t cache_25) {
+RegValue<Addr::GEAR_RANGE> encode_gear_mode(uint8_t mode, RegValue<Addr::GEAR_RANGE> cache_25) {
   if (mode != 3 && mode != 5)
     return cache_25;
-  return static_cast<uint8_t>((mode << 4) | (cache_25 & 0x0F));
+  return {static_cast<uint8_t>((mode << 4) | (cache_25.raw & 0x0F))};
 }
 
 uint8_t clamp_gear(uint8_t gear, uint8_t max_gear) {
@@ -121,19 +121,19 @@ const char *speed_limit_option_name(SpeedLimitOption option) {
   return "No limit";
 }
 
-SpeedLimitPlan plan_speed_limit(SpeedLimitOption option, uint8_t cache_2c) {
+SpeedLimitPlan plan_speed_limit(SpeedLimitOption option, RegValue<Addr::FLAGS_2C> cache_2c) {
   SpeedLimitPlan plan{};
   switch (option) {
     case SpeedLimitOption::SIX_KMH:
-      plan.value = 6;
+      plan.value = {6};
       plan.limit_on = true;
       break;
     case SpeedLimitOption::TWENTY_FIVE_KMH:
-      plan.value = 25;
+      plan.value = {25};
       plan.limit_on = true;
       break;
     case SpeedLimitOption::NO_LIMIT:
-      plan.value = 100;
+      plan.value = {speed_limit::NO_LIMIT};
       plan.limit_on = false;
       break;
   }
@@ -144,7 +144,7 @@ SpeedLimitPlan plan_speed_limit(SpeedLimitOption option, uint8_t cache_2c) {
   return plan;
 }
 
-uint8_t apply_speed_limit_bit(uint8_t cache_27, bool limit_on) {
+RegValue<Addr::FLAGS_27> apply_speed_limit_bit(RegValue<Addr::FLAGS_27> cache_27, bool limit_on) {
   return flags_27::SPEED_LIMIT.with(cache_27, limit_on);
 }
 
@@ -167,7 +167,7 @@ const char *resolve_mode_option(uint8_t gear_count) {
   return gear_count == 3 ? "3" : "5";
 }
 
-bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on, uint8_t cache_27) {
+bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on, RegValue<Addr::FLAGS_27> cache_27) {
   return ble_enabled && prev_motor_on && !motor_on && flags_27::LIGHT.in(cache_27);
 }
 
