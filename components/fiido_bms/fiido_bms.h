@@ -97,6 +97,12 @@ template <Addr A>
   return flag_control(bit, 0x00, bit.mask, name, entity, state);
 }
 
+template <Addr A, size_t N>
+[[nodiscard]] consteval bool flag_row_is(const std::array<FlagControl, N> &rows, FlagId id, RegBit<A> bit) {
+  const FlagControl &row = rows[static_cast<size_t>(id)];
+  return row.addr == A && row.mask == bit.mask;
+}
+
 // Row order in BYTE_CONTROLS.
 #ifdef USE_FIIDO_BMS_DEV
 enum class ByteId : size_t {
@@ -292,6 +298,20 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 #endif
   });
   static_assert(FLAG_CONTROLS.size() == static_cast<size_t>(FlagId::COUNT), "FlagId and FLAG_CONTROLS disagree");
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::SPEAKER, flags_38::SPEAKER_SILENT));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::KEY_SOUND, flags_2c::KEY_SOUND_OFF));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::THROTTLE, flags_2b::THROTTLE_OFF));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::SLOW_MODE, flags_2c::SLOW_MODE));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::BIKE_GUARD, flags_2b::BIKE_GUARD));
+#ifdef USE_FIIDO_BMS_DEV
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::CRUISE, flags_27::CRUISE));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::START_MODE, flags_27::START_MODE));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::INSENSITIVITY, flags_27::INSENSITIVITY));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::SHOW_TOTAL_KM, flags_28::SHOW_TOTAL_KM));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::AUTO_SCREEN_OFF, flags_39::AUTO_SCREEN_OFF));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::RING, flags_39::RING));
+  static_assert(flag_row_is(FLAG_CONTROLS, FlagId::DOUBLE_SPEED, flags_2b::DOUBLE_SPEED));
+#endif
   void set_flag_(FlagId id, bool on);
 
 #ifdef USE_FIIDO_BMS_DEV
