@@ -75,8 +75,8 @@ bool should_log_now(uint32_t now, uint32_t last_log_ms, uint32_t interval_ms) {
   return last_log_ms == 0 || (now - last_log_ms) >= interval_ms;
 }
 
-bool should_auto_shutdown(uint32_t now, uint32_t last_activity_ms, uint32_t idle_ms, bool enabled, bool motor_on) {
-  return enabled && motor_on && (now - last_activity_ms) >= idle_ms;
+bool should_auto_shutdown(const AutoShutdownInput &in) {
+  return in.enabled && in.motor_on && (in.now - in.last_activity_ms) >= in.idle_ms;
 }
 
 WriteGate gate_write(const WriteGateInput &in) {
@@ -173,11 +173,10 @@ bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on,
   return ble_enabled && prev_motor_on && !motor_on && flags_27::LIGHT.in(cache_27);
 }
 
-bool should_enforce_gear_mode_3(bool enabled, uint8_t max_gear, bool ble_enabled, bool controller_on, uint32_t now,
-                                uint32_t last_write_ms, uint32_t cooldown_ms) {
-  if (!enabled || max_gear != 5 || !ble_enabled || !controller_on)
+bool should_enforce_gear_mode_3(const EnforceGearModeInput &in) {
+  if (!in.enabled || in.max_gear != 5 || !in.ble_enabled || !in.controller_on)
     return false;
-  return should_log_now(now, last_write_ms, cooldown_ms);
+  return should_log_now(in.now, in.last_write_ms, in.cooldown_ms);
 }
 
 bool PendingWrites::push(PendingWrite fn) {

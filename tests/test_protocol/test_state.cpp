@@ -150,10 +150,24 @@ static void test_log_throttle_starts_over_after_reset() {
 }
 
 static void test_auto_shutdown_only_with_the_motor_on_and_enabled() {
-  TEST_ASSERT_TRUE(should_auto_shutdown(20000, 5000, 15000, true, true));
-  TEST_ASSERT_FALSE(should_auto_shutdown(20000, 5000, 15000, false, true));
-  TEST_ASSERT_FALSE(should_auto_shutdown(20000, 5000, 15000, true, false));
-  TEST_ASSERT_FALSE(should_auto_shutdown(19999, 5000, 15000, true, true));
+  const AutoShutdownInput idle{
+      .now = 20000, .last_activity_ms = 5000, .idle_ms = 15000, .enabled = true, .motor_on = true};
+  TEST_ASSERT_TRUE(should_auto_shutdown(idle));
+  TEST_ASSERT_FALSE(should_auto_shutdown({.now = idle.now,
+                                          .last_activity_ms = idle.last_activity_ms,
+                                          .idle_ms = idle.idle_ms,
+                                          .enabled = false,
+                                          .motor_on = true}));
+  TEST_ASSERT_FALSE(should_auto_shutdown({.now = idle.now,
+                                          .last_activity_ms = idle.last_activity_ms,
+                                          .idle_ms = idle.idle_ms,
+                                          .enabled = true,
+                                          .motor_on = false}));
+  TEST_ASSERT_FALSE(should_auto_shutdown({.now = 19999,
+                                          .last_activity_ms = idle.last_activity_ms,
+                                          .idle_ms = idle.idle_ms,
+                                          .enabled = true,
+                                          .motor_on = true}));
 }
 
 static WriteGateInput gate_base() {
@@ -309,14 +323,39 @@ static void test_light_bit_clears_only_on_the_motor_off_edge() {
 }
 
 static void test_enforce_gear_mode_3_respects_every_gate() {
-  const uint32_t cooldown = 60000;
-  TEST_ASSERT_TRUE(should_enforce_gear_mode_3(true, 5, true, true, 100000, 0, cooldown));
-  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(false, 5, true, true, 100000, 0, cooldown));
-  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(true, 3, true, true, 100000, 0, cooldown));
-  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(true, 5, false, true, 100000, 0, cooldown));
-  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(true, 5, true, false, 100000, 0, cooldown));
-  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(true, 5, true, true, 100000, 50000, cooldown));
-  TEST_ASSERT_TRUE(should_enforce_gear_mode_3(true, 5, true, true, 160000, 100000, cooldown));
+  const EnforceGearModeInput base{.enabled = true,
+                                  .max_gear = 5,
+                                  .ble_enabled = true,
+                                  .controller_on = true,
+                                  .now = 100000,
+                                  .last_write_ms = 0,
+                                  .cooldown_ms = 60000};
+  TEST_ASSERT_TRUE(should_enforce_gear_mode_3(base));
+
+  EnforceGearModeInput off = base;
+  off.enabled = false;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(off));
+
+  EnforceGearModeInput three_gear = base;
+  three_gear.max_gear = 3;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(three_gear));
+
+  EnforceGearModeInput no_ble = base;
+  no_ble.ble_enabled = false;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(no_ble));
+
+  EnforceGearModeInput controller_off = base;
+  controller_off.controller_on = false;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(controller_off));
+
+  EnforceGearModeInput inside_cooldown = base;
+  inside_cooldown.last_write_ms = 50000;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(inside_cooldown));
+
+  EnforceGearModeInput past_cooldown = base;
+  past_cooldown.now = 160000;
+  past_cooldown.last_write_ms = 100000;
+  TEST_ASSERT_TRUE(should_enforce_gear_mode_3(past_cooldown));
 }
 
 static void test_speed_limit_option_needs_the_enable_bit() {

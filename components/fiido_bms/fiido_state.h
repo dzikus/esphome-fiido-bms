@@ -9,7 +9,6 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 #include "fiido_protocol.h"
 
@@ -93,8 +92,15 @@ class LogThrottle {
   uint32_t count_{0};
 };
 
-[[nodiscard]] bool should_auto_shutdown(uint32_t now, uint32_t last_activity_ms, uint32_t idle_ms, bool enabled,
-                                        bool motor_on);
+struct AutoShutdownInput {
+  uint32_t now;
+  uint32_t last_activity_ms;
+  uint32_t idle_ms;
+  bool enabled;
+  bool motor_on;
+};
+
+[[nodiscard]] bool should_auto_shutdown(const AutoShutdownInput &in);
 
 enum class WriteGate : uint8_t {
   SEND = 0,
@@ -158,8 +164,17 @@ enum class ProbeOutcome : uint8_t {
 [[nodiscard]] bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on,
                                           RegValue<Addr::FLAGS_27> cache_27);
 
-[[nodiscard]] bool should_enforce_gear_mode_3(bool enabled, uint8_t max_gear, bool ble_enabled, bool controller_on,
-                                              uint32_t now, uint32_t last_write_ms, uint32_t cooldown_ms);
+struct EnforceGearModeInput {
+  bool enabled;
+  uint8_t max_gear;
+  bool ble_enabled;
+  bool controller_on;
+  uint32_t now;
+  uint32_t last_write_ms;
+  uint32_t cooldown_ms;
+};
+
+[[nodiscard]] bool should_enforce_gear_mode_3(const EnforceGearModeInput &in);
 
 // What the rider is doing, as far as one STATS frame can tell.
 struct RideState {

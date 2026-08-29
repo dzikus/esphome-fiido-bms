@@ -681,9 +681,13 @@ void FiidoBMSHub::sync_gear_entities_(const StatsView &sv) {
 // ESP32 flips it back to 5. set_gear_mode rejects the write with the controller
 // OFF, and a rejection still spends the cooldown.
 void FiidoBMSHub::enforce_gear_mode_(const StatsView &sv) {
-  if (!should_enforce_gear_mode_3(this->enforce_gear_mode_3_, sv.max_gear, this->ble_user_enabled_,
-                                  flags_27::CONTROLLER.in(sv.b27), millis(), this->last_enforce_gear_3_ms_,
-                                  ENFORCE_GEAR_MODE_3_COOLDOWN_MS))
+  if (!should_enforce_gear_mode_3({.enabled = this->enforce_gear_mode_3_,
+                                   .max_gear = sv.max_gear,
+                                   .ble_enabled = this->ble_user_enabled_,
+                                   .controller_on = flags_27::CONTROLLER.in(sv.b27),
+                                   .now = millis(),
+                                   .last_write_ms = this->last_enforce_gear_3_ms_,
+                                   .cooldown_ms = ENFORCE_GEAR_MODE_3_COOLDOWN_MS}))
     return;
   ESP_LOGI(TAG, "[%s] enforce_gear_mode_3: BMS reports 5-gear, writing 3", this->parent_->address_str());
   this->last_enforce_gear_3_ms_ = millis();
@@ -742,8 +746,11 @@ void FiidoBMSHub::track_activity_(const RideState &ride, uint16_t speed_raw) {
     this->mark_activity_("speed");
   if (activity.light_changed)
     this->mark_activity_("light");
-  if (!should_auto_shutdown(millis(), this->last_activity_ms_, IDLE_SHUTDOWN_MS, this->auto_shutdown_enabled_,
-                            ride.motor_on))
+  if (!should_auto_shutdown({.now = millis(),
+                             .last_activity_ms = this->last_activity_ms_,
+                             .idle_ms = IDLE_SHUTDOWN_MS,
+                             .enabled = this->auto_shutdown_enabled_,
+                             .motor_on = ride.motor_on}))
     return;
   ESP_LOGI(TAG, "[%s] AUTO-SHUTDOWN: no activity for %u min, disabling motor", this->parent_->address_str(),
            (unsigned)((millis() - this->last_activity_ms_) / 60000));
