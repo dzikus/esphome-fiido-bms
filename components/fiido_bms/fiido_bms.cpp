@@ -230,7 +230,7 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
       break;
     case ESP_GATTC_NOTIFY_EVT:
       if (this->link_.owns_notify(param->notify.handle))
-        this->handle_notify_(std::span<const uint8_t>(param->notify.value, param->notify.value_len));
+        this->handle_notify_(std::span<const uint8_t>(param->notify.value, size_t{param->notify.value_len}));
       break;
     default:
       break;
