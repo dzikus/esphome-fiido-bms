@@ -90,18 +90,18 @@ jobs:
           EXPOSE_DEV=false bash tests/run_clang_tidy.sh
 
   esphome-build:
-    name: esphome compile (${{ matrix.board }})
+    name: esphome compile (${{ matrix.arch }})
     needs: unit-tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        board:
-          - esp32dev
-          - esp32-s3-devkitc-1
-          - esp32-c3-devkitm-1
-          - esp32-c6-devkitc-1
+        include:
+          - arch: xtensa
+            boards: esp32dev esp32-s3-devkitc-1
+          - arch: riscv
+            boards: esp32-c3-devkitm-1 esp32-c6-devkitc-1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -115,17 +115,19 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/esphome
-          key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-${{ matrix.board }}
+          key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-${{ matrix.arch }}
           restore-keys: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-
       - name: Install ESPHome
         run: pip install "esphome==${{ env.ESPHOME_VERSION }}"
       - name: Run codegen unit tests
         run: python -m unittest discover -s tests/python -v
-      - name: Compile both variants and fail on any warning from the component
+      - name: Compile every board and variant, failing on any warning from the component
         run: |
           set -euo pipefail
-          bash tests/check_esp32_warnings.sh .github/ci-build.yaml ${{ matrix.board }} true
-          bash tests/check_esp32_warnings.sh .github/ci-build.yaml ${{ matrix.board }} false
+          for board in ${{ matrix.boards }}; do
+            bash tests/check_esp32_warnings.sh .github/ci-build.yaml "$board" true
+            bash tests/check_esp32_warnings.sh .github/ci-build.yaml "$board" false
+          done
   config-build-floor:
     name: config check and build at the ESPHome floor
     needs: lint
