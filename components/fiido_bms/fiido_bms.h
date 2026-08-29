@@ -62,6 +62,32 @@ struct FlagControl {
   bool FlagView::*state;
 };
 
+// Not defined: -fno-exceptions rules out throw.
+void flag_bits_outside_mask();
+
+// The speaker takes one of two silencing patterns rather than the whole mask.
+template <Addr A>
+[[nodiscard]] consteval FlagControl flag_control(RegBit<A> bit, uint8_t bits_on, uint8_t bits_off, const char *name,
+                                                 switch_::Switch *FiidoBMSHub::*entity, bool FlagView::*state) {
+  if ((bits_on & ~bit.mask) != 0 || (bits_off & ~bit.mask) != 0)
+    flag_bits_outside_mask();
+  return {A, cache_slot(A), bit.mask, bits_on, bits_off, name, entity, state};
+}
+
+template <Addr A>
+[[nodiscard]] consteval FlagControl flag_control(RegBit<A> bit, const char *name, switch_::Switch *FiidoBMSHub::*entity,
+                                                 bool FlagView::*state) {
+  return flag_control(bit, bit.mask, 0x00, name, entity, state);
+}
+
+// The bit is set when the feature is off.
+template <Addr A>
+[[nodiscard]] consteval FlagControl inverted_flag_control(RegBit<A> bit, const char *name,
+                                                          switch_::Switch *FiidoBMSHub::*entity,
+                                                          bool FlagView::*state) {
+  return flag_control(bit, 0x00, bit.mask, name, entity, state);
+}
+
 // Row order in BYTE_CONTROLS.
 enum class ByteId : size_t {
   BRIGHTNESS = 0,
@@ -223,30 +249,23 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
  protected:
   static constexpr std::array<FlagControl, 12> FLAG_CONTROLS{{
-      {Addr::FLAGS_38, cache_slot(Addr::FLAGS_38), 0x0C, 0x00, 0x04, "SPEAKER", &FiidoBMSHub::speaker_switch_,
-       &FlagView::speaker_audible},
-      {Addr::FLAGS_2C, cache_slot(Addr::FLAGS_2C), 0x10, 0x00, 0x10, "KEY_SOUND", &FiidoBMSHub::key_sound_switch_,
-       &FlagView::key_sound_on},
-      {Addr::FLAGS_2B, cache_slot(Addr::FLAGS_2B), 0x02, 0x00, 0x02, "THROTTLE", &FiidoBMSHub::throttle_switch_,
-       &FlagView::throttle_on},
-      {Addr::FLAGS_2C, cache_slot(Addr::FLAGS_2C), 0x40, 0x40, 0x00, "SLOW_MODE", &FiidoBMSHub::slow_mode_switch_,
-       &FlagView::slow_mode_on},
-      {Addr::FLAGS_27, cache_slot(Addr::FLAGS_27), 0x40, 0x40, 0x00, "CRUISE", &FiidoBMSHub::cruise_switch_,
-       &FlagView::cruise_on},
-      {Addr::FLAGS_27, cache_slot(Addr::FLAGS_27), 0x02, 0x02, 0x00, "START_MODE", &FiidoBMSHub::start_mode_switch_,
-       &FlagView::start_mode_on},
-      {Addr::FLAGS_27, cache_slot(Addr::FLAGS_27), 0x01, 0x01, 0x00, "INSENS", &FiidoBMSHub::insensitivity_switch_,
-       &FlagView::insensitivity_on},
-      {Addr::FLAGS_28, cache_slot(Addr::FLAGS_28), 0x40, 0x40, 0x00, "SHOW_TOTAL_KM",
-       &FiidoBMSHub::show_total_km_switch_, &FlagView::show_total_km_on},
-      {Addr::FLAGS_39, cache_slot(Addr::FLAGS_39), 0x08, 0x08, 0x00, "AUTO_SCREEN_OFF",
-       &FiidoBMSHub::auto_screen_off_switch_, &FlagView::auto_screen_off_on},
-      {Addr::FLAGS_39, cache_slot(Addr::FLAGS_39), 0x02, 0x02, 0x00, "RING", &FiidoBMSHub::ring_switch_,
-       &FlagView::ring_on},
-      {Addr::FLAGS_2B, cache_slot(Addr::FLAGS_2B), 0x20, 0x20, 0x00, "DOUBLE_SPEED", &FiidoBMSHub::double_speed_switch_,
-       &FlagView::double_speed_on},
-      {Addr::FLAGS_2B, cache_slot(Addr::FLAGS_2B), 0x40, 0x40, 0x00, "BIKE_GUARD", &FiidoBMSHub::bike_guard_switch_,
-       &FlagView::bike_guard_on},
+      flag_control(flags_38::SPEAKER_SILENT, 0x00, flags_38::SPEAKER_SILENCE_PATTERN, "SPEAKER",
+                   &FiidoBMSHub::speaker_switch_, &FlagView::speaker_audible),
+      inverted_flag_control(flags_2c::KEY_SOUND_OFF, "KEY_SOUND", &FiidoBMSHub::key_sound_switch_,
+                            &FlagView::key_sound_on),
+      inverted_flag_control(flags_2b::THROTTLE_OFF, "THROTTLE", &FiidoBMSHub::throttle_switch_, &FlagView::throttle_on),
+      flag_control(flags_2c::SLOW_MODE, "SLOW_MODE", &FiidoBMSHub::slow_mode_switch_, &FlagView::slow_mode_on),
+      flag_control(flags_27::CRUISE, "CRUISE", &FiidoBMSHub::cruise_switch_, &FlagView::cruise_on),
+      flag_control(flags_27::START_MODE, "START_MODE", &FiidoBMSHub::start_mode_switch_, &FlagView::start_mode_on),
+      flag_control(flags_27::INSENSITIVITY, "INSENS", &FiidoBMSHub::insensitivity_switch_, &FlagView::insensitivity_on),
+      flag_control(flags_28::SHOW_TOTAL_KM, "SHOW_TOTAL_KM", &FiidoBMSHub::show_total_km_switch_,
+                   &FlagView::show_total_km_on),
+      flag_control(flags_39::AUTO_SCREEN_OFF, "AUTO_SCREEN_OFF", &FiidoBMSHub::auto_screen_off_switch_,
+                   &FlagView::auto_screen_off_on),
+      flag_control(flags_39::RING, "RING", &FiidoBMSHub::ring_switch_, &FlagView::ring_on),
+      flag_control(flags_2b::DOUBLE_SPEED, "DOUBLE_SPEED", &FiidoBMSHub::double_speed_switch_,
+                   &FlagView::double_speed_on),
+      flag_control(flags_2b::BIKE_GUARD, "BIKE_GUARD", &FiidoBMSHub::bike_guard_switch_, &FlagView::bike_guard_on),
   }};
   static_assert(FLAG_CONTROLS.size() == static_cast<size_t>(FlagId::COUNT), "FlagId and FLAG_CONTROLS disagree");
   void set_flag_(FlagId id, bool on);
@@ -374,6 +393,15 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void parse_motor_(std::span<const uint8_t> payload);
   void parse_energy_(std::span<const uint8_t> payload);
   void parse_stats_(std::span<const uint8_t> payload);
+  void publish_stats_samples_(const StatsView &sv);
+  void sync_gear_entities_(const StatsView &sv);
+  void enforce_gear_mode_(const StatsView &sv);
+  void cache_flag_registers_(const StatsView &sv);
+  [[nodiscard]] FlagView cached_flags_() const;
+  void apply_adaptive_interval_(bool motor_on);
+  void clear_persisted_light_bit_(bool motor_on);
+  void track_activity_(const RideState &ride, uint16_t speed_raw);
+  void update_idle_timer_(bool motor_on);
   void parse_meter_(std::span<const uint8_t> payload);
   void parse_speed_limit_(std::span<const uint8_t> payload);
   void parse_boost_(std::span<const uint8_t> payload);
@@ -384,12 +412,12 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   // own entity on the two REJECT verdicts.
   [[nodiscard]] WriteGate gate_(bool cache_valid, bool needs_controller, const char *name, PendingWrite retry);
   template <Addr A>
-  void write_masked_bits_(uint8_t mask, uint8_t bits, const char *name) {
-    this->write_masked_bits_(A, cache_slot(A), mask, bits, name);
+  void write_masked_bits_(RegBit<A> bit, uint8_t bits, const char *name) {
+    this->write_masked_bits_(A, cache_slot(A), bit.mask, bits, name);
   }
   template <Addr A>
-  void write_flag_bit_(uint8_t mask, bool set, const char *name) {
-    this->write_masked_bits_<A>(mask, set ? mask : 0x00, name);
+  void write_flag_bit_(RegBit<A> bit, bool set, const char *name) {
+    this->write_masked_bits_(bit, set ? bit.mask : uint8_t{0}, name);
   }
   void write_masked_bits_(Addr addr, size_t slot, uint8_t mask, uint8_t bits, const char *name);
   // Raw 1-byte value write (no bit-masking) for number entities. False when the

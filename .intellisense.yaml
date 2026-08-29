@@ -11,6 +11,7 @@ esp32:
     type: esp-idf
 
 logger:
+  level: VERY_VERBOSE
 
 external_components:
   - source:
@@ -43,5 +44,13 @@ select:
     fiido_bms_id: hub_probe
 
 switch:
+  - platform: fiido_bms
+    fiido_bms_id: hub_probe
+
+number:
+  - platform: fiido_bms
+    fiido_bms_id: hub_probe
+
+button:
   - platform: fiido_bms
     fiido_bms_id: hub_probe

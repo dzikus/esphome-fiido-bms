@@ -19,6 +19,7 @@ esp32:
     type: esp-idf
 
 logger:
+  level: VERY_VERBOSE
 
 external_components:
   - source:

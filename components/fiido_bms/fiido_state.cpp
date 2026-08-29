@@ -137,15 +137,15 @@ SpeedLimitPlan plan_speed_limit(SpeedLimitOption option, uint8_t cache_2c) {
       plan.limit_on = false;
       break;
   }
-  const bool pas_on = (cache_2c & 0x80) != 0;
+  const bool pas_on = flags_2c::PAS_LIMIT.in(cache_2c);
   plan.needs_pas_write = pas_on != plan.limit_on;
-  plan.pas_byte = plan.limit_on ? static_cast<uint8_t>(cache_2c | 0x80) : static_cast<uint8_t>(cache_2c & ~0x80);
+  plan.pas_byte = flags_2c::PAS_LIMIT.with(cache_2c, plan.limit_on);
   plan.delay_phase2 = !plan.limit_on;
   return plan;
 }
 
 uint8_t apply_speed_limit_bit(uint8_t cache_27, bool limit_on) {
-  return limit_on ? static_cast<uint8_t>(cache_27 | 0x20) : static_cast<uint8_t>(cache_27 & ~0x20);
+  return flags_27::SPEED_LIMIT.with(cache_27, limit_on);
 }
 
 ProbeOutcome decide_probe_outcome(bool motor_on, uint32_t now, uint32_t last_dispatch_ms,
@@ -168,7 +168,7 @@ const char *resolve_mode_option(uint8_t gear_count) {
 }
 
 bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on, uint8_t cache_27) {
-  return ble_enabled && prev_motor_on && !motor_on && (cache_27 & 0x08) != 0;
+  return ble_enabled && prev_motor_on && !motor_on && flags_27::LIGHT.in(cache_27);
 }
 
 bool should_enforce_gear_mode_3(bool enabled, uint8_t max_gear, bool ble_enabled, bool controller_on, uint32_t now,

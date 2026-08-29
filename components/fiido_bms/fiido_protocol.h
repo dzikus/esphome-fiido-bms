@@ -47,6 +47,63 @@ enum class Addr : uint8_t {
   FLAGS_39 = 0x39,
 };
 
+template <Addr A>
+struct RegBit {
+  uint8_t mask;
+
+  static constexpr Addr ADDR = A;
+
+  [[nodiscard]] constexpr bool in(uint8_t reg) const { return (reg & this->mask) != 0; }
+  [[nodiscard]] constexpr uint8_t with(uint8_t reg, bool on) const {
+    return static_cast<uint8_t>(on ? (reg | this->mask) : (reg & ~this->mask));
+  }
+  [[nodiscard]] constexpr uint8_t keep(uint8_t reg) const { return static_cast<uint8_t>(reg & this->mask); }
+};
+
+// A name ending in _OFF is set when the feature is off; decode_flags inverts it.
+namespace flags_27 {
+inline constexpr RegBit<Addr::FLAGS_27> INSENSITIVITY{0x01};
+inline constexpr RegBit<Addr::FLAGS_27> START_MODE{0x02};
+inline constexpr RegBit<Addr::FLAGS_27> LIGHT{0x08};
+inline constexpr RegBit<Addr::FLAGS_27> SPEED_LIMIT{0x20};
+inline constexpr RegBit<Addr::FLAGS_27> CRUISE{0x40};
+inline constexpr RegBit<Addr::FLAGS_27> CONTROLLER{0x80};
+}  // namespace flags_27
+
+namespace flags_28 {
+inline constexpr RegBit<Addr::FLAGS_28> SHOW_TOTAL_KM{0x40};
+inline constexpr RegBit<Addr::FLAGS_28> SPEED_UNIT_MPH{0x80};
+}  // namespace flags_28
+
+namespace flags_2b {
+inline constexpr RegBit<Addr::FLAGS_2B> THROTTLE_OFF{0x02};
+inline constexpr RegBit<Addr::FLAGS_2B> DOUBLE_SPEED{0x20};
+inline constexpr RegBit<Addr::FLAGS_2B> BIKE_GUARD{0x40};
+}  // namespace flags_2b
+
+namespace flags_2c {
+inline constexpr RegBit<Addr::FLAGS_2C> KEY_SOUND_OFF{0x10};
+inline constexpr RegBit<Addr::FLAGS_2C> SLOW_MODE{0x40};
+inline constexpr RegBit<Addr::FLAGS_2C> PAS_LIMIT{0x80};
+}  // namespace flags_2c
+
+namespace flags_38 {
+// Two bits, either of which silences the speaker. A write clears both or sets
+// the lower one.
+inline constexpr RegBit<Addr::FLAGS_38> SPEAKER_SILENT{0x0C};
+inline constexpr uint8_t SPEAKER_SILENCE_PATTERN = 0x04;
+}  // namespace flags_38
+
+namespace flags_39 {
+inline constexpr RegBit<Addr::FLAGS_39> RING{0x02};
+inline constexpr RegBit<Addr::FLAGS_39> AUTO_SCREEN_OFF{0x08};
+// Bits 7..5 are undefined and a write must send them as zero.
+inline constexpr RegBit<Addr::FLAGS_39> DEFINED{0x1F};
+}  // namespace flags_39
+
+// STATS carries 0x2A, which is not cached and has no write path.
+inline constexpr uint8_t ADDR_2A_BRAKE = 0x20;
+
 enum class [[nodiscard]] WriteError : uint8_t {
   NONE = 0,
   NO_HANDLE,

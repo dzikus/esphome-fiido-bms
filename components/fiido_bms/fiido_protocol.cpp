@@ -62,9 +62,9 @@ WriteFrame build_write_frame(FrameType type, Addr addr, std::span<const uint8_t>
 }
 
 MaskedWrite compute_masked_write(Addr addr, uint8_t cache, uint8_t mask, uint8_t new_bits) {
-  uint8_t value = static_cast<uint8_t>((cache & ~mask) | (new_bits & mask));
+  const uint8_t value = static_cast<uint8_t>((cache & ~mask) | (new_bits & mask));
   if (addr == Addr::FLAGS_39) {
-    return {FrameType::WRITE_J0, static_cast<uint8_t>(value & 0x1F)};
+    return {FrameType::WRITE_J0, flags_39::DEFINED.keep(value)};
   }
   return {FrameType::WRITE_L0, value};
 }
@@ -90,7 +90,7 @@ StatsView decode_stats(std::span<const uint8_t> payload) {
   const uint8_t lower = raw_25 & 0x0F;
   const uint8_t max_gear = upper > lower ? upper : lower;
   v.max_gear = (max_gear == 3 || max_gear == 5) ? max_gear : 0;
-  v.brake = (payload[stats::ADDR_2A_OFFSET] & 0x20) != 0;
+  v.brake = (payload[stats::ADDR_2A_OFFSET] & ADDR_2A_BRAKE) != 0;
   v.b25 = payload[stats::ADDR_25_OFFSET];
   v.b27 = payload[stats::ADDR_27_OFFSET];
   v.b28 = payload[stats::ADDR_28_OFFSET];
@@ -98,30 +98,30 @@ StatsView decode_stats(std::span<const uint8_t> payload) {
   v.b2c = payload[stats::ADDR_2C_OFFSET];
   v.b38 = payload[stats::ADDR_38_OFFSET];
   // Only bits 4..0 of 0x39 are defined; a write must send the rest as zero.
-  v.b39 = payload[stats::ADDR_39_OFFSET] & 0x1F;
+  v.b39 = flags_39::DEFINED.keep(payload[stats::ADDR_39_OFFSET]);
   return v;
 }
 
 FlagView decode_flags(uint8_t b27, uint8_t b28, uint8_t b2b, uint8_t b2c, uint8_t b38, uint8_t b39) {
   FlagView f{};
-  f.motor_on = (b27 & 0x80) != 0;
+  f.motor_on = flags_27::CONTROLLER.in(b27);
   // With the controller off the lamp cannot be lit whatever the bit says.
-  f.light_on = f.motor_on && (b27 & 0x08) != 0;
-  f.speed_limit_on = (b27 & 0x20) != 0;
-  f.cruise_on = (b27 & 0x40) != 0;
-  f.start_mode_on = (b27 & 0x02) != 0;
-  f.insensitivity_on = (b27 & 0x01) != 0;
-  f.speed_unit_mph = (b28 & 0x80) != 0;
-  f.show_total_km_on = (b28 & 0x40) != 0;
-  f.throttle_on = (b2b & 0x02) == 0;  // inverted
-  f.double_speed_on = (b2b & 0x20) != 0;
-  f.bike_guard_on = (b2b & 0x40) != 0;
-  f.key_sound_on = (b2c & 0x10) == 0;  // inverted
-  f.slow_mode_on = (b2c & 0x40) != 0;
-  f.pas_limit_on = (b2c & 0x80) != 0;
-  f.speaker_audible = (b38 & 0x0C) == 0;  // any non-zero pattern silences it
-  f.auto_screen_off_on = (b39 & 0x08) != 0;
-  f.ring_on = (b39 & 0x02) != 0;
+  f.light_on = f.motor_on && flags_27::LIGHT.in(b27);
+  f.speed_limit_on = flags_27::SPEED_LIMIT.in(b27);
+  f.cruise_on = flags_27::CRUISE.in(b27);
+  f.start_mode_on = flags_27::START_MODE.in(b27);
+  f.insensitivity_on = flags_27::INSENSITIVITY.in(b27);
+  f.speed_unit_mph = flags_28::SPEED_UNIT_MPH.in(b28);
+  f.show_total_km_on = flags_28::SHOW_TOTAL_KM.in(b28);
+  f.throttle_on = !flags_2b::THROTTLE_OFF.in(b2b);
+  f.double_speed_on = flags_2b::DOUBLE_SPEED.in(b2b);
+  f.bike_guard_on = flags_2b::BIKE_GUARD.in(b2b);
+  f.key_sound_on = !flags_2c::KEY_SOUND_OFF.in(b2c);
+  f.slow_mode_on = flags_2c::SLOW_MODE.in(b2c);
+  f.pas_limit_on = flags_2c::PAS_LIMIT.in(b2c);
+  f.speaker_audible = !flags_38::SPEAKER_SILENT.in(b38);
+  f.auto_screen_off_on = flags_39::AUTO_SCREEN_OFF.in(b39);
+  f.ring_on = flags_39::RING.in(b39);
   return f;
 }
 

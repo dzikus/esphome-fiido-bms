@@ -13,9 +13,10 @@
 
 #include <esp_bt_device.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
-#include <vector>
+#include <span>
 
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -640,10 +641,7 @@ void FiidoBMSHub::set_ble_user_enabled(bool en) {
   }
 }
 
-void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
-  const StatsView sv = decode_stats(p);
-  if (!sv.valid)
-    return;
+void FiidoBMSHub::publish_stats_samples_(const StatsView &sv) {
   for (const StatsSample &sample : stats_samples(sv)) {
     switch (sample.channel) {
       case StatsChannel::TOTAL_KM:
@@ -663,41 +661,39 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
         break;
     }
   }
+}
 
-  // Resolved before the gear label below, which reads the resulting list.
-  // max_gear is 0 when the nibble pair is not 3 or 5, which keeps the last-good
-  // count. Runs without the mode select, which the yaml may omit.
-  const uint8_t max_gear = sv.max_gear;
-  if (this->gear_select_ != nullptr) {
-    const uint8_t count =
-        resolve_gear_count(max_gear, this->gear_select_->gear_count_pinned(), this->gear_select_->get_gear_count());
-    if (count != 0)
-      this->gear_select_->set_gear_count(count);
-    if (this->mode_select_ != nullptr)
-      publish_changed(this->mode_select_, resolve_mode_option(this->gear_select_->get_gear_count()));
-  }
+// The gear count must land before the label, which is read from the resulting
+// list. max_gear is 0 when the nibble pair is neither 3 nor 5, which keeps the
+// last good count.
+void FiidoBMSHub::sync_gear_entities_(const StatsView &sv) {
+  if (this->gear_select_ == nullptr)
+    return;
+  const uint8_t count =
+      resolve_gear_count(sv.max_gear, this->gear_select_->gear_count_pinned(), this->gear_select_->get_gear_count());
+  if (count != 0)
+    this->gear_select_->set_gear_count(count);
+  if (this->mode_select_ != nullptr)
+    publish_changed(this->mode_select_, resolve_mode_option(this->gear_select_->get_gear_count()));
+  const auto &names = this->gear_select_->gear_names();
+  if (sv.gear < names.size())
+    publish_changed(this->gear_select_, names[sv.gear].c_str());
+}
 
-  if (this->gear_select_ != nullptr) {
-    const auto &names = this->gear_select_->gear_names();
-    if (sv.gear < names.size())
-      publish_changed(this->gear_select_, names[sv.gear].c_str());
-  }
-  // enforce_gear_mode_3 keeps the BMS pinned to 3-gear even when something
-  // else (e.g. another BLE central out of range of this ESP32) flips it back to 5.
-  // Gated on motor controller ON because set_gear_mode rejects writes when the
-  // controller is OFF; gating here avoids burning the cooldown on a rejected
-  // write. The cooldown caps write traffic to once per minute per hub.
-  const bool ctrl_on = (sv.b27 & 0x80) != 0;
-  if (should_enforce_gear_mode_3(this->enforce_gear_mode_3_, max_gear, this->ble_user_enabled_, ctrl_on, millis(),
-                                 this->last_enforce_gear_3_ms_, ENFORCE_GEAR_MODE_3_COOLDOWN_MS)) {
-    ESP_LOGI(TAG, "[%s] enforce_gear_mode_3: BMS reports 5-gear, writing 3", this->parent_->address_str());
-    this->last_enforce_gear_3_ms_ = millis();
-    this->set_gear_mode(3);
-  }
+// Holds the BMS at 3-gear even when another BLE central out of range of this
+// ESP32 flips it back to 5. set_gear_mode rejects the write with the controller
+// OFF, and a rejection still spends the cooldown.
+void FiidoBMSHub::enforce_gear_mode_(const StatsView &sv) {
+  if (!should_enforce_gear_mode_3(this->enforce_gear_mode_3_, sv.max_gear, this->ble_user_enabled_,
+                                  flags_27::CONTROLLER.in(sv.b27), millis(), this->last_enforce_gear_3_ms_,
+                                  ENFORCE_GEAR_MODE_3_COOLDOWN_MS))
+    return;
+  ESP_LOGI(TAG, "[%s] enforce_gear_mode_3: BMS reports 5-gear, writing 3", this->parent_->address_str());
+  this->last_enforce_gear_3_ms_ = millis();
+  this->set_gear_mode(3);
+}
 
-  // ADDR 0x2A bit 5 = brake. Not user-verified on physical bike yet.
-  publish_changed(this->brake_binary_sensor_, sv.brake);
-
+void FiidoBMSHub::cache_flag_registers_(const StatsView &sv) {
   this->registers_.set<Addr::GEAR_RANGE>(sv.b25);
   this->registers_.set<Addr::FLAGS_27>(sv.b27);
   this->registers_.set<Addr::FLAGS_28>(sv.b28);
@@ -705,46 +701,41 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   this->registers_.set<Addr::FLAGS_2C>(sv.b2c);
   this->registers_.set<Addr::FLAGS_38>(sv.b38);
   this->registers_.set<Addr::FLAGS_39>(sv.b39);
+}
 
-  this->dispatch_pending_writes_();
+FlagView FiidoBMSHub::cached_flags_() const {
+  return decode_flags(this->registers_.value_or<Addr::FLAGS_27>(0), this->registers_.value_or<Addr::FLAGS_28>(0),
+                      this->registers_.value_or<Addr::FLAGS_2B>(0), this->registers_.value_or<Addr::FLAGS_2C>(0),
+                      this->registers_.value_or<Addr::FLAGS_38>(0), this->registers_.value_or<Addr::FLAGS_39>(0));
+}
 
-  // Entity sync reads the caches, which dispatch may have just moved on; sv holds
-  // the payload the write was built from. Behaviour below stays on sv, so
-  // auto-shutdown and lifecycle act on state the bike confirmed.
-  const FlagView f =
-      decode_flags(this->registers_.value_or<Addr::FLAGS_27>(0), this->registers_.value_or<Addr::FLAGS_28>(0),
-                   this->registers_.value_or<Addr::FLAGS_2B>(0), this->registers_.value_or<Addr::FLAGS_2C>(0),
-                   this->registers_.value_or<Addr::FLAGS_38>(0), this->registers_.value_or<Addr::FLAGS_39>(0));
-
-  this->publish_flag_entities_(f);
-
-  const bool motor_on = (sv.b27 & 0x80) != 0;
-  const bool light_on = motor_on && ((sv.b27 & 0x08) != 0);
+void FiidoBMSHub::apply_adaptive_interval_(bool motor_on) {
   const uint32_t desired = motor_on ? this->update_interval_on_ms_ : this->update_interval_off_ms_;
-  if (this->desired_interval_ms_ != desired) {
-    ESP_LOGD(TAG, "[%s] ADAPTIVE interval: motor %s -> %ums (from %ums)", this->parent_->address_str(),
-             motor_on ? "ON" : "OFF", (unsigned)desired, (unsigned)this->desired_interval_ms_);
-    this->desired_interval_ms_ = desired;
-  }
+  if (this->desired_interval_ms_ == desired)
+    return;
+  ESP_LOGD(TAG, "[%s] ADAPTIVE interval: motor %s -> %ums (from %ums)", this->parent_->address_str(),
+           motor_on ? "ON" : "OFF", (unsigned)desired, (unsigned)this->desired_interval_ms_);
+  this->desired_interval_ms_ = desired;
+}
 
-  // Edge motor ON -> OFF (physical button): BMS persists bit 3 across the
-  // OFF/ON cycle so the bike would come back ON with stale lights. Clear
-  // bit 3 now while the link is still live.
-  // Byte built from the cache, not p[]: dispatch above may have set other bits in
-  // 0x27 already and writing p[] back would undo them.
+// Runs on the motor ON -> OFF edge. The cache, not the payload, carries bits a
+// dispatched write has already set in 0x27.
+void FiidoBMSHub::clear_persisted_light_bit_(bool motor_on) {
   const uint8_t cache_27 = this->registers_.value_or<Addr::FLAGS_27>(0);
-  if (should_clear_light_bit(this->ble_user_enabled_, this->prev_ride_.motor_on, motor_on, cache_27)) {
-    const uint8_t b = cache_27 & ~0x08;
-    ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)", this->parent_->address_str(),
-             cache_27, b);
-    if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b})) {
-      this->registers_.set<Addr::FLAGS_27>(b);
-    } else {
-      ESP_LOGW(TAG, "[%s] WRITE 0x27 (light auto-clear) failed - cache not updated", this->parent_->address_str());
-    }
+  if (!should_clear_light_bit(this->ble_user_enabled_, this->prev_ride_.motor_on, motor_on, cache_27))
+    return;
+  const uint8_t b = flags_27::LIGHT.with(cache_27, false);
+  ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)", this->parent_->address_str(),
+           cache_27, b);
+  if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b})) {
+    this->registers_.set<Addr::FLAGS_27>(b);
+  } else {
+    ESP_LOGW(TAG, "[%s] WRITE 0x27 (light auto-clear) failed - cache not updated", this->parent_->address_str());
   }
-  const RideState ride{.gear = p[stats::ADDR_26_OFFSET], .motor_on = motor_on, .light_on = light_on};
-  const ActivitySignals activity = detect_activity(this->prev_ride_, ride, u16be(p, stats::SPEED_OFFSET));
+}
+
+void FiidoBMSHub::track_activity_(const RideState &ride, uint16_t speed_raw) {
+  const ActivitySignals activity = detect_activity(this->prev_ride_, ride, speed_raw);
   this->prev_ride_ = ride;
   if (activity.motor_turned_on)
     this->mark_activity_("motor on");
@@ -754,29 +745,53 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
     this->mark_activity_("speed");
   if (activity.light_changed)
     this->mark_activity_("light");
-  // Trigger auto-shutdown after IDLE_SHUTDOWN_MS of no activity (if enabled).
-  if (should_auto_shutdown(millis(), this->last_activity_ms_, IDLE_SHUTDOWN_MS, this->auto_shutdown_enabled_,
-                           motor_on)) {
-    ESP_LOGI(TAG, "[%s] AUTO-SHUTDOWN: no activity for %u min, disabling motor", this->parent_->address_str(),
-             (unsigned)((millis() - this->last_activity_ms_) / 60000));
-    this->last_activity_ms_ = millis();  // prevent re-trigger before STATS verify
-    this->set_motor_enable(false);
-  }
+  if (!should_auto_shutdown(millis(), this->last_activity_ms_, IDLE_SHUTDOWN_MS, this->auto_shutdown_enabled_,
+                            ride.motor_on))
+    return;
+  ESP_LOGI(TAG, "[%s] AUTO-SHUTDOWN: no activity for %u min, disabling motor", this->parent_->address_str(),
+           (unsigned)((millis() - this->last_activity_ms_) / 60000));
+  // Holds off a re-trigger until the next STATS confirms the write.
+  this->last_activity_ms_ = millis();
+  this->set_motor_enable(false);
+}
 
+void FiidoBMSHub::update_idle_timer_(bool motor_on) {
   const uint32_t motor_off_since = track_motor_off(this->motor_off_since_ms_, motor_on, millis());
-  if (motor_off_since != this->motor_off_since_ms_) {
-    ESP_LOGD(TAG, "[%s] LIFECYCLE: idle disconnect timer %s", this->parent_->address_str(),
-             motor_off_since != 0 ? "started" : "cleared");
-    this->motor_off_since_ms_ = motor_off_since;
-  }
+  if (motor_off_since == this->motor_off_since_ms_)
+    return;
+  ESP_LOGD(TAG, "[%s] LIFECYCLE: idle disconnect timer %s", this->parent_->address_str(),
+           motor_off_since != 0 ? "started" : "cleared");
+  this->motor_off_since_ms_ = motor_off_since;
+}
 
+void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
+  const StatsView sv = decode_stats(p);
+  if (!sv.valid)
+    return;
+  this->publish_stats_samples_(sv);
+  this->sync_gear_entities_(sv);
+  this->enforce_gear_mode_(sv);
+  // ADDR 0x2A bit 5 = brake. Not user-verified on physical bike yet.
+  publish_changed(this->brake_binary_sensor_, sv.brake);
+  this->cache_flag_registers_(sv);
+  this->dispatch_pending_writes_();
+  // Entity sync reads the caches, which dispatch may have just moved on. What
+  // follows reads sv.
+  this->publish_flag_entities_(this->cached_flags_());
+
+  const bool motor_on = flags_27::CONTROLLER.in(sv.b27);
+  this->apply_adaptive_interval_(motor_on);
+  this->clear_persisted_light_bit_(motor_on);
+  this->track_activity_({.gear = sv.gear, .motor_on = motor_on, .light_on = motor_on && flags_27::LIGHT.in(sv.b27)},
+                        u16be(p, stats::SPEED_OFFSET));
+  this->update_idle_timer_(motor_on);
   this->settle_probe_(motor_on);
 
   ESP_LOGV(TAG,
            "[%s] STATS speed=%.1f km=%.1f total=%.1fkm gear=%u SOC=%u%% addr25=0x%02X addr27=0x%02X addr2A=0x%02X "
            "addr2C=0x%02X motor=%s idle=%us",
            this->parent_->address_str(), u16be(p, stats::SPEED_OFFSET) / 10.0, u16be(p, stats::TRIP_KM_OFFSET) / 10.0,
-           u32be(p, stats::TOTAL_KM_OFFSET) / 10.0, gear, p[stats::ADDR_24_OFFSET], p[stats::ADDR_25_OFFSET],
+           u32be(p, stats::TOTAL_KM_OFFSET) / 10.0, sv.gear, p[stats::ADDR_24_OFFSET], p[stats::ADDR_25_OFFSET],
            p[stats::ADDR_27_OFFSET], p[stats::ADDR_2A_OFFSET], p[stats::ADDR_2C_OFFSET], motor_on ? "ON" : "OFF",
            (unsigned)((millis() - this->last_activity_ms_) / 1000));
 }
@@ -791,17 +806,12 @@ void FiidoBMSHub::set_motor_enable(bool on) {
   if (verdict != WriteGate::SEND)
     return;
   const uint8_t cached = this->registers_.value_or<Addr::FLAGS_27>(0);
-  uint8_t b = cached;
-  if (on) {
-    b |= 0x80;
-  } else {
-    b &= ~0x80;
-    // BMS persists bit 3 across OFF/ON, so clear it here to avoid stale-light wake.
-    if (b & 0x08) {
-      b &= ~0x08;
-      if (this->light_switch_ != nullptr)
-        this->light_switch_->publish_state(false);
-    }
+  uint8_t b = flags_27::CONTROLLER.with(cached, on);
+  // The BMS keeps the light bit across an OFF/ON cycle.
+  if (!on && flags_27::LIGHT.in(b)) {
+    b = flags_27::LIGHT.with(b, false);
+    if (this->light_switch_ != nullptr)
+      this->light_switch_->publish_state(false);
   }
   ESP_LOGI(TAG, "[%s] MOTOR %s ADDR 0x27: 0x%02X -> 0x%02X", this->parent_->address_str(), on ? "ENABLE" : "DISABLE",
            cached, b);
@@ -823,12 +833,7 @@ void FiidoBMSHub::set_light_enable(bool on) {
   if (verdict != WriteGate::SEND)
     return;
   const uint8_t cached = this->registers_.value_or<Addr::FLAGS_27>(0);
-  uint8_t b = cached;
-  if (on) {
-    b |= 0x08;
-  } else {
-    b &= ~0x08;
-  }
+  const uint8_t b = flags_27::LIGHT.with(cached, on);
   ESP_LOGI(TAG, "[%s] LIGHT %s ADDR 0x27: 0x%02X -> 0x%02X (bit3)", this->parent_->address_str(),
            on ? "ENABLE" : "DISABLE", cached, b);
   if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b})) {
@@ -888,9 +893,7 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
 void FiidoBMSHub::parse_meter_(std::span<const uint8_t> p) {
   if (p.size() != meter::PAYLOAD_LEN)
     return;
-  publish_changed(this->meter_hw_version_sensor_, p[meter::HW_VERSION]);
-  publish_changed(this->meter_sw_version_sensor_, p[meter::SW_VERSION]);
-  publish_changed(this->meter_mode_data_sensor_, p[meter::MODE_DATA]);
+  this->publish_fields_(p, METER_FIELDS);
   ESP_LOGV(TAG, "[%s] METER HW=%u SW=%u modeData=%u", this->parent_->address_str(), p[meter::HW_VERSION],
            p[meter::SW_VERSION], p[meter::MODE_DATA]);
 }
@@ -903,7 +906,7 @@ void FiidoBMSHub::parse_speed_limit_(std::span<const uint8_t> p) {
   ESP_LOGV(TAG, "[%s] SPEED_LIMIT value=%u 0x%02X", this->parent_->address_str(), p[speed_limit::VALUE_KMH],
            p[speed_limit::VALUE_KMH]);
   if (this->speed_limit_select_ != nullptr && this->registers_.has<Addr::FLAGS_27>()) {
-    bool limit_on = (this->registers_.value_or<Addr::FLAGS_27>(0) & 0x20) != 0;
+    const bool limit_on = flags_27::SPEED_LIMIT.in(this->registers_.value_or<Addr::FLAGS_27>(0));
     const char *opt = resolve_speed_limit_option(p[speed_limit::VALUE_KMH], limit_on);
     if (opt != nullptr) {
       publish_changed(this->speed_limit_select_, opt);
@@ -911,7 +914,7 @@ void FiidoBMSHub::parse_speed_limit_(std::span<const uint8_t> p) {
       // bit5 clear with value != 100 is the resting state after a ride: the BMS
       // re-arms the PAS cap itself. Rate limit or it warns on every SPEEDLIM poll.
       this->ambiguous_limit_count_++;
-      uint32_t now = millis();
+      const uint32_t now = millis();
       if (should_log_now(now, this->last_ambiguous_limit_log_ms_, AMBIGUOUS_LIMIT_LOG_INTERVAL_MS)) {
         ESP_LOGW(TAG, "[%s] SPEED_LIMIT ambiguous (value=%u bit5=%u, %u since last log) keep prev",
                  this->parent_->address_str(), p[speed_limit::VALUE_KMH], limit_on ? 1 : 0,
@@ -1008,7 +1011,7 @@ void FiidoBMSHub::apply_speed_unit_(bool mile) {
     revert_select(this->speed_unit_select_);
   if (verdict != WriteGate::SEND)
     return;
-  this->write_flag_bit_<Addr::FLAGS_28>(0x80, mile, "SPEED_UNIT");
+  this->write_flag_bit_(flags_28::SPEED_UNIT_MPH, mile, "SPEED_UNIT");
 }
 
 WriteGate FiidoBMSHub::gate_(bool cache_valid, bool needs_controller, const char *name, PendingWrite retry) {
@@ -1017,7 +1020,7 @@ WriteGate FiidoBMSHub::gate_(bool cache_valid, bool needs_controller, const char
       .connected = this->node_state == espbt::ClientState::ESTABLISHED,
       .cache_valid = cache_valid,
       .needs_controller = needs_controller,
-      .controller_on = (this->registers_.value_or<Addr::FLAGS_27>(0) & 0x80) != 0,
+      .controller_on = flags_27::CONTROLLER.in(this->registers_.value_or<Addr::FLAGS_27>(0)),
   });
   switch (verdict) {
     case WriteGate::QUEUE_DISCONNECTED:
@@ -1132,7 +1135,7 @@ void FiidoBMSHub::set_byte_(ByteId id, float value) {
     revert_number(entity);
     return;
   }
-  const uint8_t v = (value < 0) ? 0 : (value > 255 ? 255 : static_cast<uint8_t>(value));
+  const uint8_t v = static_cast<uint8_t>(std::clamp(value, 0.0f, 255.0f));
   // A whole-byte write has no cache to wait for.
   const WriteGate verdict = this->gate_(true, false, c.name, [this, id, value]() { this->set_byte_(id, value); });
   if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
@@ -1175,7 +1178,7 @@ void FiidoBMSHub::pair_watch() {
     ESP_LOGW(TAG, "[%s] PAIR_WATCH: own BLE address not available", this->parent_->address_str());
     return;
   }
-  std::vector<uint8_t> payload(mac, mac + 6);
+  const std::span<const uint8_t> payload(mac, 6);
   ESP_LOGI(TAG, "[%s] PAIR_WATCH ADDR 0x09 MAC bytes (send order) = %s", this->parent_->address_str(),
            format_hex_pretty(payload.data(), payload.size()).c_str());
   // Write-only address: no notify carries 0x09 back, so the send result is the
