@@ -209,6 +209,7 @@ def main():
     config = {
         "name": "ESP32",
         "compilerArgs": ["-mlongcalls"],
+        "intelliSenseMode": "linux-gcc-x64",
         "cStandard": "gnu17",
         "cppStandard": "gnu++20",
         "includePath": ["${workspaceFolder}/components/**"],
