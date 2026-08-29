@@ -780,11 +780,12 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   this->settle_probe_(motor_on);
 
   ESP_LOGV(TAG,
-           "[%s] STATS speed=%.1f km=%.1f total=%.1fkm gear=%u SOC=%u%% addr25=0x%02X addr27=0x%02X addr2A=0x%02X "
-           "addr2C=0x%02X motor=%s idle=%us",
+           "[%s] STATS speed=%.1f km=%.1f total=%.1fkm gear=%u SOC=%u%% addr25=0x%02X addr27=0x%02X addr28=0x%02X "
+           "addr2A=0x%02X addr2B=0x%02X addr2C=0x%02X addr38=0x%02X motor=%s idle=%us",
            this->parent_->address_str(), u16be(p, stats::SPEED_OFFSET) / 10.0, u16be(p, stats::TRIP_KM_OFFSET) / 10.0,
            u32be(p, stats::TOTAL_KM_OFFSET) / 10.0, sv.gear, p[stats::ADDR_24_OFFSET], p[stats::ADDR_25_OFFSET],
-           p[stats::ADDR_27_OFFSET], p[stats::ADDR_2A_OFFSET], p[stats::ADDR_2C_OFFSET], motor_on ? "ON" : "OFF",
+           p[stats::ADDR_27_OFFSET], p[stats::ADDR_28_OFFSET], p[stats::ADDR_2A_OFFSET], p[stats::ADDR_2B_OFFSET],
+           p[stats::ADDR_2C_OFFSET], p[stats::ADDR_38_OFFSET], motor_on ? "ON" : "OFF",
            (unsigned)((millis() - this->last_activity_ms_) / 1000));
 }
 
