@@ -190,9 +190,8 @@ bool PendingWrites::push(PendingWrite fn) {
   return !dropped;
 }
 
-std::array<PendingWrite, PENDING_WRITE_SLOTS> PendingWrites::drain(size_t &count) {
-  std::array<PendingWrite, PENDING_WRITE_SLOTS> taken = this->queue_;
-  count = this->size_;
+DrainedWrites PendingWrites::drain() {
+  DrainedWrites taken{.items = this->queue_, .size = this->size_};
   this->size_ = 0;
   return taken;
 }

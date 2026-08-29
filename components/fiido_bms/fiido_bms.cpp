@@ -572,11 +572,10 @@ void FiidoBMSHub::dispatch_pending_writes_() {
     return;
   ESP_LOGD(TAG, "[%s] LIFECYCLE: dispatching %u pending writes", this->parent_->address_str(),
            (unsigned)this->pending_writes_.size());
-  size_t count = 0;
-  const auto writes = this->pending_writes_.drain(count);
+  const auto writes = this->pending_writes_.drain();
   this->last_dispatch_ms_ = millis();
-  for (size_t i = 0; i < count; i++)
-    writes[i]();
+  for (const PendingWrite &write : writes)
+    write();
 }
 
 void FiidoBMSHub::ensure_enabled_for_write_() {

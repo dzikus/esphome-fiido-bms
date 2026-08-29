@@ -285,6 +285,14 @@ class PendingWrite {
 
 inline constexpr size_t PENDING_WRITE_SLOTS = 32;
 
+struct DrainedWrites {
+  std::array<PendingWrite, PENDING_WRITE_SLOTS> items;
+  size_t size;
+
+  [[nodiscard]] const PendingWrite *begin() const { return items.data(); }
+  [[nodiscard]] const PendingWrite *end() const { return items.data() + size; }
+};
+
 // At capacity the oldest entry is dropped.
 class PendingWrites {
  public:
@@ -294,7 +302,7 @@ class PendingWrites {
   [[nodiscard]] bool empty() const { return this->size_ == 0; }
 
   // Hands the queue over; anything queued while these run waits for the next drain.
-  [[nodiscard]] std::array<PendingWrite, PENDING_WRITE_SLOTS> drain(size_t &count);
+  [[nodiscard]] DrainedWrites drain();
   void clear() { this->size_ = 0; }
 
  private:

@@ -237,10 +237,8 @@ static void test_pending_writes_drops_the_oldest_at_capacity() {
     TEST_ASSERT_TRUE(g_queue.push([i]() { g_ran.push_back((int)i); }));
   TEST_ASSERT_FALSE(g_queue.push([]() { g_ran.push_back(99); }));
   TEST_ASSERT_EQUAL_UINT(PENDING_WRITE_SLOTS, g_queue.size());
-  size_t count = 0;
-  const auto taken = g_queue.drain(count);
-  for (size_t i = 0; i < count; i++)
-    taken[i]();
+  for (const PendingWrite &write : g_queue.drain())
+    write();
   TEST_ASSERT_EQUAL_UINT(PENDING_WRITE_SLOTS, g_ran.size());
   // The first push fell out. The run starts at 1 and ends with the newest.
   TEST_ASSERT_EQUAL_INT(1, g_ran.front());
@@ -251,12 +249,9 @@ static void test_pending_writes_drain_empties_the_queue() {
   g_queue.clear();
   (void)g_queue.push([]() {});
   TEST_ASSERT_FALSE(g_queue.empty());
-  size_t count = 0;
-  (void)g_queue.drain(count);
-  TEST_ASSERT_EQUAL_UINT(1, count);
+  TEST_ASSERT_EQUAL_UINT(1, g_queue.drain().size);
   TEST_ASSERT_TRUE(g_queue.empty());
-  (void)g_queue.drain(count);
-  TEST_ASSERT_EQUAL_UINT(0, count);
+  TEST_ASSERT_EQUAL_UINT(0, g_queue.drain().size);
 }
 
 static void test_pending_writes_requeue_during_drain_waits_for_the_next_one() {
@@ -266,15 +261,12 @@ static void test_pending_writes_requeue_during_drain_waits_for_the_next_one() {
     g_ran.push_back(1);
     (void)g_queue.push([]() { g_ran.push_back(2); });
   });
-  size_t count = 0;
-  auto taken = g_queue.drain(count);
-  for (size_t i = 0; i < count; i++)
-    taken[i]();
+  for (const PendingWrite &write : g_queue.drain())
+    write();
   TEST_ASSERT_EQUAL_UINT(1, g_ran.size());
   TEST_ASSERT_EQUAL_UINT(1, g_queue.size());
-  taken = g_queue.drain(count);
-  for (size_t i = 0; i < count; i++)
-    taken[i]();
+  for (const PendingWrite &write : g_queue.drain())
+    write();
   TEST_ASSERT_EQUAL_UINT(2, g_ran.size());
   TEST_ASSERT_EQUAL_INT(2, g_ran.back());
 }
