@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "componen
 
 import fiido_bms as fb
 from fiido_bms import binary_sensor as fb_binary_sensor
+from fiido_bms import button as fb_button
 from fiido_bms import number as fb_number
 from fiido_bms import select as fb_select
 from fiido_bms import sensor as fb_sensor
@@ -24,6 +25,7 @@ SENSOR_KEYS = {row[0] for row in fb_sensor.SENSORS}
 SWITCH_KEYS = {row[0] for row in fb_switch.SWITCHES}
 NUMBER_KEYS = {row[0] for row in fb_number.NUMBERS}
 BINARY_KEYS = {row[0] for row in fb_binary_sensor.BINARY_SENSORS}
+BUTTON_KEYS = {row[0] for row in fb_button.BUTTONS}
 
 
 class PollGroups(unittest.TestCase):
@@ -49,11 +51,14 @@ class KeySets(unittest.TestCase):
     def test_dev_binary_sensor_keys_all_exist(self):
         self.assertEqual(fb.DEV_BINARY_SENSOR_KEYS - BINARY_KEYS, frozenset())
 
-    def test_hidden_switch_keys_all_exist(self):
-        self.assertEqual(fb_switch.HIDDEN_SWITCH_KEYS - SWITCH_KEYS, set())
+    def test_dev_switch_keys_all_exist(self):
+        self.assertEqual(fb.DEV_SWITCH_KEYS - SWITCH_KEYS, frozenset())
 
-    def test_hidden_number_keys_all_exist(self):
-        self.assertEqual(fb_number.HIDDEN_NUMBER_KEYS - NUMBER_KEYS, set())
+    def test_dev_number_keys_all_exist(self):
+        self.assertEqual(fb.DEV_NUMBER_KEYS - NUMBER_KEYS, frozenset())
+
+    def test_dev_button_keys_all_exist(self):
+        self.assertEqual(fb.DEV_BUTTON_KEYS - BUTTON_KEYS, frozenset())
 
 
 class DefaultNames(unittest.TestCase):

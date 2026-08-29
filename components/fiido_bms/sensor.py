@@ -31,7 +31,6 @@ from . import (
     CONF_FIIDO_BMS_ID,
     DEV_SENSOR_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
-    HIDDEN_SENSOR_KEYS,
     apply_entity_prefix,
     hub_expose_dev,
     hub_name_prefix,
@@ -513,9 +512,7 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in SENSORS]
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(
-        config, _DEFAULT_NAMES, hidden=DEV_SENSOR_KEYS | HIDDEN_SENSOR_KEYS
-    )
+    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_SENSOR_KEYS)
 
 
 CONFIG_SCHEMA = cv.All(

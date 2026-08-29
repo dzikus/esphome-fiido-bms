@@ -29,10 +29,6 @@ CONF_BRIGHTNESS = "brightness"
 CONF_BOOST = "boost"
 CONF_GUARD_TIME = "guard_time"
 
-# Newer controls ship hidden in the HA registry until validated on hardware.
-# guard_time stays visible (part of the visible bike_guard feature).
-HIDDEN_NUMBER_KEYS = {CONF_BRIGHTNESS, CONF_BOOST}
-
 # Real value ranges are unknown, so the controls span the full byte and use BOX
 # mode to avoid accidental slider drags. enable_poll_method gates the read-back
 # poll so it only runs when the matching number is configured.
@@ -96,7 +92,7 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in NUMBERS]
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=HIDDEN_NUMBER_KEYS)
+    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_NUMBER_KEYS)
 
 
 CONFIG_SCHEMA = cv.All(

@@ -66,6 +66,7 @@ DEV_SENSOR_KEYS = frozenset(
         "total_take_energy",
         # stats (backbone poll, no skip; only entity gated)
         "bicycle_gear_start",
+        "startup_time",
         # meter group (whole poll skippable when expose_dev=false)
         "meter_hw_version",
         "meter_sw_version",
@@ -85,19 +86,23 @@ DEV_SWITCH_KEYS = frozenset(
         "auto_screen_off",
         "ring",
         "double_speed",
+        "cruise",
+        "insensitivity",
+        "show_total_km",
     }
 )
 
 DEV_NUMBER_KEYS = frozenset(
     {
         "brightness",
+        "boost",
+        "guard_time",
     }
 )
 
-# disabled_by_default in HA but not gated by expose_dev_sensors
-HIDDEN_SENSOR_KEYS = frozenset(
+DEV_BUTTON_KEYS = frozenset(
     {
-        "startup_time",
+        "pair_watch",
     }
 )
 

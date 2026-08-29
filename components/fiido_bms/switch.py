@@ -75,18 +75,6 @@ CONF_RING = "ring"
 CONF_DOUBLE_SPEED = "double_speed"
 CONF_BIKE_GUARD = "bike_guard"
 
-# Newer controls ship hidden in the HA registry until validated on hardware.
-# bike_guard stays visible (paired with the visible guard_time number).
-HIDDEN_SWITCH_KEYS = {
-    CONF_CRUISE,
-    CONF_START_MODE,
-    CONF_INSENSITIVITY,
-    CONF_SHOW_TOTAL_KM,
-    CONF_AUTO_SCREEN_OFF,
-    CONF_RING,
-    CONF_DOUBLE_SPEED,
-}
-
 # Each entry: (config_key, cpp_class, hub_setter_name, default_restore_mode,
 #             is_component, extra_kwargs, default_name)
 # is_component=True means the C++ class inherits Component and needs setup() lifecycle.
@@ -246,7 +234,7 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in SWITCHES]
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=HIDDEN_SWITCH_KEYS)
+    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_SWITCH_KEYS)
 
 
 CONFIG_SCHEMA = cv.All(

@@ -896,7 +896,7 @@ void FiidoBMSHub::parse_speed_limit_(std::span<const uint8_t> p) {
   if (p.size() != speed_limit::PAYLOAD_LEN)
     return;
   this->registers_.set<Addr::SPEED_LIMIT>({p[speed_limit::VALUE_KMH]});
-  ESP_LOGV(TAG, "[%s] SPEED_LIMIT value=%u 0x%02X", this->parent_->address_str(), p[speed_limit::VALUE_KMH],
+  ESP_LOGD(TAG, "[%s] SPEED_LIMIT value=%u 0x%02X", this->parent_->address_str(), p[speed_limit::VALUE_KMH],
            p[speed_limit::VALUE_KMH]);
   if (this->speed_limit_select_ != nullptr && this->registers_.has<Addr::FLAGS_27>()) {
     const bool limit_on = flags_27::SPEED_LIMIT.in(this->registers_.value_or<Addr::FLAGS_27>());
@@ -1181,7 +1181,7 @@ void FiidoBMSHub::parse_boost_(std::span<const uint8_t> p) {
     return;
   this->registers_.set<Addr::PAS_BOOST>({p[pas_boost::LEVEL]});
   publish_changed(this->boost_number_, p[pas_boost::LEVEL]);
-  ESP_LOGV(TAG, "[%s] BOOST value=%u", this->parent_->address_str(), p[pas_boost::LEVEL]);
+  ESP_LOGD(TAG, "[%s] BOOST value=%u", this->parent_->address_str(), p[pas_boost::LEVEL]);
 }
 
 void FiidoBMSHub::parse_display_(std::span<const uint8_t> p) {
@@ -1191,7 +1191,7 @@ void FiidoBMSHub::parse_display_(std::span<const uint8_t> p) {
   this->registers_.set<Addr::GUARD_TIME>({p[display::GUARD_TIME]});
   publish_changed(this->brightness_number_, p[display::BRIGHTNESS]);
   publish_changed(this->guard_time_number_, p[display::GUARD_TIME]);
-  ESP_LOGV(TAG, "[%s] DISPLAY brightness=%u guard_time=%u", this->parent_->address_str(), p[display::BRIGHTNESS],
+  ESP_LOGD(TAG, "[%s] DISPLAY brightness=%u guard_time=%u", this->parent_->address_str(), p[display::BRIGHTNESS],
            p[display::GUARD_TIME]);
 }
 

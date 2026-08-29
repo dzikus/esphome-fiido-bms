@@ -5,9 +5,11 @@ from esphome.const import CONF_DEVICE_ID, ENTITY_CATEGORY_CONFIG
 
 from . import (
     CONF_FIIDO_BMS_ID,
+    DEV_BUTTON_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
     apply_entity_prefix,
     fiido_bms_ns,
+    hub_expose_dev,
     hub_name_prefix,
     inject_entity_defaults,
 )
@@ -36,11 +38,9 @@ BUTTONS = [
 
 _DEFAULT_NAMES = [(key, name) for key, *_row, name in BUTTONS]
 
-HIDDEN_BUTTON_KEYS = frozenset({key for key, *_row in BUTTONS})
-
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=HIDDEN_BUTTON_KEYS)
+    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_BUTTON_KEYS)
 
 
 CONFIG_SCHEMA = cv.All(
@@ -66,8 +66,11 @@ async def to_code(config):
     config = apply_entity_prefix(
         config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     )
+    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
     for key, _cls, setter, _icon, _default_name in BUTTONS:
         if key not in config:
+            continue
+        if key in DEV_BUTTON_KEYS and not expose_dev:
             continue
         btn_var = await button.new_button(config[key])
         await cg.register_parented(btn_var, hub)
