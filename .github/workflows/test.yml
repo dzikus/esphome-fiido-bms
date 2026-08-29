@@ -59,10 +59,14 @@ jobs:
           echo "--- re-run built binary as source of truth ---"
           tests/.pio/build/native/program
   clang-tidy:
-    name: clang-tidy (esp32 compile database)
+    name: clang-tidy (expose_dev=${{ matrix.expose_dev }})
     needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        expose_dev: ["true", "false"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -79,6 +83,8 @@ jobs:
       - name: Install ESPHome and clang-tidy
         run: pip install "esphome==2026.8.1" "clang-tidy==22.1.8"
       - name: Run clang-tidy
+        env:
+          EXPOSE_DEV: ${{ matrix.expose_dev }}
         run: bash tests/run_clang_tidy.sh
 
   esphome-build:

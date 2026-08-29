@@ -4,7 +4,7 @@ set -euo pipefail
 # Runs clang-tidy over every component source, using the compile database of a
 # real ESP32 build. Run it from the tree holding the CI config:
 #
-#   CI_CONFIG=.github/ci-build.yaml tests/run_clang_tidy.sh
+#   CI_CONFIG=.github/ci-build.yaml EXPOSE_DEV=false tests/run_clang_tidy.sh
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Staging keeps the two-hub CI config; dev only has the IntelliSense one.
@@ -18,6 +18,7 @@ if [[ -z "${ci_config}" ]]; then
   done
 fi
 board="${BOARD:-esp32-c3-devkitm-1}"
+expose_dev="${EXPOSE_DEV:-true}"
 esphome_bin="${ESPHOME:-esphome}"
 # Outside the repo, out of reach of git add.
 work="$(mktemp -d -t clang-tidy-XXXXXX)"
@@ -28,7 +29,7 @@ if [[ ! -f "${repo_dir}/${ci_config}" ]]; then
 fi
 
 # riscv, not xtensa: upstream clang has a riscv32 target and no xtensa one.
-"${esphome_bin}" -s board "${board}" compile "${repo_dir}/${ci_config}"
+"${esphome_bin}" -s board "${board}" -s expose_dev "${expose_dev}" compile "${repo_dir}/${ci_config}"
 
 config_dir="$(dirname "${repo_dir}/${ci_config}")"
 # The tree can hold several build dirs; take the one this run just wrote.
