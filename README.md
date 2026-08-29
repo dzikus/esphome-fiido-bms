@@ -112,8 +112,8 @@ entity-category cards:
 ### Minimum config
 
 This component uses the ESPHome sub-device API, the device-aware duplicate-name check
-and `select::Select::current_option`, so it needs **ESPHome 2025.11.0 or newer**. Pin
-it with `esphome: { min_version: 2025.11.0 }` so an older install fails fast instead
+and `select::Select::current_option`, so it needs **ESPHome 2026.1.0 or newer**. Pin
+it with `esphome: { min_version: 2026.1.0 }` so an older install fails fast instead
 of erroring deep in code generation.
 
 Two declarations per bike. Replace the MAC with the bike's MAC.

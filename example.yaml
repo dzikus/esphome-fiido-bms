@@ -3,8 +3,8 @@
 
 esphome:
   name: fiido-bms
-  # select::Select::current_option arrived in 2025.11.0.
-  min_version: 2025.11.0
+  # select::Select::current_option returns StringRef from 2026.1.0.
+  min_version: 2026.1.0
 
 esp32:
   board: esp32dev
