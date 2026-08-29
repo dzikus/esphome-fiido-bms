@@ -493,6 +493,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t LIFECYCLE_TICK_MS = 1000;
   // Minimum gap between two enforce_gear_mode_3 writes triggered by parse_stats_.
   static constexpr uint32_t ENFORCE_GEAR_MODE_3_COOLDOWN_MS = 60000;
+  // Minimum gap between two writes dropping an out-of-range gear into the mode.
+  static constexpr uint32_t GEAR_DROP_COOLDOWN_MS = 10000;
   // Rate limit for rejected-frame logs; a fragmented stream rejects every frame.
   static constexpr uint32_t BAD_NOTIFY_LOG_INTERVAL_MS = 5000;
   // Ambiguous speed limit is a resting state, not an event, and SPEEDLIM is
@@ -573,6 +575,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   LogThrottle bad_notify_log_;
   LogThrottle unknown_addr_log_;
   LogThrottle ambiguous_limit_log_;
+  LogThrottle gear_drop_throttle_;
 
   FiidoGearSelect *gear_select_{nullptr};
 

@@ -661,8 +661,14 @@ void FiidoBMSHub::sync_gear_entities_(const StatsView &sv) {
   if (this->mode_select_ != nullptr)
     publish_changed(this->mode_select_, resolve_mode_option(this->gear_select_->get_gear_count()));
   const auto &names = this->gear_select_->gear_names();
-  if (sv.gear < names.size())
+  if (sv.gear < names.size()) {
     publish_changed(this->gear_select_, names[sv.gear].c_str());
+    return;
+  }
+  // The BMS keeps its gear across a mode change.
+  if (this->ble_user_enabled_ && flags_27::CONTROLLER.in(sv.b27) &&
+      this->gear_drop_throttle_.tick(millis(), GEAR_DROP_COOLDOWN_MS) != 0)
+    this->set_gear(sv.gear);
 }
 
 // Holds the BMS at 3-gear even when another BLE central out of range of this
