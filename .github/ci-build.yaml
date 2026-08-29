@@ -4,6 +4,7 @@
 
 substitutions:
   board: esp32dev
+  expose_dev: "true"
 
 esphome:
   name: ci-build
@@ -42,7 +43,7 @@ fiido_bms:
   - id: hub_second
     ble_client_id: ble_second
     name_prefix: "Second"
-    expose_dev_sensors: true
+    expose_dev_sensors: ${expose_dev}
     ui_gear_mode_3: true
     enforce_gear_mode_3: true
 

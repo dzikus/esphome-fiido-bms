@@ -77,12 +77,12 @@ jobs:
           key: ${{ runner.os }}-esphome-esp32-c3-devkitm-1-${{ hashFiles('.github/ci-build.yaml') }}
           restore-keys: ${{ runner.os }}-esphome-esp32-c3-devkitm-1-
       - name: Install ESPHome and clang-tidy
-        run: pip install "esphome==2026.7.4" "clang-tidy==22.1.8"
+        run: pip install "esphome==2026.8.1" "clang-tidy==22.1.8"
       - name: Run clang-tidy
         run: bash tests/run_clang_tidy.sh
 
   esphome-build:
-    name: esphome compile (${{ matrix.board }})
+    name: esphome compile (${{ matrix.board }}, expose_dev=${{ matrix.expose_dev }})
     needs: unit-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -94,6 +94,7 @@ jobs:
           - esp32-s3-devkitc-1
           - esp32-c3-devkitm-1
           - esp32-c6-devkitc-1
+        expose_dev: ["true", "false"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -108,12 +109,12 @@ jobs:
           key: ${{ runner.os }}-esphome-${{ matrix.board }}-${{ hashFiles('.github/ci-build.yaml') }}
           restore-keys: ${{ runner.os }}-esphome-${{ matrix.board }}-
       - name: Install ESPHome
-        run: pip install "esphome==2026.7.4"
+        run: pip install "esphome==2026.8.1"
       - name: Run codegen unit tests
         run: python -m unittest discover -s tests/python -v
       - name: Compile full component and fail on any warning from it
-        run: bash tests/check_esp32_warnings.sh .github/ci-build.yaml ${{ matrix.board }}
-  config-floor:
+        run: bash tests/check_esp32_warnings.sh .github/ci-build.yaml ${{ matrix.board }} ${{ matrix.expose_dev }}
+  config-build-floor:
     name: config check and build at the ESPHome floor
     needs: lint
     runs-on: ubuntu-24.04
