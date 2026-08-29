@@ -68,6 +68,31 @@ struct LifecycleInput {
 
 [[nodiscard]] bool should_log_now(uint32_t now, uint32_t last_log_ms, uint32_t interval_ms);
 
+// Counts the events swallowed between two logs.
+class LogThrottle {
+ public:
+  // 0 to stay quiet, otherwise the number of events since the last log, this
+  // one included.
+  [[nodiscard]] uint32_t tick(uint32_t now, uint32_t interval_ms) {
+    this->count_++;
+    if (!should_log_now(now, this->last_ms_, interval_ms))
+      return 0;
+    const uint32_t seen = this->count_;
+    this->last_ms_ = now;
+    this->count_ = 0;
+    return seen;
+  }
+
+  void reset() {
+    this->last_ms_ = 0;
+    this->count_ = 0;
+  }
+
+ private:
+  uint32_t last_ms_{0};
+  uint32_t count_{0};
+};
+
 [[nodiscard]] bool should_auto_shutdown(uint32_t now, uint32_t last_activity_ms, uint32_t idle_ms, bool enabled,
                                         bool motor_on);
 

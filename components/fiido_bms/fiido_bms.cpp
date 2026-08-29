@@ -189,12 +189,9 @@ void FiidoBMSHub::reset_session_state_() {
   this->registers_.clear();
   this->prev_ride_ = {.gear = 0xFF, .motor_on = false, .light_on = false};
   this->last_dispatch_ms_ = 0;
-  this->last_bad_notify_log_ms_ = 0;
-  this->bad_notify_count_ = 0;
-  this->last_unknown_addr_log_ms_ = 0;
-  this->unknown_addr_count_ = 0;
-  this->last_ambiguous_limit_log_ms_ = 0;
-  this->ambiguous_limit_count_ = 0;
+  this->bad_notify_log_.reset();
+  this->unknown_addr_log_.reset();
+  this->ambiguous_limit_log_.reset();
 }
 
 void FiidoBMSHub::publish_connected_(bool state) {
@@ -281,15 +278,10 @@ void FiidoBMSHub::on_notify_registered_() {
 void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
   const NotifyView notify = validate_notify(frame);
   if (!notify.valid) {
-    this->bad_notify_count_++;
-    const uint32_t now = millis();
-    if (should_log_now(now, this->last_bad_notify_log_ms_, BAD_NOTIFY_LOG_INTERVAL_MS)) {
-      const size_t dump = frame.size() < BAD_NOTIFY_DUMP_LEN ? frame.size() : BAD_NOTIFY_DUMP_LEN;
+    if (const uint32_t dropped = this->bad_notify_log_.tick(millis(), BAD_NOTIFY_LOG_INTERVAL_MS); dropped != 0) {
+      const size_t dump = std::min(frame.size(), BAD_NOTIFY_DUMP_LEN);
       ESP_LOGW(TAG, "[%s] NOTIFY invalid (len=%u, %u dropped since last log), head: %s", this->parent_->address_str(),
-               (unsigned)frame.size(), (unsigned)this->bad_notify_count_,
-               format_hex_pretty(frame.data(), dump).c_str());
-      this->last_bad_notify_log_ms_ = now;
-      this->bad_notify_count_ = 0;
+               (unsigned)frame.size(), (unsigned)dropped, format_hex_pretty(frame.data(), dump).c_str());
     }
     return;
   }
@@ -325,17 +317,12 @@ void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
     case Addr::HANDSHAKE:
       ESP_LOGD(TAG, "[%s] HANDSHAKE response OK", this->parent_->address_str());
       break;
-    default: {
-      this->unknown_addr_count_++;
-      const uint32_t now = millis();
-      if (should_log_now(now, this->last_unknown_addr_log_ms_, BAD_NOTIFY_LOG_INTERVAL_MS)) {
+    default:
+      if (const uint32_t dropped = this->unknown_addr_log_.tick(millis(), BAD_NOTIFY_LOG_INTERVAL_MS); dropped != 0) {
         ESP_LOGW(TAG, "[%s] NOTIFY unhandled addr=0x%02X (%u dropped since last log)", this->parent_->address_str(),
-                 static_cast<uint8_t>(notify.addr), (unsigned)this->unknown_addr_count_);
-        this->last_unknown_addr_log_ms_ = now;
-        this->unknown_addr_count_ = 0;
+                 static_cast<uint8_t>(notify.addr), (unsigned)dropped);
       }
       break;
-    }
   }
 }
 
@@ -912,14 +899,9 @@ void FiidoBMSHub::parse_speed_limit_(std::span<const uint8_t> p) {
     } else {
       // bit5 clear with value != 100 is the resting state after a ride: the BMS
       // re-arms the PAS cap itself. Rate limit or it warns on every SPEEDLIM poll.
-      this->ambiguous_limit_count_++;
-      const uint32_t now = millis();
-      if (should_log_now(now, this->last_ambiguous_limit_log_ms_, AMBIGUOUS_LIMIT_LOG_INTERVAL_MS)) {
+      if (const uint32_t seen = this->ambiguous_limit_log_.tick(millis(), AMBIGUOUS_LIMIT_LOG_INTERVAL_MS); seen != 0) {
         ESP_LOGW(TAG, "[%s] SPEED_LIMIT ambiguous (value=%u bit5=%u, %u since last log) keep prev",
-                 this->parent_->address_str(), p[speed_limit::VALUE_KMH], limit_on ? 1 : 0,
-                 (unsigned)this->ambiguous_limit_count_);
-        this->last_ambiguous_limit_log_ms_ = now;
-        this->ambiguous_limit_count_ = 0;
+                 this->parent_->address_str(), p[speed_limit::VALUE_KMH], limit_on ? 1 : 0, (unsigned)seen);
       }
     }
   }

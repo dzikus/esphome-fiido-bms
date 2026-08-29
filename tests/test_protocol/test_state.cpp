@@ -129,6 +129,26 @@ static void test_should_log_now_lets_the_first_one_through() {
   TEST_ASSERT_TRUE(should_log_now(10000, 5000, 5000));
 }
 
+static void test_log_throttle_reports_how_many_it_swallowed() {
+  LogThrottle throttle;
+  // The first event always gets through, and it counts itself.
+  TEST_ASSERT_EQUAL_UINT32(1, throttle.tick(1000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(0, throttle.tick(2000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(0, throttle.tick(3000, 5000));
+  // Three swallowed since the last log, plus this one.
+  TEST_ASSERT_EQUAL_UINT32(3, throttle.tick(6000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(0, throttle.tick(6001, 5000));
+}
+
+static void test_log_throttle_starts_over_after_reset() {
+  LogThrottle throttle;
+  TEST_ASSERT_EQUAL_UINT32(1, throttle.tick(1000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(0, throttle.tick(1001, 5000));
+  throttle.reset();
+  // A fresh link logs its first bad frame instead of waiting out the interval.
+  TEST_ASSERT_EQUAL_UINT32(1, throttle.tick(1002, 5000));
+}
+
 static void test_auto_shutdown_only_with_the_motor_on_and_enabled() {
   TEST_ASSERT_TRUE(should_auto_shutdown(20000, 5000, 15000, true, true));
   TEST_ASSERT_FALSE(should_auto_shutdown(20000, 5000, 15000, false, true));
@@ -361,6 +381,8 @@ void run_state_tests() {
   RUN_TEST(test_motor_off_window_opens_once_and_clears_on_motor_on);
   RUN_TEST(test_should_log_now_lets_the_first_one_through);
   RUN_TEST(test_auto_shutdown_only_with_the_motor_on_and_enabled);
+  RUN_TEST(test_log_throttle_reports_how_many_it_swallowed);
+  RUN_TEST(test_log_throttle_starts_over_after_reset);
   RUN_TEST(test_write_gate_ladder_order);
   RUN_TEST(test_write_gate_controller_only_when_required);
   RUN_TEST(test_write_gate_cold_cache_beats_controller_check);

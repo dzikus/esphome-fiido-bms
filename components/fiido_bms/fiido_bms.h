@@ -570,12 +570,9 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   bool handshake_sent_{false};
   FiidoLink link_;
 
-  uint32_t last_bad_notify_log_ms_{0};
-  uint32_t bad_notify_count_{0};
-  uint32_t last_unknown_addr_log_ms_{0};
-  uint32_t unknown_addr_count_{0};
-  uint32_t last_ambiguous_limit_log_ms_{0};
-  uint32_t ambiguous_limit_count_{0};
+  LogThrottle bad_notify_log_;
+  LogThrottle unknown_addr_log_;
+  LogThrottle ambiguous_limit_log_;
 
   FiidoGearSelect *gear_select_{nullptr};
 
