@@ -74,11 +74,11 @@ StatsView decode_stats(std::span<const uint8_t> payload) {
   if (payload.size() != stats::PAYLOAD_LEN)
     return v;
   v.valid = true;
-  v.total_km = u32be(payload, stats::TOTAL_KM_OFFSET) / 10.0f;
+  v.total_km = static_cast<float>(u32be(payload, stats::TOTAL_KM_OFFSET)) / 10.0f;
   v.total_km_ok = v.total_km <= stats::MAX_TOTAL_KM;
-  v.trip_km = u16be(payload, stats::TRIP_KM_OFFSET) / 10.0f;
+  v.trip_km = static_cast<float>(u16be(payload, stats::TRIP_KM_OFFSET)) / 10.0f;
   v.trip_km_ok = v.trip_km <= stats::MAX_TRIP_KM;
-  v.speed_kmh = u16be(payload, stats::SPEED_OFFSET) / 10.0f;
+  v.speed_kmh = static_cast<float>(u16be(payload, stats::SPEED_OFFSET)) / 10.0f;
   v.speed_ok = v.speed_kmh <= stats::MAX_SPEED_KMH;
   v.soc_pct = payload[stats::ADDR_24_OFFSET];
   v.soc_ok = v.soc_pct <= stats::MAX_SOC_PCT;
