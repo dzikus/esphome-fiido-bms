@@ -779,7 +779,7 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   this->update_idle_timer_(motor_on);
   this->settle_probe_(motor_on);
 
-  ESP_LOGV(TAG,
+  ESP_LOGD(TAG,
            "[%s] STATS speed=%.1f km=%.1f total=%.1fkm gear=%u SOC=%u%% addr25=0x%02X addr27=0x%02X addr28=0x%02X "
            "addr2A=0x%02X addr2B=0x%02X addr2C=0x%02X addr38=0x%02X motor=%s idle=%us",
            this->parent_->address_str(), u16be(p, stats::SPEED_OFFSET) / 10.0, u16be(p, stats::TRIP_KM_OFFSET) / 10.0,
