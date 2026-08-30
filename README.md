@@ -268,6 +268,11 @@ Note on `mode`: bikes with `ui_gear_mode_3: true` do not expose this entity. The
 cosmetic; physical BMS state can still be flipped to 5 by other apps. Use
 `enforce_gear_mode_3: true` to also pin the BMS itself.
 
+The BMS keeps its gear across a mode change. 5-gear to 3-gear can leave it on
+`turbo+` or `normal`, which 3-gear mode has no label for; the component writes the
+gear below instead. Picking one of those two labels in 3-gear mode does the same:
+`turbo+` lands on `turbo`, `normal` on `eco`.
+
 ### Entities (switch)
 
 `auto_shutdown` and `bluetooth` default to `RESTORE_DEFAULT_ON`. Every other switch
@@ -621,6 +626,8 @@ components/fiido_bms/
   button.py                    1 button class + platform, dev (pair_watch)
 
   fiido_protocol.{h,cpp}       pure C++: CRC XOR, frame builders, validate, POLL_TABLE
+  fiido_state.{h,cpp}          pure C++: lifecycle, write gate, pending queue, burst
+                               cadence, register cache, speed limit plan, gear clamp
   fiido_bms.{h,cpp}            FiidoBMSHub: BLE client + PollingComponent + state machine
 
   fiido_bool_switch.h          all 16 switches via two templates + one-line subclasses:
@@ -866,9 +873,11 @@ to `DEV_SENSOR_KEYS` if it should be off by default.
 ### Testing
 
 Unit tests under `tests/test_protocol/` build with PlatformIO + Unity. They link
-only `fiido_protocol.{h,cpp}` and run on the host (no ESP32 required). 43 tests
-cover CRC, the poll and write frame builders, validate, and the decode of every
-poll's payload via static fixtures in `fixtures.h`.
+`fiido_protocol.{h,cpp}` and `fiido_state.{h,cpp}` and run on the host (no ESP32
+required). 117 tests cover CRC, the poll and write frame builders, validate, the
+decode of every poll's payload via static fixtures in `fixtures.h`, and the state
+decisions: lifecycle, write gate, pending queue, burst cadence, speed limit plan,
+gear clamping.
 
 ```
 pio test -d tests -e native
