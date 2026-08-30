@@ -1,0 +1,453 @@
+#include <unity.h>
+
+#include <vector>
+
+#include "fiido_state.h"
+#include "test_groups.h"
+
+using namespace esphome::fiido_bms;
+
+static LifecycleInput lifecycle_base() {
+  LifecycleInput in{};
+  in.now = 1'000'000;
+  in.idle_disconnect_ms = 15 * 60 * 1000;
+  in.probe_window_ms = 60 * 1000;
+  in.periodic_probe_ms = 5 * 60 * 1000;
+  in.write_verify_window_ms = 10 * 1000;
+  return in;
+}
+
+static void test_lifecycle_idle_disconnect_needs_the_full_window() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+}
+
+static void test_lifecycle_never_drops_the_link_with_a_write_queued() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms * 10;
+  in.pending_writes = true;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_zero_timestamp_is_not_an_elapsed_window() {
+  // millis() is 0 once per boot; 0 means "not started", not "long ago".
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.motor_off_since_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+
+  in.connected = false;
+  in.probe_started_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+
+  in.enabled = false;
+  in.disconnected_since_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_probe_timeout_waits_for_the_write_verify_window() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = false;
+  in.probe_started_ms = in.now - in.probe_window_ms;
+  in.last_dispatch_ms = in.now - in.write_verify_window_ms + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.last_dispatch_ms = in.now - in.write_verify_window_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::PROBE_TIMEOUT, decide_lifecycle(in));
+  in.last_dispatch_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::PROBE_TIMEOUT, decide_lifecycle(in));
+}
+
+static void test_lifecycle_disconnected_probes_on_its_period() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = false;
+  in.disconnected_since_ms = in.now - in.periodic_probe_ms + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.disconnected_since_ms = in.now - in.periodic_probe_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::START_PROBE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_survives_the_millis_wrap() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.now = 1000;
+  in.motor_off_since_ms = 0xFFFFFFFFu - (in.idle_disconnect_ms - 1000) + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+}
+
+static void test_activity_reports_every_signal_independently() {
+  const RideState off{.gear = 0, .motor_on = false, .light_on = false};
+  TEST_ASSERT_FALSE(detect_activity(off, off, 0).any());
+
+  const RideState on{.gear = 0, .motor_on = true, .light_on = false};
+  TEST_ASSERT_TRUE(detect_activity(off, on, 0).motor_turned_on);
+  TEST_ASSERT_FALSE(detect_activity(on, on, 0).motor_turned_on);
+  TEST_ASSERT_FALSE(detect_activity(on, off, 0).motor_turned_on);
+
+  const RideState geared{.gear = 2, .motor_on = false, .light_on = false};
+  TEST_ASSERT_TRUE(detect_activity(off, geared, 0).gear_changed);
+
+  const RideState lit{.gear = 0, .motor_on = false, .light_on = true};
+  TEST_ASSERT_TRUE(detect_activity(off, lit, 0).light_changed);
+  TEST_ASSERT_TRUE(detect_activity(lit, off, 0).light_changed);
+
+  TEST_ASSERT_TRUE(detect_activity(off, off, 1).moving);
+  TEST_ASSERT_FALSE(detect_activity(off, off, 0).moving);
+}
+
+static void test_auto_startup_delay_spreads_hubs_over_one_interval() {
+  TEST_ASSERT_EQUAL_UINT32(0, auto_startup_delay(0, 1, 3000));
+  TEST_ASSERT_EQUAL_UINT32(0, auto_startup_delay(0, 2, 3000));
+  TEST_ASSERT_EQUAL_UINT32(1500, auto_startup_delay(1, 2, 3000));
+  TEST_ASSERT_EQUAL_UINT32(1000, auto_startup_delay(1, 3, 3000));
+  TEST_ASSERT_EQUAL_UINT32(2000, auto_startup_delay(2, 3, 3000));
+  // index * interval passes 32 bits here; the 64-bit product is why this is right.
+  TEST_ASSERT_EQUAL_UINT32(0x7FFFFFFFu, auto_startup_delay(1, 2, 0xFFFFFFFFu));
+}
+
+static void test_motor_off_window_opens_once_and_clears_on_motor_on() {
+  TEST_ASSERT_EQUAL_UINT32(5000, track_motor_off(0, false, 5000));
+  // Second frame with the motor still off keeps the original timestamp.
+  TEST_ASSERT_EQUAL_UINT32(5000, track_motor_off(5000, false, 9000));
+  TEST_ASSERT_EQUAL_UINT32(0, track_motor_off(5000, true, 9000));
+  TEST_ASSERT_EQUAL_UINT32(0, track_motor_off(0, true, 9000));
+}
+
+static void test_should_log_now_lets_the_first_one_through() {
+  TEST_ASSERT_TRUE(should_log_now(0, 0, 5000));
+  TEST_ASSERT_TRUE(should_log_now(1, 0, 5000));
+  TEST_ASSERT_FALSE(should_log_now(6000, 5000, 5000));
+  TEST_ASSERT_TRUE(should_log_now(10000, 5000, 5000));
+}
+
+static void test_log_throttle_reports_how_many_it_swallowed() {
+  LogThrottle throttle;
+  // The first event always gets through, and it counts itself.
+  TEST_ASSERT_EQUAL_UINT32(1, throttle.tick(1000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(0, throttle.tick(2000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(0, throttle.tick(3000, 5000));
+  // Three swallowed since the last log, plus this one.
+  TEST_ASSERT_EQUAL_UINT32(3, throttle.tick(6000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(0, throttle.tick(6001, 5000));
+}
+
+static void test_log_throttle_starts_over_after_reset() {
+  LogThrottle throttle;
+  TEST_ASSERT_EQUAL_UINT32(1, throttle.tick(1000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(0, throttle.tick(1001, 5000));
+  throttle.reset();
+  // A fresh link logs its first bad frame instead of waiting out the interval.
+  TEST_ASSERT_EQUAL_UINT32(1, throttle.tick(1002, 5000));
+}
+
+static void test_auto_shutdown_only_with_the_motor_on_and_enabled() {
+  const AutoShutdownInput idle{
+      .now = 20000, .last_activity_ms = 5000, .idle_ms = 15000, .enabled = true, .motor_on = true};
+  TEST_ASSERT_TRUE(should_auto_shutdown(idle));
+  TEST_ASSERT_FALSE(should_auto_shutdown({.now = idle.now,
+                                          .last_activity_ms = idle.last_activity_ms,
+                                          .idle_ms = idle.idle_ms,
+                                          .enabled = false,
+                                          .motor_on = true}));
+  TEST_ASSERT_FALSE(should_auto_shutdown({.now = idle.now,
+                                          .last_activity_ms = idle.last_activity_ms,
+                                          .idle_ms = idle.idle_ms,
+                                          .enabled = true,
+                                          .motor_on = false}));
+  TEST_ASSERT_FALSE(should_auto_shutdown({.now = 19999,
+                                          .last_activity_ms = idle.last_activity_ms,
+                                          .idle_ms = idle.idle_ms,
+                                          .enabled = true,
+                                          .motor_on = true}));
+}
+
+static WriteGateInput gate_base() {
+  WriteGateInput in{};
+  in.ble_enabled = true;
+  in.connected = true;
+  in.cache_valid = true;
+  return in;
+}
+
+static void test_write_gate_ladder_order() {
+  WriteGateInput in = gate_base();
+  TEST_ASSERT_EQUAL(WriteGate::SEND, gate_write(in));
+
+  in.cache_valid = false;
+  TEST_ASSERT_EQUAL(WriteGate::DEFER_COLD_CACHE, gate_write(in));
+  in.connected = false;
+  TEST_ASSERT_EQUAL(WriteGate::QUEUE_DISCONNECTED, gate_write(in));
+  in.ble_enabled = false;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_BLE_DISABLED, gate_write(in));
+}
+
+static void test_write_gate_controller_only_when_required() {
+  WriteGateInput in = gate_base();
+  in.controller_on = false;
+  in.needs_controller = false;
+  TEST_ASSERT_EQUAL(WriteGate::SEND, gate_write(in));
+  in.needs_controller = true;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_CONTROLLER_OFF, gate_write(in));
+  in.controller_on = true;
+  TEST_ASSERT_EQUAL(WriteGate::SEND, gate_write(in));
+}
+
+static void test_write_gate_cold_cache_beats_controller_check() {
+  WriteGateInput in = gate_base();
+  in.cache_valid = false;
+  in.needs_controller = true;
+  in.controller_on = false;
+  TEST_ASSERT_EQUAL(WriteGate::DEFER_COLD_CACHE, gate_write(in));
+}
+
+static void test_encode_gear_mode_preserves_the_low_nibble() {
+  TEST_ASSERT_EQUAL_UINT8(0x35, encode_gear_mode(3, {0x55}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(5, {0x35}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x30, encode_gear_mode(3, {0x50}).raw);
+}
+
+static void test_encode_gear_mode_refuses_anything_but_3_or_5() {
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(4, {0x55}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(0, {0x55}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x55, encode_gear_mode(255, {0x55}).raw);
+}
+
+static void test_clamp_gear_holds_the_ceiling() {
+  TEST_ASSERT_EQUAL_UINT8(3, clamp_gear(9, 3));
+  TEST_ASSERT_EQUAL_UINT8(2, clamp_gear(2, 3));
+  TEST_ASSERT_EQUAL_UINT8(0, clamp_gear(0, 3));
+}
+
+static std::vector<int> g_ran;
+static PendingWrites g_queue;
+
+static void test_pending_writes_drops_the_oldest_at_capacity() {
+  g_ran.clear();
+  g_queue.clear();
+  for (size_t i = 0; i < PENDING_WRITE_SLOTS; i++)
+    TEST_ASSERT_TRUE(g_queue.push([i]() { g_ran.push_back((int)i); }));
+  TEST_ASSERT_FALSE(g_queue.push([]() { g_ran.push_back(99); }));
+  TEST_ASSERT_EQUAL_UINT(PENDING_WRITE_SLOTS, g_queue.size());
+  for (const PendingWrite &write : g_queue.drain())
+    write();
+  TEST_ASSERT_EQUAL_UINT(PENDING_WRITE_SLOTS, g_ran.size());
+  // The first push fell out. The run starts at 1 and ends with the newest.
+  TEST_ASSERT_EQUAL_INT(1, g_ran.front());
+  TEST_ASSERT_EQUAL_INT(99, g_ran.back());
+}
+
+static void test_pending_writes_drain_empties_the_queue() {
+  g_queue.clear();
+  (void)g_queue.push([]() {});
+  TEST_ASSERT_FALSE(g_queue.empty());
+  TEST_ASSERT_EQUAL_UINT(1, g_queue.drain().size);
+  TEST_ASSERT_TRUE(g_queue.empty());
+  TEST_ASSERT_EQUAL_UINT(0, g_queue.drain().size);
+}
+
+static void test_pending_writes_requeue_during_drain_waits_for_the_next_one() {
+  g_ran.clear();
+  g_queue.clear();
+  (void)g_queue.push([]() {
+    g_ran.push_back(1);
+    (void)g_queue.push([]() { g_ran.push_back(2); });
+  });
+  for (const PendingWrite &write : g_queue.drain())
+    write();
+  TEST_ASSERT_EQUAL_UINT(1, g_ran.size());
+  TEST_ASSERT_EQUAL_UINT(1, g_queue.size());
+  for (const PendingWrite &write : g_queue.drain())
+    write();
+  TEST_ASSERT_EQUAL_UINT(2, g_ran.size());
+  TEST_ASSERT_EQUAL_INT(2, g_ran.back());
+}
+
+static void test_should_retry_send_stops_at_the_retry_cap() {
+  TEST_ASSERT_FALSE(should_retry_send(0, 2, true));
+  TEST_ASSERT_TRUE(should_retry_send(0, 2, false));
+  TEST_ASSERT_TRUE(should_retry_send(1, 2, false));
+  TEST_ASSERT_FALSE(should_retry_send(2, 2, false));
+  TEST_ASSERT_FALSE(should_retry_send(3, 2, false));
+}
+
+static void test_probe_outcome_motor_on_keeps_the_link() {
+  TEST_ASSERT_EQUAL(ProbeOutcome::STAY_BIKE_ON, decide_probe_outcome(true, 100000, 0, 10000));
+  TEST_ASSERT_EQUAL(ProbeOutcome::STAY_BIKE_ON, decide_probe_outcome(true, 100000, 99999, 10000));
+}
+
+static void test_probe_outcome_holds_the_link_while_a_write_is_being_verified() {
+  TEST_ASSERT_EQUAL(ProbeOutcome::STAY_VERIFY_WINDOW, decide_probe_outcome(false, 100000, 95000, 10000));
+  TEST_ASSERT_EQUAL(ProbeOutcome::DROP_LINK, decide_probe_outcome(false, 100000, 90000, 10000));
+  TEST_ASSERT_EQUAL(ProbeOutcome::DROP_LINK, decide_probe_outcome(false, 100000, 0, 10000));
+  // Just after boot millis() is small, and no dispatch has happened: 0 means
+  // "never", not "just now".
+  TEST_ASSERT_EQUAL(ProbeOutcome::DROP_LINK, decide_probe_outcome(false, 5000, 0, 10000));
+}
+
+static void test_resolve_gear_count_keeps_what_the_select_has() {
+  TEST_ASSERT_EQUAL_UINT8(0, resolve_gear_count(0, false, 5));
+  TEST_ASSERT_EQUAL_UINT8(0, resolve_gear_count(3, true, 5));
+  TEST_ASSERT_EQUAL_UINT8(0, resolve_gear_count(5, false, 5));
+  TEST_ASSERT_EQUAL_UINT8(3, resolve_gear_count(3, false, 5));
+}
+
+static void test_resolve_mode_option_is_3_only_for_three_gears() {
+  TEST_ASSERT_EQUAL_STRING("3", resolve_mode_option(3));
+  TEST_ASSERT_EQUAL_STRING("5", resolve_mode_option(5));
+  TEST_ASSERT_EQUAL_STRING("5", resolve_mode_option(0));
+}
+
+static void test_light_bit_clears_only_on_the_motor_off_edge() {
+  TEST_ASSERT_TRUE(should_clear_light_bit(true, true, false, {0x08}));
+  TEST_ASSERT_FALSE(should_clear_light_bit(true, true, false, {0x00}));
+  TEST_ASSERT_FALSE(should_clear_light_bit(true, false, false, {0x08}));
+  TEST_ASSERT_FALSE(should_clear_light_bit(true, true, true, {0x08}));
+  TEST_ASSERT_FALSE(should_clear_light_bit(false, true, false, {0x08}));
+}
+
+static void test_enforce_gear_mode_3_respects_every_gate() {
+  const EnforceGearModeInput base{.enabled = true,
+                                  .max_gear = 5,
+                                  .ble_enabled = true,
+                                  .controller_on = true,
+                                  .now = 100000,
+                                  .last_write_ms = 0,
+                                  .cooldown_ms = 60000};
+  TEST_ASSERT_TRUE(should_enforce_gear_mode_3(base));
+
+  EnforceGearModeInput off = base;
+  off.enabled = false;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(off));
+
+  EnforceGearModeInput three_gear = base;
+  three_gear.max_gear = 3;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(three_gear));
+
+  EnforceGearModeInput no_ble = base;
+  no_ble.ble_enabled = false;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(no_ble));
+
+  EnforceGearModeInput controller_off = base;
+  controller_off.controller_on = false;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(controller_off));
+
+  EnforceGearModeInput inside_cooldown = base;
+  inside_cooldown.last_write_ms = 50000;
+  TEST_ASSERT_FALSE(should_enforce_gear_mode_3(inside_cooldown));
+
+  EnforceGearModeInput past_cooldown = base;
+  past_cooldown.now = 160000;
+  past_cooldown.last_write_ms = 100000;
+  TEST_ASSERT_TRUE(should_enforce_gear_mode_3(past_cooldown));
+}
+
+static void test_gear_in_mode_maps_the_five_gear_labels_down() {
+  for (uint8_t i = 0; i < 6; i++)
+    TEST_ASSERT_EQUAL_UINT8(i, gear_in_mode(i, 5));
+  TEST_ASSERT_EQUAL_UINT8(0, gear_in_mode(0, 3));
+  TEST_ASSERT_EQUAL_UINT8(1, gear_in_mode(1, 3));
+  TEST_ASSERT_EQUAL_UINT8(1, gear_in_mode(2, 3));
+  TEST_ASSERT_EQUAL_UINT8(2, gear_in_mode(3, 3));
+  TEST_ASSERT_EQUAL_UINT8(3, gear_in_mode(4, 3));
+  TEST_ASSERT_EQUAL_UINT8(3, gear_in_mode(5, 3));
+  TEST_ASSERT_EQUAL_UINT8(3, gear_in_mode(9, 3));
+}
+
+static void test_speed_limit_option_needs_the_enable_bit() {
+  TEST_ASSERT_EQUAL_STRING("No limit", resolve_speed_limit_option(100, false));
+  TEST_ASSERT_EQUAL_STRING("6 km/h", resolve_speed_limit_option(6, true));
+  TEST_ASSERT_EQUAL_STRING("25 km/h", resolve_speed_limit_option(25, true));
+  TEST_ASSERT_NULL(resolve_speed_limit_option(6, false));
+  TEST_ASSERT_NULL(resolve_speed_limit_option(25, false));
+  TEST_ASSERT_NULL(resolve_speed_limit_option(30, true));
+}
+
+static void test_speed_limit_option_parsing_rejects_anything_else() {
+  TEST_ASSERT_FALSE(parse_speed_limit_option("30 km/h").has_value());
+  TEST_ASSERT_FALSE(parse_speed_limit_option("").has_value());
+  TEST_ASSERT_FALSE(parse_speed_limit_option("no limit").has_value());
+  TEST_ASSERT_TRUE(parse_speed_limit_option("6 km/h").has_value());
+}
+
+static void test_speed_limit_plan_writes_the_pas_bit_only_when_it_differs() {
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::SIX_KMH, {0x80}).needs_pas_write);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::SIX_KMH, {0x00}).needs_pas_write);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0x00}).needs_pas_write);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0x80}).needs_pas_write);
+}
+
+static void test_speed_limit_plan_keeps_the_other_bits_of_0x2c() {
+  TEST_ASSERT_EQUAL_UINT8(0xD5, plan_speed_limit(SpeedLimitOption::SIX_KMH, {0x55}).pas_byte.raw);
+  TEST_ASSERT_EQUAL_UINT8(0x55, plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0xD5}).pas_byte.raw);
+}
+
+static void test_speed_limit_phase2_is_delayed_only_when_clearing_the_cap() {
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0x80}).delay_phase2);
+  TEST_ASSERT_TRUE(plan_speed_limit(SpeedLimitOption::NO_LIMIT, {0x00}).delay_phase2);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::SIX_KMH, {0x00}).delay_phase2);
+  TEST_ASSERT_FALSE(plan_speed_limit(SpeedLimitOption::TWENTY_FIVE_KMH, {0x00}).delay_phase2);
+}
+
+static void test_speed_limit_bit_keeps_the_other_bits_of_0x27() {
+  TEST_ASSERT_EQUAL_UINT8(0xA8, apply_speed_limit_bit({0x88}, true).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x88, apply_speed_limit_bit({0xA8}, false).raw);
+  TEST_ASSERT_EQUAL_UINT8(0xA8, apply_speed_limit_bit({0xA8}, true).raw);
+}
+
+static void test_speed_limit_plan_and_readback_agree() {
+  // What the writer sends must be what the reader turns back into the option.
+  for (const auto option : {SpeedLimitOption::SIX_KMH, SpeedLimitOption::TWENTY_FIVE_KMH, SpeedLimitOption::NO_LIMIT}) {
+    const SpeedLimitPlan plan = plan_speed_limit(option, {0x00});
+    TEST_ASSERT_EQUAL_STRING(speed_limit_option_name(option),
+                             resolve_speed_limit_option(plan.value.raw, plan.limit_on));
+  }
+}
+
+void run_state_tests() {
+  RUN_TEST(test_lifecycle_idle_disconnect_needs_the_full_window);
+  RUN_TEST(test_lifecycle_never_drops_the_link_with_a_write_queued);
+  RUN_TEST(test_lifecycle_zero_timestamp_is_not_an_elapsed_window);
+  RUN_TEST(test_lifecycle_probe_timeout_waits_for_the_write_verify_window);
+  RUN_TEST(test_lifecycle_disconnected_probes_on_its_period);
+  RUN_TEST(test_lifecycle_survives_the_millis_wrap);
+  RUN_TEST(test_activity_reports_every_signal_independently);
+  RUN_TEST(test_auto_startup_delay_spreads_hubs_over_one_interval);
+  RUN_TEST(test_motor_off_window_opens_once_and_clears_on_motor_on);
+  RUN_TEST(test_should_log_now_lets_the_first_one_through);
+  RUN_TEST(test_auto_shutdown_only_with_the_motor_on_and_enabled);
+  RUN_TEST(test_log_throttle_reports_how_many_it_swallowed);
+  RUN_TEST(test_log_throttle_starts_over_after_reset);
+  RUN_TEST(test_write_gate_ladder_order);
+  RUN_TEST(test_write_gate_controller_only_when_required);
+  RUN_TEST(test_write_gate_cold_cache_beats_controller_check);
+  RUN_TEST(test_encode_gear_mode_preserves_the_low_nibble);
+  RUN_TEST(test_encode_gear_mode_refuses_anything_but_3_or_5);
+  RUN_TEST(test_clamp_gear_holds_the_ceiling);
+  RUN_TEST(test_gear_in_mode_maps_the_five_gear_labels_down);
+  RUN_TEST(test_pending_writes_drops_the_oldest_at_capacity);
+  RUN_TEST(test_pending_writes_drain_empties_the_queue);
+  RUN_TEST(test_pending_writes_requeue_during_drain_waits_for_the_next_one);
+  RUN_TEST(test_should_retry_send_stops_at_the_retry_cap);
+  RUN_TEST(test_probe_outcome_motor_on_keeps_the_link);
+  RUN_TEST(test_probe_outcome_holds_the_link_while_a_write_is_being_verified);
+  RUN_TEST(test_resolve_gear_count_keeps_what_the_select_has);
+  RUN_TEST(test_resolve_mode_option_is_3_only_for_three_gears);
+  RUN_TEST(test_light_bit_clears_only_on_the_motor_off_edge);
+  RUN_TEST(test_enforce_gear_mode_3_respects_every_gate);
+  RUN_TEST(test_speed_limit_option_needs_the_enable_bit);
+  RUN_TEST(test_speed_limit_option_parsing_rejects_anything_else);
+  RUN_TEST(test_speed_limit_plan_writes_the_pas_bit_only_when_it_differs);
+  RUN_TEST(test_speed_limit_plan_keeps_the_other_bits_of_0x2c);
+  RUN_TEST(test_speed_limit_phase2_is_delayed_only_when_clearing_the_cap);
+  RUN_TEST(test_speed_limit_bit_keeps_the_other_bits_of_0x27);
+  RUN_TEST(test_speed_limit_plan_and_readback_agree);
+}

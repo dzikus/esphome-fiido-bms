@@ -2,19 +2,23 @@
 
 #ifdef USE_ESP32
 
-#include <vector>
+#include <array>
+#include <span>
 #include <string>
+#include <string_view>
 
+#include "esphome/components/select/select.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
-#include "esphome/components/select/select.h"
 #include "fiido_bms.h"
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 class FiidoGearSelect : public select::Select, public Parented<FiidoBMSHub> {
  public:
+  static constexpr std::array<std::string_view, 4> NAMES_3{"OFF", "eco", "sport", "turbo"};
+  static constexpr std::array<std::string_view, 6> NAMES_5{"OFF", "eco", "normal", "sport", "turbo", "turbo+"};
+
   void control(const std::string &value) override;
 
   void set_gear_count(uint8_t count);
@@ -23,20 +27,17 @@ class FiidoGearSelect : public select::Select, public Parented<FiidoBMSHub> {
   // then leave the count alone or gear_names() yields unregistered labels.
   void set_gear_count_pinned(bool pinned) { this->gear_count_pinned_ = pinned; }
   bool gear_count_pinned() const { return this->gear_count_pinned_; }
-  void set_names_3(std::vector<std::string> n) { this->names_3_ = std::move(n); }
-  void set_names_5(std::vector<std::string> n) { this->names_5_ = std::move(n); }
-  const std::vector<std::string> &gear_names() const {
-    return (this->gear_count_ == 3) ? this->names_3_ : this->names_5_;
+  [[nodiscard]] std::span<const std::string_view> gear_names() const {
+    if (this->gear_count_ == 3)
+      return NAMES_3;
+    return NAMES_5;
   }
 
  protected:
   uint8_t gear_count_{5};
   bool gear_count_pinned_{false};
-  std::vector<std::string> names_3_;
-  std::vector<std::string> names_5_;
 };
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32

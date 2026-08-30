@@ -5,9 +5,11 @@ from esphome.const import CONF_DEVICE_ID, ENTITY_CATEGORY_CONFIG
 
 from . import (
     CONF_FIIDO_BMS_ID,
+    DEV_SWITCH_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
     apply_entity_prefix,
     fiido_bms_ns,
+    hub_expose_dev,
     hub_name_prefix,
     inject_entity_defaults,
 )
@@ -73,23 +75,13 @@ CONF_RING = "ring"
 CONF_DOUBLE_SPEED = "double_speed"
 CONF_BIKE_GUARD = "bike_guard"
 
-# Newer controls ship hidden in the HA registry until validated on hardware.
-# bike_guard stays visible (paired with the visible guard_time number).
-HIDDEN_SWITCH_KEYS = {
-    CONF_CRUISE,
-    CONF_START_MODE,
-    CONF_INSENSITIVITY,
-    CONF_SHOW_TOTAL_KM,
-    CONF_AUTO_SCREEN_OFF,
-    CONF_RING,
-    CONF_DOUBLE_SPEED,
-}
-
-# Each entry: (config_key, cpp_class, hub_setter_name, default_restore_mode, is_component, extra_kwargs, default_name)
+# Each entry: (config_key, cpp_class, hub_setter_name, default_restore_mode,
+#             is_component, extra_kwargs, default_name)
 # is_component=True means the C++ class inherits Component and needs setup() lifecycle.
 # Restore is read back in setup(), so it only works on is_component=True entries.
 # The rest take DISABLED: the BMS owns their state and sends it with the next STATS.
-# extra_kwargs is forwarded to switch.switch_schema(**extra_kwargs) for icon / entity_category etc.
+# extra_kwargs is forwarded to switch.switch_schema(**extra_kwargs) for icon
+# or entity_category.
 SWITCHES = [
     (
         CONF_MOTOR,
@@ -242,7 +234,7 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in SWITCHES]
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=HIDDEN_SWITCH_KEYS)
+    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_SWITCH_KEYS)
 
 
 CONFIG_SCHEMA = cv.All(
@@ -274,6 +266,7 @@ async def to_code(config):
     config = apply_entity_prefix(
         config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     )
+    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
     for (
         key,
         _cls,
@@ -284,6 +277,8 @@ async def to_code(config):
         _default_name,
     ) in SWITCHES:
         if key not in config:
+            continue
+        if key in DEV_SWITCH_KEYS and not expose_dev:
             continue
         sub_config = config[key]
         sw_var = await switch.new_switch(sub_config)

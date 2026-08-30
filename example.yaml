@@ -3,8 +3,8 @@
 
 esphome:
   name: fiido-bms
-  # Sub-device API plus the device-aware duplicate-name check (2025.8.0).
-  min_version: 2025.8.0
+  # select::Select::current_option returns StringRef from 2026.1.0.
+  min_version: 2026.1.0
 
 esp32:
   board: esp32dev

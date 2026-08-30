@@ -79,7 +79,34 @@ DEV_BINARY_SENSOR_KEYS = frozenset(
     }
 )
 
-# disabled_by_default in HA but not gated by expose_dev_sensors
+DEV_SWITCH_KEYS = frozenset(
+    {
+        "start_mode",
+        "auto_screen_off",
+        "ring",
+        "double_speed",
+        "cruise",
+        "insensitivity",
+        "show_total_km",
+    }
+)
+
+DEV_NUMBER_KEYS = frozenset(
+    {
+        "brightness",
+        "boost",
+        "guard_time",
+    }
+)
+
+DEV_BUTTON_KEYS = frozenset(
+    {
+        "pair_watch",
+    }
+)
+
+# Works on both bikes. disabled_by_default in HA, not gated by
+# expose_dev_sensors.
 HIDDEN_SENSOR_KEYS = frozenset(
     {
         "startup_time",
@@ -264,6 +291,8 @@ async def to_code(config):
     cg.add(var.set_update_interval_off_ms(config[CONF_UPDATE_INTERVAL_OFF]))
     cg.add(var.set_idle_disconnect_ms(config[CONF_IDLE_DISCONNECT]))
     cg.add(var.set_enforce_gear_mode_3(config[CONF_ENFORCE_GEAR_MODE_3]))
+    if config[CONF_EXPOSE_DEV_SENSORS]:
+        cg.add_define("USE_FIIDO_BMS_DEV")
     # Track every hub created so we can broadcast the final count back to all
     # of them. Each call re-emits set_total_hubs(N) for every hub so the value
     # baked into generated code is the final total.

@@ -2,24 +2,23 @@
 
 #ifdef USE_ESP32
 
-#include <vector>
+#include <array>
 #include <string>
+#include <string_view>
 
+#include "esphome/components/select/select.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
-#include "esphome/components/select/select.h"
 #include "fiido_bms.h"
 
-namespace esphome {
-namespace fiido_bms {
+namespace esphome::fiido_bms {
 
 class FiidoSpeedUnitSelect : public select::Select, public Parented<FiidoBMSHub> {
  public:
   void control(const std::string &value) override;
-  static const std::vector<std::string> OPTIONS;
+  static constexpr std::array<std::string_view, 2> OPTIONS{"km/h", "mph"};
 };
 
-}  // namespace fiido_bms
-}  // namespace esphome
+}  // namespace esphome::fiido_bms
 
 #endif  // USE_ESP32

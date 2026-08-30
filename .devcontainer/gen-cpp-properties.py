@@ -147,7 +147,7 @@ def _test_std(tests_dir):
                             return token.strip("\\'\"")
         except OSError:
             continue
-    return "-std=gnu++17"
+    return "-std=gnu++20"
 
 
 def _test_sources(tests_dir):
@@ -209,6 +209,7 @@ def main():
     config = {
         "name": "ESP32",
         "compilerArgs": ["-mlongcalls"],
+        "intelliSenseMode": "linux-gcc-x64",
         "cStandard": "gnu17",
         "cppStandard": "gnu++20",
         "includePath": ["${workspaceFolder}/components/**"],

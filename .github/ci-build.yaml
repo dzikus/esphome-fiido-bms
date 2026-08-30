@@ -1,20 +1,26 @@
 # CI-only configuration that compiles the full component (all platforms, two
 # hubs) so a build-breaking change in any source file fails CI. Not meant for
 # flashing. Uses dummy BLE MACs; no device is contacted during compile.
+
+substitutions:
+  board: esp32dev
+  expose_dev: "true"
+
 esphome:
   name: ci-build
-  # Two hubs need the device-aware duplicate-name check, added in 2025.8.0.
-  min_version: 2025.8.0
+  # select::Select::current_option returns StringRef from 2026.1.0.
+  min_version: 2026.1.0
   devices:
     - id: dev_second
       name: "Second Bike"
 
 esp32:
-  board: esp32dev
+  board: ${board}
   framework:
     type: esp-idf
 
 logger:
+  level: VERY_VERBOSE
 
 external_components:
   - source:
@@ -37,7 +43,7 @@ fiido_bms:
   - id: hub_second
     ble_client_id: ble_second
     name_prefix: "Second"
-    expose_dev_sensors: true
+    expose_dev_sensors: ${expose_dev}
     ui_gear_mode_3: true
     enforce_gear_mode_3: true
 

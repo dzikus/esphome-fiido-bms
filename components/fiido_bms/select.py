@@ -112,8 +112,6 @@ async def to_code(config):
             gear_options = GEAR_NAMES_5
         sel_var = await select.new_select(sub_config, options=gear_options)
         await cg.register_parented(sel_var, hub)
-        cg.add(sel_var.set_names_3(GEAR_NAMES_3))
-        cg.add(sel_var.set_names_5(GEAR_NAMES_5))
         cg.add(sel_var.set_gear_count(count))
         # count: 3 is a declaration that the bike is 3-gear, so runtime detection
         # must not raise it back to 5 when the BMS reports a 5 nibble.

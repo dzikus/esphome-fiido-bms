@@ -5,9 +5,11 @@ from esphome.const import CONF_DEVICE_ID, ENTITY_CATEGORY_CONFIG
 
 from . import (
     CONF_FIIDO_BMS_ID,
+    DEV_NUMBER_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
     apply_entity_prefix,
     fiido_bms_ns,
+    hub_expose_dev,
     hub_name_prefix,
     inject_entity_defaults,
 )
@@ -26,10 +28,6 @@ FiidoGuardTimeNumber = fiido_bms_ns.class_(
 CONF_BRIGHTNESS = "brightness"
 CONF_BOOST = "boost"
 CONF_GUARD_TIME = "guard_time"
-
-# Newer controls ship hidden in the HA registry until validated on hardware.
-# guard_time stays visible (part of the visible bike_guard feature).
-HIDDEN_NUMBER_KEYS = {CONF_BRIGHTNESS, CONF_BOOST}
 
 # Real value ranges are unknown, so the controls span the full byte and use BOX
 # mode to avoid accidental slider drags. enable_poll_method gates the read-back
@@ -94,7 +92,7 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in NUMBERS]
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=HIDDEN_NUMBER_KEYS)
+    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_NUMBER_KEYS)
 
 
 CONFIG_SCHEMA = cv.All(
@@ -127,6 +125,7 @@ async def to_code(config):
     config = apply_entity_prefix(
         config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     )
+    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
     for (
         key,
         _cls,
@@ -140,6 +139,8 @@ async def to_code(config):
         _default_name,
     ) in NUMBERS:
         if key not in config:
+            continue
+        if key in DEV_NUMBER_KEYS and not expose_dev:
             continue
         num_var = await number.new_number(
             config[key], min_value=min_value, max_value=max_value, step=step
