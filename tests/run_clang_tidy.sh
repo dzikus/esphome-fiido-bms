@@ -7,7 +7,6 @@ set -euo pipefail
 #   CI_CONFIG=.github/ci-build.yaml EXPOSE_DEV=false tests/run_clang_tidy.sh
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Staging keeps the two-hub CI config; dev only has the IntelliSense one.
 ci_config="${CI_CONFIG:-}"
 if [[ -z "${ci_config}" ]]; then
   for candidate in .github/ci-build.yaml .intellisense.yaml; do
