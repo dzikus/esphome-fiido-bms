@@ -48,13 +48,15 @@ void publish_changed(select::Select *s, const char *option) {
   s->publish_state(option);
 }
 
-void publish_changed(select::Select *s, size_t index) {
+void publish_changed(select::Select *s, std::string_view option) {
   if (s == nullptr)
     return;
-  const auto current = s->active_index();
-  if (s->has_state() && current.has_value() && *current == index)
-    return;
-  s->publish_state(index);
+  if (s->has_state()) {
+    const auto shown = s->current_option();
+    if (std::string_view(shown.c_str(), shown.size()) == option)
+      return;
+  }
+  s->publish_state(std::string(option));
 }
 
 #ifdef USE_FIIDO_BMS_DEV
@@ -675,7 +677,7 @@ void FiidoBMSHub::sync_gear_entities_(const StatsView &sv) {
     publish_changed(this->mode_select_, resolve_mode_option(this->gear_select_->get_gear_count()));
   const auto names = this->gear_select_->gear_names();
   if (sv.gear < names.size()) {
-    publish_changed(this->gear_select_, size_t{sv.gear});
+    publish_changed(this->gear_select_, names[sv.gear]);
     return;
   }
   // The BMS keeps its gear across a mode change.
