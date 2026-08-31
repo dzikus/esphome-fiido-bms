@@ -70,7 +70,9 @@ jobs:
           # The wrapper exits on SIGHUP and reports ERRORED on a green run, so
           # its status is not the answer. The binary it built is.
           pio test -d tests -e native < /dev/null || echo "pio wrapper rc=$?, binary decides"
-          tests/.pio/build/native/program
+          tests/.pio/build/native/program | tee test-output.txt
+          # rc=0 without the closing line means the binary stopped early.
+          grep -qE '^[0-9]+ Tests 0 Failures 0 Ignored' test-output.txt
       - name: Compile the esphome-free layers under strict warnings
         run: |
           set -euo pipefail
@@ -165,7 +167,9 @@ jobs:
           # Contemporary with the floor below: the 2026.1.0 dependency set has no
           # wheels for 3.14, so pip falls back to building Pillow from source.
           python-version: "3.12"
-      # Pin to the declared floor so min_version is actually exercised.
+          cache: pip
+      # Pin to the declared floor so min_version is actually exercised, and
+      # validate the published example (which the compile job never touches).
       - name: Cache PlatformIO and the ESP-IDF toolchain
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
@@ -176,9 +180,19 @@ jobs:
           restore-keys: ${{ runner.os }}-idf-${{ env.ESPHOME_FLOOR }}-
       - name: Install ESPHome (component floor)
         run: pip install "esphome==${ESPHOME_FLOOR}"
-      - name: Validate CI and IntelliSense configs
+      - name: Provide dummy secrets for the example
+        run: |
+          cat > secrets.yaml <<'EOF'
+          wifi_ssid: ci
+          wifi_password: ci-password-123
+          api_encryption_key: cJlpAFA6N5wBzUgFSpMSo8QVMXZzKXwUBG6oHtGOb6Q=
+          ota_password: ci-ota-password
+          fiido_mac: AA:BB:CC:DD:EE:FF
+          EOF
+      - name: Validate example, CI and IntelliSense configs
         run: |
           set -euo pipefail
+          esphome config example.yaml
           esphome config .github/ci-build.yaml
           esphome config .intellisense.yaml
       - name: Compile at the floor
