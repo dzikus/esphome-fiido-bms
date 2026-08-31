@@ -1,5 +1,5 @@
 # Minimal single-bike example for the fiido_bms external component.
-# Replace the MAC with your bike's BLE MAC and flash with ESPHome.
+# Copy it, fill in secrets.yaml, flash.
 
 esphome:
   name: fiido-bms
@@ -25,14 +25,20 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
 
+# Consuming the component as a package instead of a local clone:
+#   external_components:
+#     - source: github://dzikus/esphome-fiido-bms
 external_components:
-  - source: github://dzikus/esphome-fiido-bms
+  - source:
+      type: local
+      path: components
+    components: [fiido_bms]
 
 esp32_ble_tracker:
 
 ble_client:
   - id: ble_c11
-    mac_address: XX:XX:XX:XX:XX:XX
+    mac_address: !secret fiido_mac
 
 fiido_bms:
   - id: hub_c11
