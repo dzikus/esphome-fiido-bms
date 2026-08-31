@@ -2,17 +2,18 @@ name: tests
 on:
   push:
     branches: [main]
-    paths: ["components/fiido_bms/**", "tests/**", ".github/**", "example.yaml", ".intellisense.yaml", "pyproject.toml", ".pre-commit-config.yaml"]
+    paths: ["components/fiido_bms/**", "tests/**", ".github/**", ".devcontainer/requirements.txt", "example.yaml", ".intellisense.yaml", "pyproject.toml", ".pre-commit-config.yaml", ".clang-format", ".clang-tidy"]
   pull_request:
-    paths: ["components/fiido_bms/**", "tests/**", ".github/**", "example.yaml", ".intellisense.yaml", "pyproject.toml", ".pre-commit-config.yaml"]
+    paths: ["components/fiido_bms/**", "tests/**", ".github/**", ".devcontainer/requirements.txt", "example.yaml", ".intellisense.yaml", "pyproject.toml", ".pre-commit-config.yaml", ".clang-format", ".clang-tidy"]
+  workflow_call:
 permissions:
   contents: read
 env:
   ESPHOME_VERSION: "2026.8.1"
   ESPHOME_FLOOR: "2026.1.0"
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   lint:
     name: ruff + pre-commit
@@ -33,7 +34,10 @@ jobs:
           key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: ${{ runner.os }}-pre-commit-
       - name: Install pre-commit
-        run: pip install "pre-commit==4.6.0"
+        run: |
+          set -euo pipefail
+          pin="$(grep -E '^pre-commit==' .devcontainer/requirements.txt)"
+          pip install "${pin}"
       - name: Run pre-commit (ruff lint + format + hygiene)
         run: pre-commit run --all-files --show-diff-on-failure
   unit-tests:
@@ -56,13 +60,24 @@ jobs:
           key: ${{ runner.os }}-pio-${{ hashFiles('tests/platformio.ini') }}
           restore-keys: ${{ runner.os }}-pio-
       - name: Install PlatformIO
-        run: pip install "platformio==6.1.19"
+        run: |
+          set -euo pipefail
+          pin="$(grep -E '^platformio==' .devcontainer/requirements.txt)"
+          pip install "${pin}"
       - name: Run protocol unit tests
         run: |
           set -euo pipefail
-          pio test -d tests -e native < /dev/null
-          echo "--- re-run built binary as source of truth ---"
+          # The wrapper exits on SIGHUP and reports ERRORED on a green run, so
+          # its status is not the answer. The binary it built is.
+          pio test -d tests -e native < /dev/null || echo "pio wrapper rc=$?, binary decides"
           tests/.pio/build/native/program
+      - name: Compile the esphome-free layers under strict warnings
+        run: |
+          set -euo pipefail
+          STRICT="-std=gnu++20 -fsyntax-only -Werror -Wall -Wextra -Wconversion
+                  -Wsign-conversion -Wshadow -Wold-style-cast -I components/fiido_bms"
+          g++ $STRICT components/fiido_bms/fiido_protocol.cpp
+          g++ $STRICT components/fiido_bms/fiido_state.cpp
   clang-tidy:
     name: clang-tidy (esp32 compile database)
     needs: lint
@@ -87,13 +102,15 @@ jobs:
             ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-riscv
             ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-
       - name: Install ESPHome and clang-tidy
-        run: pip install "esphome==${{ env.ESPHOME_VERSION }}" "clang-tidy==22.1.8"
+        run: |
+          set -euo pipefail
+          pin="$(grep -E '^clang-tidy==' .devcontainer/requirements.txt)"
+          pip install "esphome==${ESPHOME_VERSION}" "${pin}"
       - name: Run clang-tidy over both variants
         run: |
           set -euo pipefail
-          EXPOSE_DEV=true bash tests/run_clang_tidy.sh
-          EXPOSE_DEV=false bash tests/run_clang_tidy.sh
-
+          CI_CONFIG=.github/ci-build.yaml EXPOSE_DEV=true bash tests/run_clang_tidy.sh
+          CI_CONFIG=.github/ci-build.yaml EXPOSE_DEV=false bash tests/run_clang_tidy.sh
   esphome-build:
     name: esphome compile (${{ matrix.arch }})
     needs: unit-tests
@@ -124,7 +141,7 @@ jobs:
           key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-${{ matrix.arch }}
           restore-keys: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-
       - name: Install ESPHome
-        run: pip install "esphome==${{ env.ESPHOME_VERSION }}"
+        run: pip install "esphome==${ESPHOME_VERSION}"
       - name: Run codegen unit tests
         run: python -m unittest discover -s tests/python -v
       - name: Compile every board and variant, failing on any warning from the component
@@ -158,7 +175,7 @@ jobs:
           key: ${{ runner.os }}-idf-${{ env.ESPHOME_FLOOR }}-xtensa
           restore-keys: ${{ runner.os }}-idf-${{ env.ESPHOME_FLOOR }}-
       - name: Install ESPHome (component floor)
-        run: pip install "esphome==${{ env.ESPHOME_FLOOR }}"
+        run: pip install "esphome==${ESPHOME_FLOOR}"
       - name: Validate CI and IntelliSense configs
         run: |
           set -euo pipefail

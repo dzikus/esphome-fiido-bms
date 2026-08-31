@@ -3,35 +3,25 @@ on:
   push:
     tags: ["v*.*.*"]
 permissions:
-  contents: write
+  contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  release:
-    name: test gate and publish release
+  gates:
+    name: test gates
+    uses: ./.github/workflows/test.yml
+  publish:
+    name: publish release
+    needs: gates
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.14"
-      - name: Install ESPHome
-        run: pip install "esphome==2026.8.1" "platformio==6.1.19"
-      - name: Run protocol unit tests (release gate)
-        run: |
-          set -euo pipefail
-          pio test -d tests -e native < /dev/null
-          echo "--- re-run built binary as source of truth ---"
-          tests/.pio/build/native/program
-      - name: Run codegen unit tests (release gate)
-        run: python -m unittest discover -s tests/python -v
-      - name: Compile full component (release gate)
-        run: |
-          set -euo pipefail
-          esphome -s expose_dev true compile .github/ci-build.yaml
-          esphome -s expose_dev false compile .github/ci-build.yaml
+          persist-credentials: false
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
