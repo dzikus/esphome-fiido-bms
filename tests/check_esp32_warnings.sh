@@ -4,7 +4,6 @@ set -euo pipefail
 # ESP-IDF passes -Wall -Wextra -Werror and then cancels it with a trailing
 # -Wno-error. Warnings here are emitted and ignored.
 
-repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 config="${1:?usage: $0 <esphome-config.yaml> [board] [expose_dev]}"
 board="${2:-esp32dev}"
 expose_dev="${3:-true}"
