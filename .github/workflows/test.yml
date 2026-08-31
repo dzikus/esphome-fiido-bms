@@ -6,6 +6,7 @@ on:
   pull_request:
     paths: ["components/fiido_bms/**", "tests/**", ".github/**", ".devcontainer/requirements.txt", "example.yaml", ".intellisense.yaml", "pyproject.toml", ".pre-commit-config.yaml", ".clang-format", ".clang-tidy"]
   workflow_call:
+  workflow_dispatch:
 permissions:
   contents: read
 env:
@@ -72,14 +73,14 @@ jobs:
           pio test -d tests -e native < /dev/null || echo "pio wrapper rc=$?, binary decides"
           tests/.pio/build/native/program | tee test-output.txt
           # rc=0 without the closing line means the binary stopped early.
-          grep -qE '^[0-9]+ Tests 0 Failures 0 Ignored' test-output.txt
+          grep -qE '^[1-9][0-9]* Tests 0 Failures 0 Ignored' test-output.txt
       - name: Compile the esphome-free layers under strict warnings
         run: |
           set -euo pipefail
-          STRICT="-std=gnu++20 -fsyntax-only -Werror -Wall -Wextra -Wconversion
-                  -Wsign-conversion -Wshadow -Wold-style-cast -I components/fiido_bms"
-          g++ $STRICT components/fiido_bms/fiido_protocol.cpp
-          g++ $STRICT components/fiido_bms/fiido_state.cpp
+          strict=(-std=gnu++20 -fsyntax-only -Werror -Wall -Wextra -Wconversion
+                  -Wsign-conversion -Wshadow -Wold-style-cast -I components/fiido_bms)
+          g++ "${strict[@]}" components/fiido_bms/fiido_protocol.cpp
+          g++ "${strict[@]}" components/fiido_bms/fiido_state.cpp
   clang-tidy:
     name: clang-tidy (esp32 compile database)
     needs: lint
