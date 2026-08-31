@@ -24,6 +24,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - name: Check the version pins against .devcontainer/requirements.txt
+        run: |
+          set -euo pipefail
+          rev_of() { grep -A1 "$1" .pre-commit-config.yaml | sed -n 's/^ *rev: v//p'; }
+          for pin in "esphome==${ESPHOME_VERSION}" \
+                     "ruff==$(rev_of astral-sh/ruff-pre-commit)" \
+                     "clang-format==$(rev_of mirrors-clang-format)"; do
+            grep -qx "${pin}" .devcontainer/requirements.txt \
+              || { echo "${pin} is not in .devcontainer/requirements.txt" >&2; exit 1; }
+          done
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.14"
