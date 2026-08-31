@@ -3,4 +3,5 @@ platformio==6.1.19
 pre-commit==4.6.2
 ruff==0.16.5
 clang-tidy==22.1.8
+clang-format==23.1.0
 homeassistant==2026.8.3
