@@ -56,9 +56,16 @@ A handshake poll of ADDR 0x0D goes out once per connection.
 
 ## STATS payload
 
-Offsets are into the payload, which starts at ADDR 0x05, so ADDR `XX` normally
-sits at `XX - 0x05`. Three fields predate that rule and are kept as measured:
-total distance at 23 (4B), trip at 27 (2B), speed at 29 (2B), all in tenths.
+Offsets are into the payload, which starts at ADDR 0x05, so a one-byte field at
+ADDR `XX` sits at `XX - 0x05`. A multi-byte big-endian field is named by the ADDR
+of its **last** byte and therefore begins that many bytes earlier: total distance
+0x1F is 4B at offset 23 (0x1C..0x1F), trip 0x21 is 2B at 27 (0x20..0x21), speed
+0x23 is 2B at 29 (0x22..0x23), all in tenths.
+
+The same rule holds outside STATS. Battery voltage 0x80 is payload[4..5] of the
+BATTERY poll, capacity 0x7E is payload[2..3], uptime 0xD3 is payload[10..11] of
+ENERGY. The constants in `fiido_protocol.h` are the offset of the first byte, so
+a field's ADDR and its constant differ by the width minus one.
 
 | offset | addr | meaning |
 |---|---|---|
@@ -90,6 +97,25 @@ to land after that. Setting the cap needs no delay.
 Readable combinations are value 100 with the flag off, or 6 and 25 with the
 flag on. Anything else is the resting state the BMS re-arms after a ride and is
 ignored rather than published.
+
+## Telemetry these bikes do not provide
+
+Battery current (0x85), the battery current-voltage field (0x83), the CTRL block
+apart from its version and manufacturer bytes, and every ENERGY field except
+uptime (0xD3) read zero on both the C11 Pro and the M1 Pro 2025. That holds at
+rest, under load, and across the whole state-of-charge range. Battery voltage at
+0x80 reads the pack's nameplate 48.0 V and never moves off it. None of this is a
+decode error and no write arms any of it.
+
+The capability bytes point at the reason. Both bikes clear the bits for a torque
+transducer (0x2D bit 1), a Hall sensor in the pack (0x30 bit 5) and a CAN link to
+the battery (0x33 bit 4), which are the parts that would have to exist for crank
+torque at 0xC9 and pack current at 0x85 to carry anything. The mapping is not
+exact: the energy-meter bit at 0x2D bit 0 differs between the two bikes and both
+still report zero trip and total energy.
+
+SOC at 0x24 is the battery reading to use. One byte, plain percent, and it tracks
+the bars on the bike's own display.
 
 ## Behaviour the BMS imposes
 

@@ -506,6 +506,9 @@ void FiidoBMSHub::parse_ctrl_(std::span<const uint8_t> p) {
   if (p.size() != ctrl::PAYLOAD_LEN)
     return;
   this->publish_fields_(p, CTRL_FIELDS);
+  const int8_t temp_c = static_cast<int8_t>(p[ctrl::TEMPERATURE_C]);
+  if (temp_c >= ctrl::MIN_TEMPERATURE_C && temp_c <= ctrl::MAX_TEMPERATURE_C)
+    publish_changed(this->ctrl_temperature_sensor_, temp_c);
 }
 
 void FiidoBMSHub::parse_motor_(std::span<const uint8_t> p) {

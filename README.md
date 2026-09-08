@@ -235,6 +235,18 @@ is the byte offset inside the STATS poll payload `[0..52]`.
 | `meter_sw_version`        | Meter SW Version         | -     | METER        |
 | `meter_mode_data`         | Meter Mode Data          | -     | METER        |
 
+### Telemetry these bikes do not provide
+
+`battery_current`, `battery_current_voltage`, the four `ctrl_` readings and
+`crank_torque` / `crank_rpm` / `this_take_energy` / `total_take_energy` read zero
+on the C11 Pro and the M1 Pro 2025, at rest and under load, over the full state of
+charge. `battery_voltage` reads the nameplate 48.0 V and never moves. Both bikes
+clear the capability bits for a torque transducer, a pack Hall sensor and a
+battery CAN link, which are what would fill those registers.
+
+The entities are still built so other models can use them. For battery state on
+these two, use `battery_soc`, which matches the bike's own display.
+
 ### Entities (binary_sensor)
 
 Same `expose_dev_sensors` gate as the sensor platform: dev entries are skipped
@@ -550,8 +562,9 @@ Adding the option to a running installation renames entities; see **Upgrading**.
   in. The hub will fail to connect; the entity `connected` goes to OFF. Unplug the
   charger to bring the link back.
 - **M1 Pro 2025**: BMS stays on BLE while charging, but no register reports the
-  charge state. `battery_voltage` reads nominal 48.0 V, `battery_current` reads 0.0
-  A regardless. Do not use these to detect charging.
+  charge state. `battery_voltage` reads nominal 48.0 V and `battery_current` reads
+  0.0 A here as everywhere else on these bikes, charging or not, so neither can
+  detect it. See **Telemetry these bikes do not provide**.
 
 ### App vs ESPHome
 
@@ -890,6 +903,7 @@ pio test -d tests -e native
 | Constraint                                                                                 | Effect / workaround                                                                                                                |
 |--------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
 | C11 charging cuts BLE entirely                                                             | `connected` goes OFF while the charger is plugged in. Unplug to restore the link.                                                  |
+| Current, controller and crank-energy registers read zero on the C11 / M1                   | Not a decode error and no write arms them; the bikes clear the capability bits for the sensors that would fill them. Use `battery_soc`. See Telemetry these bikes do not provide. |
 | M1 charging is invisible on BLE                                                            | No register reports charge current / voltage delta. Do not try to detect charging from BMS state.                                  |
 | Official app and the component share the BLE link                                          | Only one central at a time. Use the `bluetooth` switch to release the link before pairing with the app.                            |
 | `slow_mode_on_boot` (bit 6 ADDR 0x2C) has an instant side-effect on ADDR 0x3C              | BMS rewrites the speed-limit value on the same WRITE: ON forces 6 km/h, OFF restores the user choice. The component only writes bit 6; do not also write 0x3C in the same burst. |
