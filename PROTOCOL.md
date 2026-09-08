@@ -98,6 +98,25 @@ Readable combinations are value 100 with the flag off, or 6 and 25 with the
 flag on. Anything else is the resting state the BMS re-arms after a ride and is
 ignored rather than published.
 
+## Telemetry these bikes do not provide
+
+Battery current (0x85), the battery current-voltage field (0x83), the CTRL block
+apart from its version and manufacturer bytes, and every ENERGY field except
+uptime (0xD3) read zero on both the C11 Pro and the M1 Pro 2025. That holds at
+rest, under load, and across the whole state-of-charge range. Battery voltage at
+0x80 reads the pack's nameplate 48.0 V and never moves off it. None of this is a
+decode error and no write arms any of it.
+
+The capability bytes point at the reason. Both bikes clear the bits for a torque
+transducer (0x2D bit 1), a Hall sensor in the pack (0x30 bit 5) and a CAN link to
+the battery (0x33 bit 4), which are the parts that would have to exist for crank
+torque at 0xC9 and pack current at 0x85 to carry anything. The mapping is not
+exact: the energy-meter bit at 0x2D bit 0 differs between the two bikes and both
+still report zero trip and total energy.
+
+SOC at 0x24 is the battery reading to use. One byte, plain percent, and it tracks
+the bars on the bike's own display.
+
 ## Behaviour the BMS imposes
 
 - The controller has to be on before a gear or gear-count write is accepted.
