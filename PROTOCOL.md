@@ -56,9 +56,16 @@ A handshake poll of ADDR 0x0D goes out once per connection.
 
 ## STATS payload
 
-Offsets are into the payload, which starts at ADDR 0x05, so ADDR `XX` normally
-sits at `XX - 0x05`. Three fields predate that rule and are kept as measured:
-total distance at 23 (4B), trip at 27 (2B), speed at 29 (2B), all in tenths.
+Offsets are into the payload, which starts at ADDR 0x05, so a one-byte field at
+ADDR `XX` sits at `XX - 0x05`. A multi-byte big-endian field is named by the ADDR
+of its **last** byte and therefore begins that many bytes earlier: total distance
+0x1F is 4B at offset 23 (0x1C..0x1F), trip 0x21 is 2B at 27 (0x20..0x21), speed
+0x23 is 2B at 29 (0x22..0x23), all in tenths.
+
+The same rule holds outside STATS. Battery voltage 0x80 is payload[4..5] of the
+BATTERY poll, capacity 0x7E is payload[2..3], uptime 0xD3 is payload[10..11] of
+ENERGY. The constants in `fiido_protocol.h` are the offset of the first byte, so
+a field's ADDR and its constant differ by the width minus one.
 
 | offset | addr | meaning |
 |---|---|---|
