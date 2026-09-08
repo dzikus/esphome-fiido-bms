@@ -374,7 +374,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
        .label = "Battery Manufacturer"},
   }};
 
-  static constexpr std::array<SensorField, 8> CTRL_FIELDS{{
+  static constexpr std::array<SensorField, 7> CTRL_FIELDS{{
       {.entity = &FiidoBMSHub::ctrl_hw_version_sensor_,
        .offset = ctrl::HW_VERSION,
        .width = FieldWidth::U8,
@@ -400,11 +400,6 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
        .width = FieldWidth::U16BE,
        .divisor = 10.0f,
        .label = "Ctrl Current"},
-      {.entity = &FiidoBMSHub::ctrl_temperature_sensor_,
-       .offset = ctrl::TEMPERATURE_C,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Ctrl Temperature"},
       {.entity = &FiidoBMSHub::ctrl_version_sensor_,
        .offset = ctrl::VERSION,
        .width = FieldWidth::U8,

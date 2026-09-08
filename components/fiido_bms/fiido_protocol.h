@@ -287,6 +287,8 @@ inline constexpr size_t CURRENT_A = 7;        // 2B BE, tenths
 inline constexpr size_t TEMPERATURE_C = 9;
 inline constexpr size_t VERSION = 10;
 inline constexpr size_t MANUFACTURER = 11;
+inline constexpr int16_t MIN_TEMPERATURE_C = -40;
+inline constexpr int16_t MAX_TEMPERATURE_C = 125;
 }  // namespace ctrl
 
 namespace motor {
