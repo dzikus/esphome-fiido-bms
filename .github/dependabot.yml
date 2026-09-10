@@ -1,22 +1,28 @@
 version: 2
+
+multi-ecosystem-groups:
+  deps:
+    schedule:
+      interval: weekly
+
 updates:
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: deps
   - package-ecosystem: pre-commit
     directory: /
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: deps
   - package-ecosystem: docker
     directory: /.devcontainer
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: deps
   - package-ecosystem: devcontainers
     directory: /
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: deps
   - package-ecosystem: pip
     directory: /.devcontainer
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: deps

@@ -10,7 +10,6 @@ on:
 permissions:
   contents: read
 env:
-  ESPHOME_VERSION: "2026.8.1"
   ESPHOME_FLOOR: "2026.1.0"
 concurrency:
   group: tests-${{ github.ref }}
@@ -28,8 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           rev_of() { grep -A1 "$1" .pre-commit-config.yaml | sed -n 's/^ *rev: v//p'; }
-          for pin in "esphome==${ESPHOME_VERSION}" \
-                     "ruff==$(rev_of astral-sh/ruff-pre-commit)" \
+          for pin in "ruff==$(rev_of astral-sh/ruff-pre-commit)" \
                      "clang-format==$(rev_of mirrors-clang-format)"; do
             grep -qx "${pin}" .devcontainer/requirements.txt \
               || { echo "${pin} is not in .devcontainer/requirements.txt" >&2; exit 1; }
@@ -104,6 +102,12 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
+      - name: Resolve the ESPHome pin from .devcontainer/requirements.txt
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^esphome==//p' .devcontainer/requirements.txt)"
+          [ -n "${version}" ] || { echo "no esphome== pin in .devcontainer/requirements.txt" >&2; exit 1; }
+          echo "ESPHOME_VERSION=${version}" >> "$GITHUB_ENV"
       - name: Cache PlatformIO
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
@@ -145,6 +149,12 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
+      - name: Resolve the ESPHome pin from .devcontainer/requirements.txt
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^esphome==//p' .devcontainer/requirements.txt)"
+          [ -n "${version}" ] || { echo "no esphome== pin in .devcontainer/requirements.txt" >&2; exit 1; }
+          echo "ESPHOME_VERSION=${version}" >> "$GITHUB_ENV"
       - name: Cache PlatformIO
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
