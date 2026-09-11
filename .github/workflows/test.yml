@@ -7,8 +7,7 @@ on:
     paths: ["components/fiido_bms/**", "tests/**", ".github/**", ".devcontainer/requirements.txt", "example.yaml", ".intellisense.yaml", "pyproject.toml", ".pre-commit-config.yaml", ".clang-format", ".clang-tidy"]
   workflow_call:
   workflow_dispatch:
-permissions:
-  contents: read
+permissions: {}
 env:
   ESPHOME_FLOOR: "2026.1.0"
 concurrency:
@@ -19,6 +18,8 @@ jobs:
     name: ruff + pre-commit
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -54,6 +55,8 @@ jobs:
     needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -94,6 +97,8 @@ jobs:
     needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -133,6 +138,8 @@ jobs:
     needs: unit-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -179,6 +186,8 @@ jobs:
     needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
