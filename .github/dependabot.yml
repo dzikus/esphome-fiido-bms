@@ -10,19 +10,29 @@ updates:
     directory: /
     patterns: ["*"]
     multi-ecosystem-group: deps
+    cooldown:
+      default-days: 7
   - package-ecosystem: pre-commit
     directory: /
     patterns: ["*"]
     multi-ecosystem-group: deps
-  - package-ecosystem: docker
-    directory: /.devcontainer
-    patterns: ["*"]
-    multi-ecosystem-group: deps
-  - package-ecosystem: devcontainers
-    directory: /
-    patterns: ["*"]
-    multi-ecosystem-group: deps
+    cooldown:
+      default-days: 7
   - package-ecosystem: pip
     directory: /.devcontainer
     patterns: ["*"]
     multi-ecosystem-group: deps
+    cooldown:
+      default-days: 7
+  - package-ecosystem: docker
+    directory: /.devcontainer
+    patterns: ["*"]
+    multi-ecosystem-group: deps
+    cooldown:
+      default-days: 7
+  - package-ecosystem: devcontainers
+    directory: /
+    patterns: ["*"]
+    multi-ecosystem-group: deps
+    cooldown:
+      default-days: 7
