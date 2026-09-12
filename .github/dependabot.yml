@@ -24,6 +24,8 @@ updates:
     multi-ecosystem-group: deps
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: platformio
   - package-ecosystem: docker
     directory: /.devcontainer
     patterns: ["*"]
