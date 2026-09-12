@@ -10,7 +10,7 @@ concurrency:
 jobs:
   gates:
     name: test gates
-    uses: $/.github/workflows/test.yml
+    uses: ./.github/workflows/test.yml
   publish:
     name: publish release
     needs: gates
