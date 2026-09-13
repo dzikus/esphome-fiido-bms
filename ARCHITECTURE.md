@@ -1,292 +1,245 @@
 # ESPHome Fiido BMS architecture
 
-How the component is structured, how it polls and writes, and how to add a new
-sensor, binary sensor, select, switch, number or button. Configuration and entities
-are in [README.md](README.md), the wire protocol in [PROTOCOL.md](PROTOCOL.md).
+How the component is structured, how it polls and writes, and how to add an entity.
+Configuration and entities are in [README.md](README.md). Frames, registers and bit
+meanings are in [PROTOCOL.md](PROTOCOL.md) and are not repeated here.
 
 ## Component layout
 
 ```
 components/fiido_bms/
-  __init__.py                  hub config + schema, model entity sets, auto-offset, dev gating
-  sensor.py                    sensor platform: 36 keys (10 always on, 26 dev), schema + to_code
-  binary_sensor.py             binary_sensor platform: 3 keys (2 always on, 1 dev)
-  select.py                    4 select classes + platform
-  switch.py                    16 switch classes + platform (9 stable, 7 dev)
-  number.py                    3 number classes + platform, all dev
-  button.py                    1 button class + platform, dev (pair_watch)
+  __init__.py                  hub schema, model entity sets, auto-offset, dev gating
+  sensor.py                    36 sensors (10 by default, 26 dev), poll group per sensor
+  binary_sensor.py             3 binary sensors (2 by default, 1 dev)
+  select.py                    4 selects
+  switch.py                    16 switches (9 by default, 7 dev)
+  number.py                    3 numbers, all dev
+  button.py                    pair_watch, dev
 
-  fiido_protocol.{h,cpp}       pure C++: CRC XOR, frame builders, validate, POLL_TABLE
-  fiido_state.{h,cpp}          pure C++: lifecycle, write gate, pending queue, burst
-                               cadence, register cache, speed limit plan, gear clamp
+  fiido_protocol.{h,cpp}       pure C++: register addresses and bits, frame builders,
+                               notify validation, STATS and flag decode, masked write,
+                               poll table, burst cadence
+  fiido_state.{h,cpp}          pure C++: lifecycle decisions, write gate, pending write
+                               queue, register cache, speed limit plan, gear and power
+                               encoding, auto-shutdown
   fiido_model.h                pure C++: Model enum, GATT profiles, per-model traits
-  fiido_link.{h,cpp}           GATT handles by UUID, notify subscription, writes
-  fiido_bms.{h,cpp}            FiidoBMSHub: BLE client + PollingComponent + state machine
+  fiido_link.{h,cpp}           GATT handles by UUID, notify subscription, writes, congestion
+  fiido_bms.{h,cpp}            FiidoBMSHub: BLE client node + PollingComponent, notify
+                               parsers, FLAG_CONTROLS and BYTE_CONTROLS tables
 
-  fiido_bool_switch.h          all 16 switches via two templates + one-line subclasses:
-                               FiidoBoolSwitch<Setter>             write_state only
-                               FiidoBoolSwitchWithRestore<Setter>  setup() restore + defer
-                               motor / light / speaker / key_sound / throttle / slow_mode
-                                 / bike_guard and the 7 dev switches are write-only; the
-                                 bit + ADDR live in the hub setter
-                               bluetooth / auto_shutdown use the with-restore template
-                                 (local state, re-applied on boot)
-  fiido_number.h               3 numbers via one template (brightness / boost / guard_time)
+  fiido_bool_switch.h          FiidoBoolSwitch<Setter> (write_state only) and
+                               FiidoBoolSwitchWithRestore<Setter> (restores in setup(),
+                               used by bluetooth and auto_shutdown)
+  fiido_number.h               FiidoNumber<Setter> for brightness, boost, guard_time
   fiido_button.h               pair_watch button
-
-  fiido_gear_select.{h,cpp}         ADDR 0x26, count-aware (3 vs 5)
-  fiido_mode_select.{h,cpp}         ADDR 0x25 nibble-packed
-  fiido_speed_limit_select.{h,cpp}  ADDR 0x3C + bit 5 ADDR 0x27 pair
-  fiido_speed_unit_select.{h,cpp}   bit 7 ADDR 0x28
+  fiido_gear_select.{h,cpp}         gear, OFF plus 3 or 5 gears
+  fiido_mode_select.{h,cpp}         gear count
+  fiido_speed_limit_select.{h,cpp}  speed limit
+  fiido_speed_unit_select.{h,cpp}   speed unit
 ```
 
-`fiido_protocol.{h,cpp}`, `fiido_state.{h,cpp}` and `fiido_model.h` are pure C++ with
-no ESPHome dependencies and are what the PlatformIO unit tests build against.
-Everything else needs the ESPHome runtime.
+`fiido_protocol`, `fiido_state` and `fiido_model.h` have no ESPHome dependency and the
+host unit tests build against them. Everything else needs the ESPHome runtime.
 
-## Polling model
+## Polling
 
-`FiidoBMSHub` inherits `PollingComponent` with a fixed 1-second baseline. On every
-tick `update()` checks a gate:
+`FiidoBMSHub` is a `PollingComponent` with a 1 s `update_interval`. `update()` returns
+early while the `bluetooth` switch is off, while the link is not `READY` (notify
+registered) and until `startup_delay` has passed since the connection opened. The
+first call after that sends the HANDSHAKE poll. Later calls start a burst when
+`evaluate_burst_gate()` allows it:
 
 ```
 interval = desired_interval_ms_
 slot     = (now - startup_delay_ms_ % interval) / interval
-if slot == last_burst_slot_ or (now - last_burst_ms_) < interval:
-    return
-last_burst_slot_ = slot
-last_burst_ms_   = now
-send_burst_poll_()
+start if the burst is forced, or no burst ran on this connection,
+      or (slot != last_burst_slot_ and now - last_burst_ms_ >= interval / 2)
 ```
 
-Two gates. The slot fixes the phase to a clock both hubs read, so their
-`startup_delay` separation holds for the whole uptime instead of decaying into the
-random phase ESPHome gives each component's poller tick. The elapsed check keeps a
-minimum spacing, which matters because a write-verification poll bypasses both gates
-and can land just before a slot boundary.
+The slot ties the phase to `millis()`, which every hub reads, so the `startup_delay`
+offset between hubs holds for the whole uptime. The spacing check uses half an
+interval: a full one would pace each hub from its own last burst and could lock two
+hubs that once fired together, and half still absorbs a forced burst that lands next
+to a slot boundary.
 
-`desired_interval_ms_` flips between `update_interval_on_ms_` (default 3s, motor on)
-and `update_interval_off_ms_` (default 15s, motor off) inside `parse_stats_`, based
-on bit 7 of ADDR 0x27. The flip is one-way per STATS frame; the gate decides when
-the next burst actually fires.
+`desired_interval_ms_` is `update_interval_on` (3 s) while STATS reports the
+controller on and `update_interval_off` (15 s) while it is off. `READY` resets it to
+`update_interval_on`.
 
-A burst walks the whole `POLL_TABLE` (9 entries) scheduled 5 ms apart in time via
-`set_timeout("burst", 5ms)`:
+A burst walks [the poll table](PROTOCOL.md#polls) with 5 ms between polls
+(`BURST_INTERVAL_MS`) and skips polls no entity on the hub reads. In testing 50, 20,
+10 and 5 ms worked and 2 ms made entity states flicker. A failed send
+is retried twice, 50 ms apart (`BURST_SEND_RETRIES`, `BURST_RETRY_MS`), then the burst
+moves on. While L2CAP reports congestion the burst waits in 50 ms steps and resumes
+when the congestion ends.
 
-```
-BATTERY -> CTRL -> MOTOR -> ENERGY -> STATS -> METER -> SPEEDLIM -> BOOST -> DISPLAY
-```
+STATS is always polled. `default_poll_enables()` enables STATS only, and code
+generation calls `enable_<group>_poll()` for each poll an entity of the hub reads:
 
-5 ms is the empirically established sweet spot; anything below ~3 ms makes the BMS
-drop frames. Polls that no entity on the hub reads are skipped at burst time (see
-the note under the poll table in [Frame format](#frame-format)). A counter limits the skip loop to one pass over
-`POLL_TABLE`.
+| Poll                                | Enabled by                                           |
+|-------------------------------------|------------------------------------------------------|
+| BATTERY, CTRL, MOTOR, ENERGY, METER | a sensor mapped to it in `SENSOR_POLL_GROUP` (`sensor.py`) |
+| SPEEDLIM                            | the `speed_limit` select                             |
+| BOOST                               | the `boost` number                                   |
+| DISPLAY                             | the `brightness` or `guard_time` number              |
 
-After every successful WRITE the hub sets `force_poll_stats_ = true`, cancels the
-in-flight burst, and re-enters burst rotation starting with STATS so the WRITE's
-visible effect (a flipped bit) shows up in HA within one burst step.
+CTRL and METER feed dev sensors only. A `model: air` hub without `expose_dev_sensors`
+polls STATS and BATTERY. HANDSHAKE goes out once per connection, outside the burst.
 
-## BLE lifecycle state machine
+After a write goes out, `schedule_write_verify_()` sets `force_poll_stats_` and calls
+`update()` 500 ms later (`FORCE_STATS_DELAY_MS`). The forced call cancels a running
+burst and starts a new one at STATS.
 
-```
-                   motor_off_since >= idle_disconnect
-                       AND pending_writes empty
-[CONNECTED] -------------------------------------------------> [DISCONNECTED]
-     ^                                                                |
-     |                                                                |
-     |  STATS, motor on                                               |
-     |                                                                |
-[PROBING] <-----------------------------------------------------------/
-     |                            disconnected_since >= PERIODIC_PROBE
-     |                                  (or HA-driven WRITE)
-     |
-     |--- STATS, motor off, no pending --> set_enabled(false) --> [DISCONNECTED]
-     |
-     \--- PROBE_WINDOW expired, not connected, no pending --> [DISCONNECTED]
-```
+## Notify handling
 
-| Transition                         | Trigger                                              | Effect                                                                  |
-|------------------------------------|------------------------------------------------------|-------------------------------------------------------------------------|
-| `CONNECTED -> DISCONNECTED`        | `now - motor_off_since_ms_ >= idle_disconnect_ms_` and no pending WRITE | `set_enabled(false)`, BLE link dropped                                  |
-| `DISCONNECTED -> PROBING`          | `now - disconnected_since_ms_ >= PERIODIC_PROBE_MS` (5 min) | `set_enabled(true)`, scan + connect                                     |
-| `PROBING -> CONNECTED`             | STATS arrives with bit 7 ADDR 0x27 set               | stay connected, run burst polls                                         |
-| `PROBING -> DISCONNECTED`          | STATS arrives with bit 7 ADDR 0x27 clear and no pending | `set_enabled(false)`                                                    |
-| `PROBING -> DISCONNECTED` (timeout)| `PROBE_WINDOW_MS` (60s) elapsed, still not linked, no pending | `set_enabled(false)`                                                    |
-| `CONNECTED -> DISCONNECTED` (silent link) | no valid STATS since the connection opened or since the last STATS for `silent_link_ms_` (`Silent link timeout` in `dump_config`), also before READY | `set_enabled(false)`; queued writes are dropped with a warning |
-| any `-> DISCONNECTED` (GATT)       | services resolved, but the configured profile's service or characteristics are missing | `set_enabled(false)` and warning status. If the bike offers the other known profile instead: queued writes cleared, later writes rejected, no probing until the `bluetooth` switch is cycled or the node restarts |
-| any `-> PROBING`                   | HA writes a control while link is down               | `enqueue_pending_write_(fn)` + `ensure_enabled_for_write_()` + `set_enabled(true)` |
-| WRITE drained                      | STATS valid after re-connect                         | `dispatch_pending_writes_()` runs every enqueued lambda                 |
+`handle_notify_()` checks the frame with `validate_notify()` and hands the payload to
+the parser for its address from the `PARSERS` table. A `static_assert` fails the build
+when a polled address has no parser. Rejected frames and unknown addresses are logged
+at most once every 5 s.
 
-None of these transitions is gated by `auto_shutdown` - that switch controls a
-different mechanism (the automatic motor power-off, see the
-[switch table](README.md#entities-switch)).
-The BLE link is released on `idle_disconnect` regardless of it.
+`parse_stats_()`, for a valid STATS payload:
 
-The `bluetooth` switch is a hard kill: turning it OFF
-clears the pending-writes queue, cancels the pending timeouts, calls
-`parent_->set_enabled(false)`, and any subsequent WRITE setter rejects the change
-(`motor`/`light`/`speaker` re-publish the inverted state, others log + return).
+1. restarts the silent-link timer, publishes speed, distances, SOC and gear start
+   (`stats_samples()` drops readings outside their bounds) and syncs the gear and
+   gear count selects, writing the gear below when the BMS reports one the gear
+   count has no label for;
+2. runs the `enforce_gear_mode_3` check and publishes `brake`;
+3. copies the flag bytes into the register cache and dispatches queued writes;
+4. publishes Power, Light, the `FLAG_CONTROLS` switches, the speed limit and speed
+   unit selects and `pas_limit` from the cache, so a write dispatched in step 3
+   already shows;
+5. adapts the poll interval, clears the persisted light bit on the controller's
+   falling edge (models with `light_bit_persists`), feeds auto-shutdown and the
+   idle-disconnect timer, and settles a running probe.
 
-## State cache and read-modify-write
+BATTERY, CTRL, MOTOR, ENERGY and METER payloads are length-checked and published
+through the `SensorField` tables in `fiido_bms.h`. The signed motor and controller
+temperatures are decoded outside the tables. SPEEDLIM, BOOST and DISPLAY update the
+register cache and their entities.
 
-The bike's WRITE protocol replaces an entire byte, so toggling a single bit needs
-the latest copy of that byte first. The hub keeps a one-byte cache per relevant
-address, populated from the STATS poll:
+Sensors, selects and numbers go through `publish_changed()`, which skips a value the
+entity already holds. Switches and binary sensors deduplicate in ESPHome itself.
 
-| ADDR | Offset in STATS payload | What lives there                              | Used by                                                   |
-|------|-------------------------|-----------------------------------------------|-----------------------------------------------------------|
-| 0x25 | payload[32]             | gear range, nibble-packed                     | `set_gear_mode`                                           |
-| 0x27 | payload[34]             | bit 7 = motor, bit 6 = cruise, bit 5 = speed_limit_en, bit 3 = light, bit 1 = start_mode, bit 0 = insensitivity | `set_motor_enable`, `set_light_enable`, `set_speed_limit`, `set_cruise_enable`, `set_start_mode_enable`, `set_insensitivity_enable` |
-| 0x28 | payload[35]             | bit 7 = speed unit (1 = mph), bit 6 = show_total_km, other UI flags | `set_speed_unit`, `set_show_total_km_enable`             |
-| 0x2B | payload[38]             | bit 1 = throttle (inverted), bit 5 = double_speed, bit 6 = bike_guard | `set_throttle_enable`, `set_double_speed_enable`, `set_bike_guard_enable` |
-| 0x2C | payload[39]             | bits 3:2 = gear way, bit 4 = key_sound (inverted), bit 6 = slow_mode_on_boot | `set_key_sound_enable`, `set_slow_mode_enable`            |
-| 0x38 | payload[51]             | bits 3:2 = speaker (binary on these bikes), other flags | `set_speaker_enable`                                      |
-| 0x39 | payload[52]             | bit 3 = auto_screen_off, bit 1 = ring; only bits 4..0 cached, write masks bits 7..5 and uses the J0 (0xFF) frame | `set_auto_screen_off_enable`, `set_ring_enable`          |
-| 0x3C | separate poll (SPEEDLIM) | speed limit value in km/h                    | `set_speed_limit` (paired with bit 5 ADDR 0x27)           |
-| 0x52 | separate poll (BOOST)   | PAS boost level                               | `set_boost`                                              |
-| 0x57, 0x58 | separate poll (DISPLAY) | brightness (0x57), guard time (0x58)      | `set_brightness`, `set_guard_time`                       |
+## Register cache and writes
 
-Each cache has a `_valid` flag. Setters reject writes (and re-publish the old state
-to HA) when their cache byte is not yet valid; the next STATS frame populates it.
-This is also why the first action after boot is sometimes deferred by one or two
-seconds: the cache must be primed first.
+A write replaces a whole byte, so a control that changes one bit builds the byte from
+the last value read. `RegisterCache` (`fiido_state.h`) holds one optional byte per
+address in `CACHED_REGISTERS`: 0x25, 0x27, 0x28, 0x2B, 0x2C, 0x38 and 0x39 from STATS,
+0x3C from SPEEDLIM, 0x52 from BOOST, 0x57 and 0x58 from DISPLAY. A disconnect clears
+it. Bit meanings are in [STATS payload](PROTOCOL.md#stats-payload).
 
-If a WRITE arrives while disconnected, the setter wraps itself in a lambda and
-pushes it to `pending_writes_`. The lifecycle state machine forces a re-connect,
-and `dispatch_pending_writes_` runs the queue once STATS has come back valid.
+Every setter asks `gate_()` first, which calls `gate_write()` (`fiido_state.cpp`):
 
-## Frame format
+| Verdict                 | When                                                         | Result |
+|-------------------------|--------------------------------------------------------------|--------|
+| `REJECT_BLE_DISABLED`   | the `bluetooth` switch is off                                | entity reverts |
+| `REJECT_WRONG_MODEL`    | the bike offers the GATT service of another model            | entity reverts |
+| `QUEUE_DISCONNECTED`    | the link is not `READY`                                      | write queued, client enabled, probe armed |
+| `DEFER_COLD_CACHE`      | a byte the write builds on has not been read yet             | write queued until the next STATS |
+| `REJECT_CONTROLLER_OFF` | light, gear or gear count while the controller is off        | entity reverts |
+| `SEND`                  | otherwise                                                    | frame goes out |
 
-```
-POLL (read):            [0x46][0x64][0x55][len ][addr][CRC]      total: 6 bytes
-WRITE J0:               [0x46][0x64][0xFF][plen][addr][...p ][CRC]
-WRITE L0 (most):        [0x46][0x64][0xAA][plen][addr][...p ][CRC]
-NOTIFY:                 [0x46][0x64][0xAA][plen][addr][...p ][CRC]
-```
+A reverted switch republishes the opposite of the request (Light always shows off), a
+select or number its previous value. The queue (`PendingWrites`, 32 slots, the oldest entry dropped when full) runs
+in order when a valid STATS arrives. Turning the `bluetooth` switch off clears it,
+cancels pending timeouts and disables the client. Turning it on lifts the GATT
+mismatch block and starts a probe.
 
-- Byte 0..1: `'F' 'd'`, the Fiido signature.
-- Byte 2: frame type. `0x55` = poll, `0xFF` = WRITE J0, `0xAA` = WRITE L0 / NOTIFY.
-- Byte 3: `len`. For poll frames this is how many bytes the BMS should send back;
-  for WRITE / NOTIFY it is the payload length (frame length minus 6).
-- Byte 4: address (register).
-- Bytes 5..n-2: payload (WRITE / NOTIFY only).
-- Last byte: XOR of all preceding bytes. `compute_crc(buf, len-1)` in
-  `fiido_protocol.cpp`.
+Single-bit switches are rows in `FLAG_CONTROLS` (`fiido_bms.h`): address, cache slot,
+mask, the bits written for on and for off, and the entity. `set_flag_()` runs the
+gate, then `write_masked_bits_()` keeps the cached bits outside the mask
+(`compute_masked_write()`, see [Which write type](PROTOCOL.md#which-write-type) for
+ADDR 0x39), sends the frame, stores the written byte in the cache and schedules the
+verification STATS. The numbers write whole bytes from `BYTE_CONTROLS`. Power, light,
+gear, gear count, speed limit and speed unit have their own setters, and the speed
+limit sequence is in [Speed limit](PROTOCOL.md#speed-limit).
 
-WRITE frames are fire-and-forget. The BMS does not return a NOTIFY for a WRITE
-(the only exception is ADDR 0x25 mode change, which echoes back). Verification is
-empirical: queue a STATS poll afterwards (`force_poll_stats_`) and read the bit
-back from the next NOTIFY.
+## BLE lifecycle
 
-The full poll rotation:
+`manage_lifecycle_()` runs every second and acts on `decide_lifecycle()`
+(`fiido_state.cpp`):
 
-| Name      | Addr | Len | Tx                       | Provides                                       |
-|-----------|------|-----|--------------------------|------------------------------------------------|
-| HANDSHAKE | 0x0D | 13  | `46 64 55 0D 0D 77`      | memory test pattern (sent once after connect)  |
-| BATTERY   | 0x7B | 13  | `46 64 55 0D 7B 01`      | HW/SW/capacity/voltage/current/manufacturer    |
-| CTRL      | 0xAF | 12  | `46 64 55 0C AF D4`      | controller HW/SW/upper/lower/current/temp      |
-| MOTOR     | 0x96 | 12  | `46 64 55 0C 96 ED`      | motor version/wheel/temp/capacity              |
-| ENERGY    | 0xC8 | 12  | `46 64 55 0C C8 B3`      | torque/RPM/trip/total energy/uptime            |
-| STATS     | 0x05 | 53  | `46 64 55 35 05 47`      | speed/km/gear/SOC + every flag byte 0x05..0x39 |
-| METER     | 0x60 | 13  | `46 64 55 0D 60 1A`      | meter HW/SW/mode                               |
-| SPEEDLIM  | 0x3C | 1   | `46 64 55 01 3C 4A`      | current speed-limit value in km/h              |
-| BOOST     | 0x52 | 1   | `46 64 55 01 52 24`      | PAS boost level                                |
-| DISPLAY   | 0x57 | 2   | `46 64 55 02 57 22`      | display brightness (0x57) + guard time (0x58)  |
+| Action            | Condition                                                                 | Effect |
+|-------------------|---------------------------------------------------------------------------|--------|
+| `IDLE_DISCONNECT` | `READY`, controller off for `idle_disconnect` (15 min), no queued write    | client disabled |
+| `SILENT_LINK`     | link open and no valid STATS for the `Silent link timeout` (see [Link behaviour](README.md#link-behaviour)) | queued writes dropped with a warning, client disabled |
+| `PROBE_TIMEOUT`   | probe running, not `READY` after 60 s, no queued write, no write dispatched in the last 10 s | client disabled |
+| `START_PROBE`     | client disabled for 5 min and no GATT mismatch block                      | client enabled, probe started |
 
-STATS is always issued. Every other poll runs only on a hub that builds an entity
-reading it:
+A probe settles on its first valid STATS (`decide_probe_outcome()`): with the
+controller on the link stays; with it off the link stays for 10 s after a queued write
+went out (`WRITE_VERIFY_WINDOW_MS`), otherwise the client is disabled.
 
-| Poll                                | Enabled by                               |
-|-------------------------------------|------------------------------------------|
-| BATTERY, CTRL, MOTOR, ENERGY, METER | a sensor fed by that poll                |
-| SPEEDLIM                            | the `speed_limit` select                 |
-| BOOST                               | the `boost` number                       |
-| DISPLAY                             | the `brightness` or `guard_time` number  |
+After service discovery `FiidoLink::resolve()` looks up the characteristics of the
+model's GATT profile. When they are missing the hub sets a warning status and disables
+the client. When the bike offers the other known profile it also clears the queue,
+rejects writes and stops probing until the `bluetooth` switch is cycled or the node
+restarts.
 
-CTRL and METER feed dev sensors only and drop out with `expose_dev_sensors: false`. A
-`model: air` hub without `expose_dev_sensors` sends STATS and BATTERY only. HANDSHAKE
-goes out once per connection, outside the rotation.
+Auto-shutdown is separate: with the `auto_shutdown` switch on, after 15 minutes
+without activity (controller switched on, gear change, movement, light change) while
+the controller is on, the hub writes Power OFF. It does not release the link; `idle_disconnect` does that once the controller is
+off.
 
-## Adding a new entity
+## Adding an entity
 
-The component is built so that each new register-backed control follows the same
-shape. Walking through a new switch on, say, bit 0 ADDR 0x39:
+`tests/python/test_tables.py` cross-checks the tables below: dev key sets, poll groups
+against the `enable_*_poll()` methods of the hub, default names, restore modes and the
+Air entity set.
 
-1. **Declare the cache** (if the byte is not already cached). In `fiido_bms.h`
-   add a `uint8_t addr_39_cache_{0};` and `bool addr_39_valid_{false};` to the
-   protected section. Direct field access is used inside the class; no public
-   accessors are needed.
+### A switch on one bit
 
-2. **Populate the cache** from `parse_stats_` in `fiido_bms.cpp`. Find the byte
-   in the STATS payload (`payload[off]` where `off` is `ADDR - 0x05`), assign
-   to `addr_39_cache_`, set `addr_39_valid_ = true`, and `publish_state` to the
-   switch entity using the relevant bit.
+1. `fiido_protocol.h`: a `RegBit` in the `flags_XX` namespace of the register, a
+   `FlagView` field and its line in `decode_flags()`. For a register not cached yet,
+   also a `stats` offset, a `StatsView` field and its copy in `decode_stats()`, the
+   address in `CACHED_REGISTERS` (`fiido_state.h`) and the `set` call in
+   `cache_flag_registers_()`.
+2. `fiido_bms.h`: a `FlagId` value and a `FLAG_CONTROLS` row at the same position
+   (`inverted_flag_control()` when the bit is set while the feature is off), a
+   `flag_row_is()` `static_assert`, the setter declaration and `SUB_SWITCH(name)`. Dev
+   controls go inside `#ifdef USE_FIIDO_BMS_DEV`.
+3. `fiido_bms.cpp`: the setter calls `set_flag_()`. `publish_flag_entities_()` already
+   publishes every row.
+4. `fiido_bool_switch.h`: a class deriving from `FiidoBoolSwitch<&FiidoBMSHub::set_name_enable>`.
+5. `switch.py`: the class and a `SWITCHES` row. In `__init__.py`, the key in
+   `DEV_SWITCH_KEYS` for a dev control, and in `MODEL_ENTITY_SETS` when an Air hub
+   should build it by default or never.
+6. A `decode_flags()` test in `tests/test_protocol/test_decode.cpp` and a row in the
+   [switch table](README.md#entities-switch).
 
-3. **Write the setter** in `fiido_bms.cpp` alongside the other `set_X_enable`
-   methods. Pattern:
+### A sensor
 
-   ```
-   void FiidoBMSHub::set_my_thing_enable(bool on) {
-     if (!ble_user_enabled_) {
-       if (my_thing_switch_) my_thing_switch_->publish_state(!on);
-       return;
-     }
-     if (!addr_39_valid_) {
-       enqueue_pending_write_([this, on]() { set_my_thing_enable(on); });
-       ensure_enabled_for_write_();
-       return;
-     }
-     uint8_t b = addr_39_cache_;
-     b = on ? (b | 0x01) : (b & ~0x01);
-     // ADDR 0x39 latches only via the J0 (0xFF) frame and only bits 4..0 are valid.
-     b &= 0x1F;
-     if (send_raw_write(FrameType::WriteJ0, 0x39, std::vector<uint8_t>{b})) {
-       addr_39_cache_ = b;
-       force_poll_stats_ = true;
-     }
-   }
-   ```
+1. `fiido_protocol.h`: the field offset in the namespace of its poll (`battery`,
+   `ctrl`, `motor`, `energy`, `meter`).
+2. `fiido_bms.h`: `SUB_SENSOR(name)` and a row with offset, width and divisor in the
+   `SensorField` table of that poll. A field that needs its own decoding gets code in
+   the `parse_*_()` function instead.
+3. `sensor.py`: a `SENSORS` row and a `SENSOR_POLL_GROUP` entry, and in `__init__.py`
+   the key in `DEV_SENSOR_KEYS` for a dev sensor.
+4. A row in the [sensor table](README.md#entities-sensor).
 
-   Invert the polarity (`on ? & ~0x01 : | 0x01`) when the bit is inverted at the
-   BMS (key_sound, throttle). Most single-bit writes reuse the shared
-   `write_flag_bit_(addr, mask, on, &cache, valid, name)` helper, which applies the
-   ADDR 0x39 mask and J0 frame automatically; the expanded form above shows the steps.
-
-4. **Add a switch class**: add one line to `fiido_bool_switch.h`:
-   `class FiidoMyThingSwitch : public FiidoBoolSwitch<&FiidoBMSHub::set_my_thing_enable> {};`.
-   Use `FiidoBoolSwitchWithRestore<...>` instead only for local state that must
-   re-apply its restored value on boot (the bluetooth and auto_shutdown switches).
-
-5. **Register in `switch.py`**: import the class as `FiidoMyThingSwitch`, add it
-   to the `SWITCHES` table with a config key, hub setter name, restore mode,
-   icon, entity category, and default name.
-
-6. **Hub wiring in `fiido_bms.h`**: forward-declare `class FiidoMyThingSwitch;`,
-   add `void set_my_thing_switch(FiidoMyThingSwitch *sw) { my_thing_switch_ = sw; }`
-   and `FiidoMyThingSwitch *my_thing_switch_{nullptr};` in the protected section.
-   `fiido_bms.cpp` already includes `fiido_bool_switch.h`, which defines the class.
-
-7. **Unit test the parse path** in `tests/test_protocol/test_decode.cpp` and register
-   it in `run_decode_tests()`: extend the STATS fixture to set bit 0 of ADDR 0x39,
-   build a frame, decode it, assert the cache value.
-
-For a new sensor the shape is the same minus steps 3-6: add it to `SENSORS` in
-`sensor.py`, add `set_my_sensor` and the member pointer in `fiido_bms.h`, publish
-from the corresponding `parse_*` in `fiido_bms.cpp`. Add it to `SENSOR_POLL_GROUP`
-so the burst rotation enables the right poll when the sensor is declared, and add
-to `DEV_SENSOR_KEYS` if it should be off by default.
+A sensor fed by STATS uses `None` in `SENSOR_POLL_GROUP` and goes through
+`StatsView`, `stats_samples()` and `publish_stats_samples_()` instead of a field table,
+with a `STATS_SENSORS` row for `dump_config`.
 
 ## Testing
 
-Unit tests under `tests/test_protocol/` build with PlatformIO + Unity. They link
-`fiido_protocol.{h,cpp}` and `fiido_state.{h,cpp}`, include the header-only
-`fiido_model.h`, and run on the host (no ESP32 required). 144 tests cover CRC, the
-poll and write frame builders, validate, the decode of every poll's payload via
-static fixtures in `fixtures.h`, the state decisions (lifecycle, write gate, pending
-queue, burst cadence, speed limit plan, gear clamping) and the model table: UUID
-format, the profile each model uses, and which known profile a bike offers instead
-of the configured one.
+- 144 host unit tests (PlatformIO + Unity) in `tests/test_protocol/` cover
+  `fiido_protocol`, `fiido_state` and `fiido_model.h`:
 
-```
-pio test -d tests -e native
-```
+  ```
+  pio test -d tests -e native
+  ```
+
+- 71 Python tests in `tests/python/` cover code generation and the tables; they need
+  ESPHome installed:
+
+  ```
+  python -m unittest discover -s tests/python
+  ```
+
+- CI (`.github/workflows/test.yml`) also runs pre-commit, compiles the pure layers
+  under strict GCC warnings, runs clang-tidy over an ESP32 compile database, builds
+  `.github/ci-build.yaml` for four ESP32 boards with and without the dev code and
+  fails on any component warning, and validates and builds at the ESPHome floor.
+  `audit.yml` runs zizmor and dependency review, `codeql.yml` runs CodeQL.
