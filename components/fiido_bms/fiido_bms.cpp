@@ -220,6 +220,7 @@ void FiidoBMSHub::reset_session_state_() {
   this->last_dispatch_ms_ = 0;
   this->last_stats_ms_ = 0;
   this->link_open_ = false;
+  this->logged_capabilities_.reset();
   this->bad_notify_log_.reset();
   this->unknown_addr_log_.reset();
   this->ambiguous_limit_log_.reset();
@@ -328,6 +329,15 @@ void FiidoBMSHub::on_notify_registered_() {
 }
 
 void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
+#ifdef ESPHOME_LOG_HAS_VERY_VERBOSE
+  // One line per chunk: a whole notify in hex overruns the logger buffer.
+  for (size_t at = 0; at < frame.size(); at += RX_DUMP_CHUNK) {
+    const std::span<const uint8_t> chunk = frame.subspan(at, std::min(RX_DUMP_CHUNK, frame.size() - at));
+    std::array<char, format_hex_pretty_size(RX_DUMP_CHUNK)> rx_hex{};
+    ESP_LOGVV(TAG, "[%s] RX len=%u at=%u %s", this->parent_->address_str(), (unsigned)frame.size(), (unsigned)at,
+              format_hex_pretty_to(rx_hex.data(), rx_hex.size(), chunk.data(), chunk.size(), '.'));
+  }
+#endif
   const NotifyView notify = validate_notify(frame);
   if (!notify.valid) {
     if (const uint32_t dropped = this->bad_notify_log_.tick(millis(), BAD_NOTIFY_LOG_INTERVAL_MS); dropped != 0) {
@@ -863,6 +873,18 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
            p[stats::ADDR_27_OFFSET], p[stats::ADDR_28_OFFSET], p[stats::ADDR_2A_OFFSET], p[stats::ADDR_2B_OFFSET],
            p[stats::ADDR_2C_OFFSET], p[stats::ADDR_38_OFFSET], motor_on ? "ON" : "OFF",
            (unsigned)((millis() - this->last_activity_ms_) / 1000));
+  this->log_capabilities_(sv);
+}
+
+void FiidoBMSHub::log_capabilities_(const StatsView &sv) {
+  if (this->logged_capabilities_ == sv.capabilities)
+    return;
+  this->logged_capabilities_ = sv.capabilities;
+#ifdef ESPHOME_LOG_HAS_DEBUG
+  std::array<char, format_hex_pretty_size(stats::CAPABILITY_LEN)> hex{};
+  ESP_LOGD(TAG, "[%s] CAPS 0x2D..0x34: %s", this->parent_->address_str(),
+           format_hex_pretty_to(hex.data(), hex.size(), sv.capabilities.data(), sv.capabilities.size(), '.'));
+#endif
 }
 
 void FiidoBMSHub::set_motor_enable(bool on) {

@@ -36,6 +36,16 @@ static void test_decode_stats_gear_count_from_nibble_pair() {
   TEST_ASSERT_EQUAL_UINT8(5, decode_stats(p).max_gear);
 }
 
+static void test_decode_stats_copies_the_capability_bytes() {
+  uint8_t p[53] = {0};
+  for (size_t i = 0; i < sizeof(p); i++)
+    p[i] = static_cast<uint8_t>(0x80 + i);
+  const StatsView v = decode_stats(p);
+  TEST_ASSERT_EQUAL_UINT(8, v.capabilities.size());
+  for (size_t i = 0; i < v.capabilities.size(); i++)
+    TEST_ASSERT_EQUAL_UINT8(0x80 + 40 + i, v.capabilities[i]);
+}
+
 static void test_decode_stats_rejects_a_nibble_pair_that_means_nothing() {
   uint8_t p[53] = {0};
   p[stats::ADDR_25_OFFSET] = 0x77;
@@ -136,6 +146,7 @@ void run_decode_tests() {
   RUN_TEST(test_decode_stats_reads_the_captured_frame);
   RUN_TEST(test_decode_stats_masks_0x39_to_low_bits);
   RUN_TEST(test_decode_stats_gear_count_from_nibble_pair);
+  RUN_TEST(test_decode_stats_copies_the_capability_bytes);
   RUN_TEST(test_decode_stats_rejects_a_nibble_pair_that_means_nothing);
   RUN_TEST(test_decode_stats_bounds_reject_impossible_values);
   RUN_TEST(test_decode_flags_light_needs_the_controller_on);

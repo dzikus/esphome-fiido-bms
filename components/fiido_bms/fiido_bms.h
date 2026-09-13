@@ -540,6 +540,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   static constexpr uint32_t AMBIGUOUS_LIMIT_LOG_INTERVAL_MS = 60000;
   static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
   static constexpr size_t TX_DUMP_LEN = std::tuple_size_v<decltype(WriteFrame::bytes)>;
+  static constexpr size_t RX_DUMP_CHUNK = 64;
 
   WriteError send_raw_write_(FrameType type, Addr addr, std::span<const uint8_t> payload);
   void send_handshake_();
@@ -579,6 +580,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void clear_persisted_light_bit_(bool motor_on);
   void track_activity_(const RideState &ride, uint16_t speed_raw);
   void update_idle_timer_(bool motor_on);
+  void log_capabilities_(const StatsView &sv);
   void parse_meter_(std::span<const uint8_t> payload);
   void parse_speed_limit_(std::span<const uint8_t> payload);
   void parse_boost_(std::span<const uint8_t> payload);
@@ -621,6 +623,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   LogThrottle unknown_addr_log_;
   LogThrottle ambiguous_limit_log_;
   LogThrottle gear_drop_throttle_;
+  std::optional<std::array<uint8_t, stats::CAPABILITY_LEN>> logged_capabilities_{};
 
   FiidoGearSelect *gear_select_{nullptr};
 

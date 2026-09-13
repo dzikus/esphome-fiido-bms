@@ -111,6 +111,7 @@ StatsView decode_stats(std::span<const uint8_t> payload) {
   v.b38 = {payload[stats::ADDR_38_OFFSET]};
   // Only bits 4..0 of 0x39 are defined; a write must send the rest as zero.
   v.b39 = flags_39::DEFINED.keep({payload[stats::ADDR_39_OFFSET]});
+  std::ranges::copy(payload.subspan(stats::CAPABILITY_OFFSET, stats::CAPABILITY_LEN), v.capabilities.begin());
   return v;
 }
 
