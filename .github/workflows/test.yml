@@ -141,13 +141,26 @@ jobs:
           path: ~/.cache/pip
           key: ${{ runner.os }}-py3.14-clang-tidy-${{ hashFiles('.devcontainer/requirements.txt') }}
           restore-keys: ${{ runner.os }}-py3.14-clang-tidy-
-      - name: Restore the ESP-IDF toolchain cache
+      - name: Restore the ESP-IDF framework cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.platformio
             ~/.cache/esphome
-          key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-riscv
+            !~/.cache/esphome/idf/dist
+            !~/.cache/esphome/idf/tools/xtensa-esp-elf
+            !~/.cache/esphome/idf/tools/xtensa-esp-elf-gdb
+            !~/.cache/esphome/idf/tools/esp32ulp-elf
+            !~/.cache/esphome/idf/tools/riscv32-esp-elf
+            !~/.cache/esphome/idf/tools/riscv32-esp-elf-gdb
+          key: ${{ runner.os }}-esphome-${{ env.ESPHOME_VERSION }}-base
+      - name: Restore the riscv toolchain cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/esphome/idf/tools/riscv32-esp-elf
+            ~/.cache/esphome/idf/tools/riscv32-esp-elf-gdb
+          key: ${{ runner.os }}-esphome-${{ env.ESPHOME_VERSION }}-riscv
       - name: Install ESPHome and clang-tidy
         run: |
           set -euo pipefail
@@ -177,8 +190,15 @@ jobs:
         include:
           - arch: xtensa
             boards: esp32dev esp32-s3-devkitc-1
+            toolchains: |
+              ~/.cache/esphome/idf/tools/xtensa-esp-elf
+              ~/.cache/esphome/idf/tools/xtensa-esp-elf-gdb
+              ~/.cache/esphome/idf/tools/esp32ulp-elf
           - arch: riscv
             boards: esp32-c3-devkitm-1 esp32-c6-devkitc-1
+            toolchains: |
+              ~/.cache/esphome/idf/tools/riscv32-esp-elf
+              ~/.cache/esphome/idf/tools/riscv32-esp-elf-gdb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -198,14 +218,26 @@ jobs:
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-py3.14-esphome-${{ env.ESPHOME_VERSION }}
-      - name: Restore the ESP-IDF toolchain cache
-        id: idf-cache
+      - name: Restore the ESP-IDF framework cache
+        id: base-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.platformio
             ~/.cache/esphome
-          key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-${{ matrix.arch }}
+            !~/.cache/esphome/idf/dist
+            !~/.cache/esphome/idf/tools/xtensa-esp-elf
+            !~/.cache/esphome/idf/tools/xtensa-esp-elf-gdb
+            !~/.cache/esphome/idf/tools/esp32ulp-elf
+            !~/.cache/esphome/idf/tools/riscv32-esp-elf
+            !~/.cache/esphome/idf/tools/riscv32-esp-elf-gdb
+          key: ${{ runner.os }}-esphome-${{ env.ESPHOME_VERSION }}-base
+      - name: Restore the ${{ matrix.arch }} toolchain cache
+        id: toolchain-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ matrix.toolchains }}
+          key: ${{ runner.os }}-esphome-${{ env.ESPHOME_VERSION }}-${{ matrix.arch }}
       - name: Install ESPHome
         run: pip install "esphome==${ESPHOME_VERSION}"
       - name: Run codegen unit tests
@@ -223,14 +255,26 @@ jobs:
         with:
           path: ~/.cache/pip
           key: ${{ steps.pip-cache.outputs.cache-primary-key }}
-      - name: Save the ESP-IDF toolchain cache
-        if: github.ref == 'refs/heads/main' && steps.idf-cache.outputs.cache-hit != 'true'
+      - name: Save the ESP-IDF framework cache
+        if: github.ref == 'refs/heads/main' && matrix.arch == 'xtensa' && steps.base-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.platformio
             ~/.cache/esphome
-          key: ${{ steps.idf-cache.outputs.cache-primary-key }}
+            !~/.cache/esphome/idf/dist
+            !~/.cache/esphome/idf/tools/xtensa-esp-elf
+            !~/.cache/esphome/idf/tools/xtensa-esp-elf-gdb
+            !~/.cache/esphome/idf/tools/esp32ulp-elf
+            !~/.cache/esphome/idf/tools/riscv32-esp-elf
+            !~/.cache/esphome/idf/tools/riscv32-esp-elf-gdb
+          key: ${{ steps.base-cache.outputs.cache-primary-key }}
+      - name: Save the ${{ matrix.arch }} toolchain cache
+        if: github.ref == 'refs/heads/main' && steps.toolchain-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ matrix.toolchains }}
+          key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
   config-build-floor:
     name: config check and build at the ESPHome floor
     needs: lint
