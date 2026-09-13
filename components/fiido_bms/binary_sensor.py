@@ -12,7 +12,7 @@ from . import (
     DEV_BINARY_SENSOR_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
     apply_entity_prefix,
-    hub_expose_dev,
+    hub_entity_config,
     hub_name_prefix,
     inject_entity_defaults,
 )
@@ -62,7 +62,9 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in BINARY_SENSORS]
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_BINARY_SENSOR_KEYS)
+    return inject_entity_defaults(
+        config, _DEFAULT_NAMES, hidden=DEV_BINARY_SENSOR_KEYS, platform="binary_sensor"
+    )
 
 
 CONFIG_SCHEMA = cv.All(
@@ -84,12 +86,14 @@ async def to_code(config):
     config = apply_entity_prefix(
         config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     )
-    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
 
     for key, setter, *_row in BINARY_SENSORS:
         if key not in config:
             continue
-        if key in DEV_BINARY_SENSOR_KEYS and not expose_dev:
+        entity = hub_entity_config(
+            config[CONF_FIIDO_BMS_ID], "binary_sensor", key, config[key]
+        )
+        if entity is None:
             continue
-        bs = await binary_sensor.new_binary_sensor(config[key])
+        bs = await binary_sensor.new_binary_sensor(entity)
         cg.add(getattr(hub, setter)(bs))

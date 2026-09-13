@@ -33,7 +33,7 @@ from . import (
     FIIDO_BMS_COMPONENT_SCHEMA,
     HIDDEN_SENSOR_KEYS,
     apply_entity_prefix,
-    hub_expose_dev,
+    hub_entity_config,
     hub_name_prefix,
     inject_entity_defaults,
 )
@@ -514,7 +514,10 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in SENSORS]
 
 def _inject_defaults(config):
     return inject_entity_defaults(
-        config, _DEFAULT_NAMES, hidden=DEV_SENSOR_KEYS | HIDDEN_SENSOR_KEYS
+        config,
+        _DEFAULT_NAMES,
+        hidden=DEV_SENSOR_KEYS | HIDDEN_SENSOR_KEYS,
+        platform="sensor",
     )
 
 
@@ -547,15 +550,17 @@ async def to_code(config):
     config = apply_entity_prefix(
         config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     )
-    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
 
     pollers_used = set()
     for key, setter, *_row in SENSORS:
         if key not in config:
             continue
-        if key in DEV_SENSOR_KEYS and not expose_dev:
+        entity = hub_entity_config(
+            config[CONF_FIIDO_BMS_ID], "sensor", key, config[key]
+        )
+        if entity is None:
             continue
-        sens = await sensor.new_sensor(config[key])
+        sens = await sensor.new_sensor(entity)
         cg.add(getattr(hub, setter)(sens))
         group = SENSOR_POLL_GROUP.get(key)
         if group is not None:

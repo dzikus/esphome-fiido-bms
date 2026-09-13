@@ -27,6 +27,16 @@ SWITCH_KEYS = {row[0] for row in fb_switch.SWITCHES}
 NUMBER_KEYS = {row[0] for row in fb_number.NUMBERS}
 BINARY_KEYS = {row[0] for row in fb_binary_sensor.BINARY_SENSORS}
 BUTTON_KEYS = {row[0] for row in fb_button.BUTTONS}
+SELECT_KEYS = set(fb_select.SELECT_DEFAULT_NAMES)
+
+PLATFORM_KEYS = {
+    "sensor": SENSOR_KEYS,
+    "binary_sensor": BINARY_KEYS,
+    "switch": SWITCH_KEYS,
+    "select": SELECT_KEYS,
+    "number": NUMBER_KEYS,
+    "button": BUTTON_KEYS,
+}
 
 
 class PollGroups(unittest.TestCase):
@@ -107,6 +117,67 @@ class KeySets(unittest.TestCase):
 
     def test_dev_button_keys_all_exist(self):
         self.assertEqual(fb.DEV_BUTTON_KEYS - BUTTON_KEYS, frozenset())
+
+    def test_dev_keys_by_platform_names_every_platform(self):
+        self.assertEqual(set(fb.DEV_KEYS_BY_PLATFORM), set(PLATFORM_KEYS))
+
+
+class ModelNames(unittest.TestCase):
+    # codegen emits Model::<name> as given; a name missing from the enum fails
+    # only when the firmware compiles.
+
+    def setUp(self):
+        path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "components",
+            "fiido_bms",
+            "fiido_model.h",
+        )
+        with open(path, encoding="utf-8") as handle:
+            self.header = handle.read()
+        body = re.search(
+            r"enum\s+class\s+Model\s*:\s*uint8_t\s*\{(.*?)\}", self.header, re.DOTALL
+        )
+        self.enumerators = re.findall(r"\b[A-Z][A-Z0-9_]*\b", body.group(1))
+
+    def test_models_follow_the_enum_in_order(self):
+        self.assertEqual(
+            [str(value).rsplit("::", 1)[-1] for value in fb.MODELS.values()],
+            self.enumerators,
+        )
+        self.assertEqual([key.upper() for key in fb.MODELS], self.enumerators)
+
+
+class ModelEntitySets(unittest.TestCase):
+    def test_each_set_belongs_to_a_model(self):
+        self.assertLessEqual(set(fb.MODEL_ENTITY_SETS), set(fb.MODELS))
+
+    def test_every_key_exists_in_its_platform_rows(self):
+        for model, entity_set in fb.MODEL_ENTITY_SETS.items():
+            for group in (entity_set["stable"], entity_set["unavailable"]):
+                for platform, keys in group.items():
+                    with self.subTest(model=model, platform=platform):
+                        self.assertEqual(keys - PLATFORM_KEYS[platform], frozenset())
+
+    def test_stable_and_unavailable_do_not_overlap(self):
+        for model, entity_set in fb.MODEL_ENTITY_SETS.items():
+            for platform in PLATFORM_KEYS:
+                with self.subTest(model=model, platform=platform):
+                    stable = entity_set["stable"].get(platform, frozenset())
+                    unavailable = entity_set["unavailable"].get(platform, frozenset())
+                    self.assertEqual(stable & unavailable, frozenset())
+
+    def test_air_keeps_no_stable_switch_beyond_bluetooth_and_auto_shutdown(self):
+        stable = fb.MODEL_ENTITY_SETS["air"]["stable"].get("switch", frozenset())
+        self.assertLessEqual(stable, {"bluetooth", "auto_shutdown"})
+
+    def test_air_has_no_stable_select_number_or_button(self):
+        air = fb.MODEL_ENTITY_SETS["air"]
+        for platform in ("select", "number", "button"):
+            with self.subTest(platform=platform):
+                self.assertEqual(air["stable"].get(platform, frozenset()), frozenset())
 
 
 class DefaultNames(unittest.TestCase):

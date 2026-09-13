@@ -9,7 +9,7 @@ from . import (
     FIIDO_BMS_COMPONENT_SCHEMA,
     apply_entity_prefix,
     fiido_bms_ns,
-    hub_expose_dev,
+    hub_entity_config,
     hub_name_prefix,
     inject_entity_defaults,
 )
@@ -234,7 +234,9 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in SWITCHES]
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_SWITCH_KEYS)
+    return inject_entity_defaults(
+        config, _DEFAULT_NAMES, hidden=DEV_SWITCH_KEYS, platform="switch"
+    )
 
 
 CONFIG_SCHEMA = cv.All(
@@ -266,7 +268,6 @@ async def to_code(config):
     config = apply_entity_prefix(
         config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     )
-    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
     for (
         key,
         _cls,
@@ -278,11 +279,15 @@ async def to_code(config):
     ) in SWITCHES:
         if key not in config:
             continue
-        if key in DEV_SWITCH_KEYS and not expose_dev:
+        sub_config = hub_entity_config(
+            config[CONF_FIIDO_BMS_ID], "switch", key, config[key]
+        )
+        if sub_config is None:
             continue
-        sub_config = config[key]
         sw_var = await switch.new_switch(sub_config)
         await cg.register_parented(sw_var, hub)
         if is_component:
             await cg.register_component(sw_var, sub_config)
         cg.add(getattr(hub, setter)(sw_var))
+    if CONF_AUTO_SHUTDOWN not in config:
+        cg.add(hub.set_auto_shutdown_enabled(False))

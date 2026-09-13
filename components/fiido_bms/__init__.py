@@ -8,6 +8,7 @@ from esphome.const import (
     CONF_DEVICE_ID,
     CONF_DISABLED_BY_DEFAULT,
     CONF_ID,
+    CONF_MODEL,
     CONF_NAME,
 )
 from esphome.core import CORE
@@ -113,6 +114,39 @@ HIDDEN_SENSOR_KEYS = frozenset(
     }
 )
 
+DEV_KEYS_BY_PLATFORM = {
+    "sensor": DEV_SENSOR_KEYS,
+    "binary_sensor": DEV_BINARY_SENSOR_KEYS,
+    "switch": DEV_SWITCH_KEYS,
+    "select": frozenset(),
+    "number": DEV_NUMBER_KEYS,
+    "button": DEV_BUTTON_KEYS,
+}
+
+MODEL_ENTITY_SETS = {
+    "air": {
+        "stable": {
+            "sensor": frozenset(
+                {
+                    "battery_soc",
+                    "battery_voltage",
+                    "bicycle_speed",
+                    "current_kilometers",
+                    "total_kilometers",
+                }
+            ),
+            "binary_sensor": frozenset({"connected"}),
+            "switch": frozenset({"bluetooth", "auto_shutdown"}),
+        },
+        "unavailable": {
+            "switch": frozenset({"throttle"}),
+            "select": frozenset({"gear", "mode", "speed_unit"}),
+            "number": frozenset({"brightness"}),
+            "button": frozenset({"pair_watch"}),
+        },
+    },
+}
+
 HUB_CONFIGS = {}
 
 
@@ -131,6 +165,11 @@ def hub_expose_dev(hub_id):
     return bool(_hub_conf(hub_id).get(CONF_EXPOSE_DEV_SENSORS, False))
 
 
+def hub_model(hub_id):
+    model = _hub_conf(hub_id).get(CONF_MODEL)
+    return None if model is None else str(model)
+
+
 def hub_ui_gear_mode_3(hub_id):
     return bool(_hub_conf(hub_id).get(CONF_UI_GEAR_MODE_3, False))
 
@@ -143,7 +182,58 @@ def hub_name_prefix(hub_id):
     return _hub_conf(hub_id).get(CONF_NAME_PREFIX, "").strip()
 
 
-def inject_entity_defaults(config, rows, hidden=frozenset(), opt_in=frozenset()):
+def hub_entity_config(hub_id, platform, key, entity):
+    dev_keys = DEV_KEYS_BY_PLATFORM[platform]
+    expose_dev = hub_expose_dev(hub_id)
+    entity_set = MODEL_ENTITY_SETS.get(hub_model(hub_id))
+    if entity_set is None:
+        if key in dev_keys and not expose_dev:
+            return None
+        return entity
+    if key in entity_set["unavailable"].get(platform, frozenset()):
+        return None
+    if key in entity_set["stable"].get(platform, frozenset()):
+        return entity
+    if not expose_dev:
+        return None
+    return {**entity, CONF_DISABLED_BY_DEFAULT: True}
+
+
+def _warn_on_keys_the_model_never_builds(block, platform):
+    hubs = (CORE.raw_config or {}).get(DOMAIN) or []
+    if isinstance(hubs, dict):
+        hubs = [hubs]
+    target = block.get(CONF_FIIDO_BMS_ID)
+    if target is None and len(hubs) == 1:
+        target = hubs[0].get(CONF_ID)
+    hub = next((h for h in hubs if str(h.get(CONF_ID)) == str(target)), None)
+    if target is None or hub is None or hub.get(CONF_MODEL) is None:
+        return
+    model = str(hub[CONF_MODEL]).lower()
+    entity_set = MODEL_ENTITY_SETS.get(model)
+    if entity_set is None:
+        return
+    for key in sorted(
+        entity_set["unavailable"].get(platform, frozenset()) & block.keys()
+    ):
+        if block[key] is not False:
+            _LOGGER.warning(
+                "fiido_bms hub '%s' has model: %s, which never builds %s '%s'. "
+                "Remove the key from that %s block.",
+                target,
+                model,
+                platform,
+                key,
+                platform,
+            )
+
+
+def inject_entity_defaults(
+    config, rows, hidden=frozenset(), opt_in=frozenset(), platform=None
+):
+    # The block as written: validation later replaces it with the injected copy.
+    if platform is not None:
+        _warn_on_keys_the_model_never_builds(config, platform)
     # Copy before mutating: the validator may run against a shared dict.
     config = dict(config)
     platform_device = config.get(CONF_DEVICE_ID)
@@ -186,6 +276,13 @@ fiido_bms_ns = cg.esphome_ns.namespace("fiido_bms")
 FiidoBMSHub = fiido_bms_ns.class_(
     "FiidoBMSHub", ble_client.BLEClientNode, cg.PollingComponent
 )
+Model = fiido_bms_ns.enum("Model", is_class=True)
+
+MODELS = {
+    "c11_pro": Model.C11_PRO,
+    "m1_pro_2025": Model.M1_PRO_2025,
+    "air": Model.AIR,
+}
 
 FIIDO_BMS_COMPONENT_SCHEMA = cv.Schema(
     {
@@ -193,10 +290,21 @@ FIIDO_BMS_COMPONENT_SCHEMA = cv.Schema(
     }
 )
 
+
+def _reject_gear_options_for_air(config):
+    if config.get(CONF_MODEL) != "air":
+        return config
+    for key in (CONF_UI_GEAR_MODE_3, CONF_ENFORCE_GEAR_MODE_3):
+        if config.get(key):
+            raise cv.Invalid(f"'{key}' does not apply to model: air", path=[key])
+    return config
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(FiidoBMSHub),
+            cv.Optional(CONF_MODEL): cv.enum(MODELS, lower=True),
             cv.Optional(
                 CONF_STARTUP_DELAY, default="0s"
             ): cv.positive_time_period_milliseconds,
@@ -222,6 +330,7 @@ CONFIG_SCHEMA = cv.All(
     # to update_interval_off (default 15s) when bit 7 ADDR 0x27 clears.
     # 15s is fast enough to catch physical motor ON in the idle window.
     .extend(cv.polling_component_schema("1s")),
+    _reject_gear_options_for_air,
     cv.require_esphome_version(2026, 1, 0),
 )
 
@@ -285,6 +394,8 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await ble_client.register_ble_node(var, config)
+    if CONF_MODEL in config:
+        cg.add(var.set_model(config[CONF_MODEL]))
     cg.add(var.set_startup_delay(config[CONF_STARTUP_DELAY]))
     cg.add(var.set_update_interval_on_ms(config[CONF_UPDATE_INTERVAL_ON]))
     cg.add(var.set_update_interval_off_ms(config[CONF_UPDATE_INTERVAL_OFF]))

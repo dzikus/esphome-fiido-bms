@@ -9,7 +9,7 @@ from . import (
     FIIDO_BMS_COMPONENT_SCHEMA,
     apply_entity_prefix,
     fiido_bms_ns,
-    hub_expose_dev,
+    hub_entity_config,
     hub_name_prefix,
     inject_entity_defaults,
 )
@@ -92,7 +92,9 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in NUMBERS]
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_NUMBER_KEYS)
+    return inject_entity_defaults(
+        config, _DEFAULT_NAMES, hidden=DEV_NUMBER_KEYS, platform="number"
+    )
 
 
 CONFIG_SCHEMA = cv.All(
@@ -125,7 +127,6 @@ async def to_code(config):
     config = apply_entity_prefix(
         config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     )
-    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
     for (
         key,
         _cls,
@@ -140,10 +141,13 @@ async def to_code(config):
     ) in NUMBERS:
         if key not in config:
             continue
-        if key in DEV_NUMBER_KEYS and not expose_dev:
+        entity = hub_entity_config(
+            config[CONF_FIIDO_BMS_ID], "number", key, config[key]
+        )
+        if entity is None:
             continue
         num_var = await number.new_number(
-            config[key], min_value=min_value, max_value=max_value, step=step
+            entity, min_value=min_value, max_value=max_value, step=step
         )
         await cg.register_parented(num_var, hub)
         cg.add(getattr(hub, setter)(num_var))

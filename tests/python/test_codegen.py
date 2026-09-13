@@ -5,9 +5,11 @@ Needs an interpreter with esphome importable:
     python -m unittest discover -s tests/python
 """
 
+import asyncio
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "components"))
 
@@ -16,6 +18,7 @@ import esphome.final_validate as fv
 import fiido_bms as fb
 from esphome.components import ble_client
 from esphome.core import CORE
+from fiido_bms import switch as fb_switch
 
 ROWS = [("motor", "Power"), ("light", "Light")]
 
@@ -157,6 +160,234 @@ class HubOptionLookup(unittest.TestCase):
     def test_name_prefix_is_stripped(self):
         CORE.config = {"fiido_bms": [{"id": "hub_c11", "name_prefix": "  C11  "}]}
         self.assertEqual(fb.hub_name_prefix("hub_c11"), "C11")
+
+    def test_model_reads_back_as_the_yaml_key(self):
+        hub = fb.CONFIG_SCHEMA(
+            {"id": "hub_air", "ble_client_id": "ble_air", "model": "Air"}
+        )
+        CORE.config = {"fiido_bms": [hub]}
+        self.assertEqual(fb.hub_model("hub_air"), "air")
+        self.assertIs(type(fb.hub_model("hub_air")), str)
+
+    def test_model_is_none_when_not_set(self):
+        CORE.config = {"fiido_bms": [{"id": "hub_c11"}]}
+        self.assertIsNone(fb.hub_model("hub_c11"))
+
+
+class ModelOption(unittest.TestCase):
+    def _hub(self, **options):
+        return fb.CONFIG_SCHEMA({"ble_client_id": "ble_test", **options})
+
+    def test_absent_model_stays_absent(self):
+        self.assertNotIn("model", self._hub())
+
+    def test_air_rejects_each_gear_option(self):
+        for key in ("enforce_gear_mode_3", "ui_gear_mode_3"):
+            with self.subTest(key=key):
+                with self.assertRaises(cv.Invalid) as caught:
+                    self._hub(model="air", **{key: True})
+                self.assertEqual(caught.exception.path, [key])
+
+    def test_air_accepts_the_gear_options_left_off(self):
+        out = self._hub(model="air", enforce_gear_mode_3=False, ui_gear_mode_3=False)
+        self.assertEqual(out["model"], "air")
+
+    def test_gear_options_pass_for_every_other_model(self):
+        for model in (None, "c11_pro", "m1_pro_2025"):
+            options = {"enforce_gear_mode_3": True, "ui_gear_mode_3": True}
+            if model is not None:
+                options["model"] = model
+            with self.subTest(model=model):
+                out = self._hub(**options)
+                self.assertTrue(out["enforce_gear_mode_3"])
+                self.assertTrue(out["ui_gear_mode_3"])
+
+
+class HubEntityConfig(unittest.TestCase):
+    CASES = (
+        ("sensor", "battery_voltage"),
+        ("sensor", "battery_current"),
+        ("sensor", "motor_temperature"),
+        ("binary_sensor", "brake"),
+        ("switch", "throttle"),
+        ("switch", "cruise"),
+        ("select", "gear"),
+        ("select", "speed_limit"),
+        ("number", "brightness"),
+        ("button", "pair_watch"),
+    )
+
+    def setUp(self):
+        self._config = CORE.config
+        self.addCleanup(setattr, CORE, "config", self._config)
+        self.addCleanup(fb.HUB_CONFIGS.clear)
+        fb.HUB_CONFIGS.clear()
+
+    def _use(self, expose_dev=False, model=None):
+        hub = {"id": "hub_x", "expose_dev_sensors": expose_dev}
+        if model is not None:
+            hub["model"] = model
+        CORE.config = {"fiido_bms": [hub]}
+
+    def test_without_a_model_a_dev_key_needs_expose_dev(self):
+        entity = {"name": "Battery Current"}
+        self._use(expose_dev=False)
+        self.assertIsNone(
+            fb.hub_entity_config("hub_x", "sensor", "battery_current", entity)
+        )
+        self._use(expose_dev=True)
+        self.assertIs(
+            fb.hub_entity_config("hub_x", "sensor", "battery_current", entity), entity
+        )
+
+    def test_without_a_model_a_stable_key_is_the_same_object(self):
+        entity = {"name": "Battery Voltage"}
+        for expose_dev in (False, True):
+            with self.subTest(expose_dev=expose_dev):
+                self._use(expose_dev=expose_dev)
+                self.assertIs(
+                    fb.hub_entity_config("hub_x", "sensor", "battery_voltage", entity),
+                    entity,
+                )
+
+    def test_reference_models_build_what_a_hub_without_a_model_builds(self):
+        for expose_dev in (False, True):
+            for platform, key in self.CASES:
+                entity = {"name": key}
+                self._use(expose_dev=expose_dev)
+                expected = fb.hub_entity_config("hub_x", platform, key, entity)
+                for model in ("c11_pro", "m1_pro_2025"):
+                    with self.subTest(expose_dev=expose_dev, key=key, model=model):
+                        self._use(expose_dev=expose_dev, model=model)
+                        self.assertIs(
+                            fb.hub_entity_config("hub_x", platform, key, entity),
+                            expected,
+                        )
+
+    def test_air_stable_key_is_the_same_object(self):
+        entity = {"name": "Air Battery Voltage"}
+        for expose_dev in (False, True):
+            with self.subTest(expose_dev=expose_dev):
+                self._use(expose_dev=expose_dev, model="air")
+                self.assertIs(
+                    fb.hub_entity_config("hub_x", "sensor", "battery_voltage", entity),
+                    entity,
+                )
+
+    def test_air_dev_key_is_left_out_without_expose_dev(self):
+        self._use(model="air")
+        for key in ("motor", "light", "speaker"):
+            with self.subTest(key=key):
+                self.assertIsNone(
+                    fb.hub_entity_config("hub_x", "switch", key, {"name": key})
+                )
+
+    def test_air_dev_key_is_a_hidden_copy_with_expose_dev(self):
+        self._use(expose_dev=True, model="air")
+        entity = {"name": "Air Power", "disabled_by_default": False}
+        out = fb.hub_entity_config("hub_x", "switch", "motor", entity)
+        self.assertIsNot(out, entity)
+        self.assertEqual(out, {"name": "Air Power", "disabled_by_default": True})
+        self.assertEqual(entity, {"name": "Air Power", "disabled_by_default": False})
+
+    def test_air_unavailable_key_is_left_out_even_with_expose_dev(self):
+        self._use(expose_dev=True, model="air")
+        for platform, key in (
+            ("switch", "throttle"),
+            ("select", "gear"),
+            ("select", "mode"),
+            ("select", "speed_unit"),
+            ("number", "brightness"),
+            ("button", "pair_watch"),
+        ):
+            with self.subTest(key=key):
+                self.assertIsNone(
+                    fb.hub_entity_config("hub_x", platform, key, {"name": key})
+                )
+
+    def test_an_unknown_platform_is_rejected_for_every_model(self):
+        for model in (None, "c11_pro", "air"):
+            with self.subTest(model=model):
+                self._use(expose_dev=True, model=model)
+                with self.assertRaises(KeyError):
+                    fb.hub_entity_config("hub_x", "swtich", "motor", {"name": "Power"})
+
+
+class KeysTheModelNeverBuilds(unittest.TestCase):
+    ROWS = (("gear", "Gear"), ("speed_limit", "Speed Limit"))
+
+    def setUp(self):
+        self.addCleanup(setattr, CORE, "raw_config", CORE.raw_config)
+        self.air = {"id": "hub_air", "model": "Air"}
+
+    def _warnings(self, hubs, block, platform="select"):
+        CORE.raw_config = {"fiido_bms": hubs}
+        with self.assertLogs(fb._LOGGER, level="WARNING") as logs:
+            fb._LOGGER.warning("start")
+            fb.inject_entity_defaults(block, self.ROWS, platform=platform)
+        return logs.output[1:]
+
+    def test_a_key_written_under_the_air_hub_is_named(self):
+        block = {
+            "fiido_bms_id": "hub_air",
+            "gear": {"name": "Gear"},
+            "speed_limit": None,
+        }
+        warnings = self._warnings([self.air, {"id": "hub_c11"}], block)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("select 'gear'", warnings[0])
+
+    def test_keys_only_the_defaults_add_are_not_named(self):
+        self.assertEqual(self._warnings([self.air], {"fiido_bms_id": "hub_air"}), [])
+
+    def test_a_key_set_to_false_is_not_named(self):
+        self.assertEqual(self._warnings([self.air], {"gear": False}), [])
+
+    def test_a_block_of_another_hub_is_not_named(self):
+        hubs = [self.air, {"id": "hub_c11"}]
+        self.assertEqual(
+            self._warnings(hubs, {"fiido_bms_id": "hub_c11", "gear": {}}), []
+        )
+        self.assertEqual(self._warnings(hubs, {"gear": {}}), [])
+
+    def test_a_lone_hub_owns_a_block_without_fiido_bms_id(self):
+        warnings = self._warnings([self.air], {"gear": {}})
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("model: air", warnings[0])
+
+    def test_a_hub_without_a_model_stays_quiet(self):
+        self.assertEqual(self._warnings([{"id": "hub_c11"}], {"gear": {}}), [])
+
+
+class AutoShutdownSwitch(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(setattr, CORE, "config", CORE.config)
+        CORE.config = {"fiido_bms": [{"id": "hub_x"}]}
+
+    def _generate(self, config):
+        hub = mock.MagicMock()
+        added = []
+        with (
+            mock.patch.object(
+                fb_switch.cg, "get_variable", mock.AsyncMock(return_value=hub)
+            ),
+            mock.patch.object(fb_switch.cg, "add", added.append),
+            mock.patch.object(fb_switch.cg, "register_parented", mock.AsyncMock()),
+            mock.patch.object(fb_switch.cg, "register_component", mock.AsyncMock()),
+            mock.patch.object(fb_switch.switch, "new_switch", mock.AsyncMock()),
+        ):
+            asyncio.run(fb_switch.to_code({"fiido_bms_id": "hub_x", **config}))
+        return hub, added
+
+    def test_false_turns_the_mechanism_off(self):
+        hub, added = self._generate({})
+        hub.set_auto_shutdown_enabled.assert_called_once_with(False)
+        self.assertIn(hub.set_auto_shutdown_enabled.return_value, added)
+
+    def test_a_built_switch_leaves_the_mechanism_to_the_switch(self):
+        hub, _added = self._generate({"auto_shutdown": {"name": "Auto Shutdown"}})
+        hub.set_auto_shutdown_enabled.assert_not_called()
+        hub.set_autoshutdown_switch.assert_called_once()
 
 
 class RunStateReset(unittest.TestCase):
