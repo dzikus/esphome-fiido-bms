@@ -36,13 +36,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.14"
-          cache: pip
-      - name: Cache pre-commit
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      - name: Restore the pip and pre-commit caches
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: ~/.cache/pre-commit
-          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: ${{ runner.os }}-pre-commit-
+          path: |
+            ~/.cache/pip
+            ~/.cache/pre-commit
+          key: ${{ runner.os }}-py3.14-lint-${{ hashFiles('.devcontainer/requirements.txt', '.pre-commit-config.yaml') }}
+          restore-keys: ${{ runner.os }}-py3.14-lint-
       - name: Install pre-commit
         run: |
           set -euo pipefail
@@ -50,6 +52,14 @@ jobs:
           pip install "${pin}"
       - name: Run pre-commit (ruff lint + format + hygiene)
         run: pre-commit run --all-files --show-diff-on-failure
+      - name: Save the pip and pre-commit caches
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/pre-commit
+          key: ${{ steps.cache.outputs.cache-primary-key }}
   unit-tests:
     name: protocol unit tests (native)
     needs: lint
@@ -64,13 +74,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.14"
-          cache: pip
-      - name: Cache PlatformIO
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      - name: Restore the pip and PlatformIO caches
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: ~/.platformio
-          key: ${{ runner.os }}-pio-${{ hashFiles('tests/platformio.ini') }}
-          restore-keys: ${{ runner.os }}-pio-
+          path: |
+            ~/.cache/pip
+            ~/.platformio
+          key: ${{ runner.os }}-py3.14-unit-tests-${{ hashFiles('.devcontainer/requirements.txt', 'tests/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-py3.14-unit-tests-
       - name: Install PlatformIO
         run: |
           set -euo pipefail
@@ -94,6 +106,14 @@ jobs:
           g++ "${strict[@]}" components/fiido_bms/fiido_state.cpp
           # A header given as the main file trips #pragma once under -Werror.
           g++ "${strict[@]}" -x c++ - <<< '#include "fiido_model.h"'
+      - name: Save the pip and PlatformIO caches
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio
+          key: ${{ steps.cache.outputs.cache-primary-key }}
   clang-tidy:
     name: clang-tidy (esp32 compile database)
     needs: lint
@@ -108,23 +128,26 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.14"
-          cache: pip
       - name: Resolve the ESPHome pin from .devcontainer/requirements.txt
         run: |
           set -euo pipefail
           version="$(sed -n 's/^esphome==//p' .devcontainer/requirements.txt)"
           [ -n "${version}" ] || { echo "no esphome== pin in .devcontainer/requirements.txt" >&2; exit 1; }
           echo "ESPHOME_VERSION=${version}" >> "$GITHUB_ENV"
-      - name: Cache PlatformIO
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      - name: Restore the pip cache
+        id: pip-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py3.14-clang-tidy-${{ hashFiles('.devcontainer/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-py3.14-clang-tidy-
+      - name: Restore the ESP-IDF toolchain cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.platformio
             ~/.cache/esphome
-          key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-riscv-tidy
-          restore-keys: |
-            ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-riscv
-            ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-
+          key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-riscv
       - name: Install ESPHome and clang-tidy
         run: |
           set -euo pipefail
@@ -135,6 +158,12 @@ jobs:
           set -euo pipefail
           CI_CONFIG=.github/ci-build.yaml EXPOSE_DEV=true bash tests/run_clang_tidy.sh
           CI_CONFIG=.github/ci-build.yaml EXPOSE_DEV=false bash tests/run_clang_tidy.sh
+      - name: Save the pip cache
+        if: github.ref == 'refs/heads/main' && steps.pip-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: ${{ steps.pip-cache.outputs.cache-primary-key }}
   esphome-build:
     name: esphome compile (${{ matrix.arch }})
     needs: unit-tests
@@ -157,21 +186,26 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.14"
-          cache: pip
       - name: Resolve the ESPHome pin from .devcontainer/requirements.txt
         run: |
           set -euo pipefail
           version="$(sed -n 's/^esphome==//p' .devcontainer/requirements.txt)"
           [ -n "${version}" ] || { echo "no esphome== pin in .devcontainer/requirements.txt" >&2; exit 1; }
           echo "ESPHOME_VERSION=${version}" >> "$GITHUB_ENV"
-      - name: Cache PlatformIO
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      - name: Restore the pip cache
+        id: pip-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py3.14-esphome-${{ env.ESPHOME_VERSION }}
+      - name: Restore the ESP-IDF toolchain cache
+        id: idf-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.platformio
             ~/.cache/esphome
           key: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-${{ matrix.arch }}
-          restore-keys: ${{ runner.os }}-idf-${{ env.ESPHOME_VERSION }}-
       - name: Install ESPHome
         run: pip install "esphome==${ESPHOME_VERSION}"
       - name: Run codegen unit tests
@@ -183,6 +217,20 @@ jobs:
             bash tests/check_esp32_warnings.sh .github/ci-build.yaml "$board" true
             bash tests/check_esp32_warnings.sh .github/ci-build.yaml "$board" false
           done
+      - name: Save the pip cache
+        if: github.ref == 'refs/heads/main' && matrix.arch == 'xtensa' && steps.pip-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: ${{ steps.pip-cache.outputs.cache-primary-key }}
+      - name: Save the ESP-IDF toolchain cache
+        if: github.ref == 'refs/heads/main' && steps.idf-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/esphome
+          key: ${{ steps.idf-cache.outputs.cache-primary-key }}
   config-build-floor:
     name: config check and build at the ESPHome floor
     needs: lint
@@ -199,17 +247,22 @@ jobs:
           # Contemporary with the floor below: the 2026.1.0 dependency set has no
           # wheels for 3.14, so pip falls back to building Pillow from source.
           python-version: "3.12"
-          cache: pip
       # Pin to the declared floor so min_version is actually exercised, and
       # validate the published example (which the compile job never touches).
-      - name: Cache PlatformIO and the ESP-IDF toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      - name: Restore the pip cache
+        id: pip-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py3.12-esphome-${{ env.ESPHOME_FLOOR }}
+      - name: Restore the ESP-IDF toolchain cache
+        id: idf-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             ~/.platformio
             ~/.cache/esphome
           key: ${{ runner.os }}-idf-${{ env.ESPHOME_FLOOR }}-xtensa
-          restore-keys: ${{ runner.os }}-idf-${{ env.ESPHOME_FLOOR }}-
       - name: Install ESPHome (component floor)
         run: pip install "esphome==${ESPHOME_FLOOR}"
       - name: Provide dummy secrets for the example
@@ -232,3 +285,17 @@ jobs:
           set -euo pipefail
           esphome -s expose_dev true compile .github/ci-build.yaml
           esphome -s expose_dev false compile .github/ci-build.yaml
+      - name: Save the pip cache
+        if: github.ref == 'refs/heads/main' && steps.pip-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: ${{ steps.pip-cache.outputs.cache-primary-key }}
+      - name: Save the ESP-IDF toolchain cache
+        if: github.ref == 'refs/heads/main' && steps.idf-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/esphome
+          key: ${{ steps.idf-cache.outputs.cache-primary-key }}
