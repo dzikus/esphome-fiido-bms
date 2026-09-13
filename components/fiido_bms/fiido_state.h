@@ -43,24 +43,32 @@ enum class LifecycleAction : uint8_t {
   IDLE_DISCONNECT,
   PROBE_TIMEOUT,
   START_PROBE,
+  SILENT_LINK,
 };
 
 struct LifecycleInput {
   uint32_t now;
   bool enabled;
   bool connected;
+  bool link_open;
   uint32_t motor_off_since_ms;
   uint32_t disconnected_since_ms;
   uint32_t probe_started_ms;
   uint32_t last_dispatch_ms;
+  uint32_t last_stats_ms;
   bool pending_writes;
   uint32_t idle_disconnect_ms;
   uint32_t probe_window_ms;
   uint32_t periodic_probe_ms;
   uint32_t write_verify_window_ms;
+  uint32_t silent_link_ms;
 };
 
 [[nodiscard]] LifecycleAction decide_lifecycle(const LifecycleInput &in);
+
+// Saturates at UINT32_MAX.
+[[nodiscard]] uint32_t silent_link_timeout(uint32_t interval_on_ms, uint32_t interval_off_ms,
+                                           uint32_t startup_delay_ms);
 
 // nullptr = keep the previous option.
 [[nodiscard]] const char *resolve_speed_limit_option(uint8_t value, bool limit_on);

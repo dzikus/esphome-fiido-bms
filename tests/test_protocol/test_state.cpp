@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include <algorithm>
+#include <array>
 #include <vector>
 
 #include "fiido_state.h"
@@ -10,10 +12,12 @@ using namespace esphome::fiido_bms;
 static LifecycleInput lifecycle_base() {
   LifecycleInput in{};
   in.now = 1'000'000;
+  in.last_stats_ms = in.now;
   in.idle_disconnect_ms = 15 * 60 * 1000;
   in.probe_window_ms = 60 * 1000;
   in.periodic_probe_ms = 5 * 60 * 1000;
   in.write_verify_window_ms = 10 * 1000;
+  in.silent_link_ms = silent_link_timeout(3000, 15000, 0);
   return in;
 }
 
@@ -21,6 +25,7 @@ static void test_lifecycle_idle_disconnect_needs_the_full_window() {
   LifecycleInput in = lifecycle_base();
   in.enabled = true;
   in.connected = true;
+  in.link_open = true;
   in.motor_off_since_ms = in.now - in.idle_disconnect_ms + 1;
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
   in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
@@ -31,6 +36,7 @@ static void test_lifecycle_never_drops_the_link_with_a_write_queued() {
   LifecycleInput in = lifecycle_base();
   in.enabled = true;
   in.connected = true;
+  in.link_open = true;
   in.motor_off_since_ms = in.now - in.idle_disconnect_ms * 10;
   in.pending_writes = true;
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
@@ -41,10 +47,12 @@ static void test_lifecycle_zero_timestamp_is_not_an_elapsed_window() {
   LifecycleInput in = lifecycle_base();
   in.enabled = true;
   in.connected = true;
+  in.link_open = true;
   in.motor_off_since_ms = 0;
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
 
   in.connected = false;
+  in.link_open = false;
   in.probe_started_ms = 0;
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
 
@@ -79,9 +87,94 @@ static void test_lifecycle_survives_the_millis_wrap() {
   LifecycleInput in = lifecycle_base();
   in.enabled = true;
   in.connected = true;
+  in.link_open = true;
   in.now = 1000;
+  in.last_stats_ms = in.now;
   in.motor_off_since_ms = 0xFFFFFFFFu - (in.idle_disconnect_ms - 1000) + 1;
   TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+}
+
+static LifecycleInput silent_link_base() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.link_open = true;
+  return in;
+}
+
+static void test_lifecycle_silent_link_releases_after_the_threshold() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.last_stats_ms = in.now - in.silent_link_ms * 10;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.silent_link_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_recent_stats_keeps_the_link() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.last_stats_ms = in.now;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_silent_link_waits_for_queued_writes() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms * 10;
+  in.pending_writes = true;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_idle_disconnect_wins_over_silent_link() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+}
+
+static void test_lifecycle_silent_link_covers_a_link_that_never_got_ready() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  in.connected = false;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.link_open = false;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.link_open = true;
+  in.enabled = false;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_silent_link_survives_the_millis_wrap() {
+  LifecycleInput in = silent_link_base();
+  in.now = 1000;
+  in.last_stats_ms = 0xFFFFFFFFu - (in.silent_link_ms - 1000) + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.last_stats_ms++;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_silent_link_timeout_outlasts_four_missed_polls() {
+  TEST_ASSERT_EQUAL_UINT32(75000, silent_link_timeout(3000, 15000, 0));
+  constexpr std::array<std::array<uint32_t, 3>, 4> cases{{
+      {3000, 15000, 0},
+      {3000, 120000, 1500},
+      {120000, 3000, 0},
+      {1000, 1000, 2000},
+  }};
+  for (const auto &[on, off, delay] : cases) {
+    const uint64_t four_missed = (uint64_t{4} * std::max(on, off)) + delay;
+    const uint32_t timeout = silent_link_timeout(on, off, delay);
+    TEST_ASSERT_TRUE(timeout > four_missed);
+    TEST_ASSERT_TRUE(timeout >= 60000);
+  }
+}
+
+static void test_silent_link_timeout_saturates() {
+  TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, silent_link_timeout(0, 0x3FFFFFFFu, 3));
+  TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, silent_link_timeout(0, 0x3FFFFFFFu, 4));
+  TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, silent_link_timeout(0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu));
 }
 
 static void test_activity_reports_every_signal_independently() {
@@ -434,6 +527,14 @@ void run_state_tests() {
   RUN_TEST(test_lifecycle_probe_timeout_waits_for_the_write_verify_window);
   RUN_TEST(test_lifecycle_disconnected_probes_on_its_period);
   RUN_TEST(test_lifecycle_survives_the_millis_wrap);
+  RUN_TEST(test_lifecycle_silent_link_releases_after_the_threshold);
+  RUN_TEST(test_lifecycle_recent_stats_keeps_the_link);
+  RUN_TEST(test_lifecycle_silent_link_waits_for_queued_writes);
+  RUN_TEST(test_lifecycle_idle_disconnect_wins_over_silent_link);
+  RUN_TEST(test_lifecycle_silent_link_covers_a_link_that_never_got_ready);
+  RUN_TEST(test_lifecycle_silent_link_survives_the_millis_wrap);
+  RUN_TEST(test_silent_link_timeout_outlasts_four_missed_polls);
+  RUN_TEST(test_silent_link_timeout_saturates);
   RUN_TEST(test_activity_reports_every_signal_independently);
   RUN_TEST(test_auto_startup_delay_spreads_hubs_over_one_interval);
   RUN_TEST(test_motor_off_window_opens_once_and_clears_on_motor_on);

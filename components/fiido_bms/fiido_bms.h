@@ -556,6 +556,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void schedule_write_verify_();
   void publish_flag_entities_(const FlagView &flags);
   void settle_probe_(bool motor_on);
+  void release_link_(uint32_t now);
   void publish_connected_(bool state);
   void mark_activity_(const char *reason);
 
@@ -609,6 +610,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   uint32_t startup_delay_ms_{0};
   uint32_t connect_time_ms_{0};
+  bool link_open_{false};
   size_t burst_idx_{0};
   size_t burst_remaining_{0};
   uint8_t burst_retry_{0};
@@ -652,6 +654,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint32_t disconnected_since_ms_{0};
   uint32_t probe_started_ms_{0};
   uint32_t last_dispatch_ms_{0};
+  uint32_t last_stats_ms_{0};
+  uint32_t silent_link_ms_{0};
   PendingWrites pending_writes_;
 
   std::array<bool, POLL_TABLE_SIZE> poll_enabled_{default_poll_enables()};

@@ -94,6 +94,8 @@ void FiidoBMSHub::setup() {
                (unsigned)this->update_interval_on_ms_);
     }
   }
+  this->silent_link_ms_ =
+      silent_link_timeout(this->update_interval_on_ms_, this->update_interval_off_ms_, this->startup_delay_ms_);
   this->desired_interval_ms_ = this->update_interval_off_ms_;
   // Baseline so periodic-probe branch can fire if first BLE connect never lands.
   this->disconnected_since_ms_ = millis();
@@ -114,6 +116,7 @@ void FiidoBMSHub::dump_config() {
                 (unsigned)this->update_interval_off_ms_);
   ESP_LOGCONFIG(TAG, "  Polls: %u (burst %ums apart)", (unsigned)POLL_TABLE_SIZE, (unsigned)BURST_INTERVAL_MS);
   ESP_LOGCONFIG(TAG, "  Idle auto-shutdown: %u min", (unsigned)(IDLE_SHUTDOWN_MS / 60000));
+  ESP_LOGCONFIG(TAG, "  Silent link timeout: %u s", (unsigned)(this->silent_link_ms_ / 1000));
   // The LOG_ macros print nothing for an entity the yaml left out.
   this->log_sensors_(BATTERY_FIELDS);
   this->log_sensors_(CTRL_FIELDS);
@@ -169,12 +172,16 @@ void FiidoBMSHub::settle_probe_(bool motor_on) {
       break;
     case ProbeOutcome::DROP_LINK:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: probe -> bike still OFF, disabling ble_client", this->parent_->address_str());
-      this->probe_started_ms_ = 0;
-      this->parent_->set_enabled(false);
-      this->disconnected_since_ms_ = millis();
-      this->motor_off_since_ms_ = 0;
+      this->release_link_(millis());
       break;
   }
+}
+
+void FiidoBMSHub::release_link_(uint32_t now) {
+  this->parent_->set_enabled(false);
+  this->disconnected_since_ms_ = now;
+  this->motor_off_since_ms_ = 0;
+  this->probe_started_ms_ = 0;
 }
 
 void FiidoBMSHub::publish_flag_entities_(const FlagView &f) {
@@ -211,6 +218,8 @@ void FiidoBMSHub::reset_session_state_() {
   this->registers_.clear();
   this->prev_ride_ = {.gear = 0xFF, .motor_on = false, .light_on = false};
   this->last_dispatch_ms_ = 0;
+  this->last_stats_ms_ = 0;
+  this->link_open_ = false;
   this->bad_notify_log_.reset();
   this->unknown_addr_log_.reset();
   this->ambiguous_limit_log_.reset();
@@ -254,8 +263,14 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
 }
 
 void FiidoBMSHub::on_open_() {
+  // The event also reaches the node when the open failed and the client went back to IDLE.
+  const espbt::ClientState state = this->parent_->state();
+  if (state != espbt::ClientState::CONNECTED && state != espbt::ClientState::ESTABLISHED)
+    return;
   ESP_LOGI(TAG, "[%s] Connection opened", this->parent_->address_str());
   this->connect_time_ms_ = millis();
+  this->last_stats_ms_ = this->connect_time_ms_;
+  this->link_open_ = true;
   this->handshake_sent_ = false;
   this->link_.set_congested(false);
 }
@@ -550,31 +565,34 @@ void FiidoBMSHub::manage_lifecycle_() {
       .now = now,
       .enabled = this->parent_->enabled,
       .connected = this->node_state == espbt::ClientState::ESTABLISHED,
+      .link_open = this->link_open_,
       .motor_off_since_ms = this->motor_off_since_ms_,
       .disconnected_since_ms = this->disconnected_since_ms_,
       .probe_started_ms = this->probe_started_ms_,
       .last_dispatch_ms = this->last_dispatch_ms_,
+      .last_stats_ms = this->last_stats_ms_,
       .pending_writes = !this->pending_writes_.empty(),
       .idle_disconnect_ms = this->idle_disconnect_ms_,
       .probe_window_ms = PROBE_WINDOW_MS,
       .periodic_probe_ms = PERIODIC_PROBE_MS,
       .write_verify_window_ms = WRITE_VERIFY_WINDOW_MS,
+      .silent_link_ms = this->silent_link_ms_,
   };
 
   switch (decide_lifecycle(in)) {
     case LifecycleAction::IDLE_DISCONNECT:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: motor OFF for %u min, disabling ble_client", this->parent_->address_str(),
                (unsigned)((now - this->motor_off_since_ms_) / 60000));
-      this->parent_->set_enabled(false);
-      this->disconnected_since_ms_ = now;
-      this->motor_off_since_ms_ = 0;
-      this->probe_started_ms_ = 0;
+      this->release_link_(now);
+      break;
+    case LifecycleAction::SILENT_LINK:
+      ESP_LOGI(TAG, "[%s] LIFECYCLE: no STATS for %u s, disabling ble_client", this->parent_->address_str(),
+               (unsigned)((now - this->last_stats_ms_) / 1000));
+      this->release_link_(now);
       break;
     case LifecycleAction::PROBE_TIMEOUT:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: probe window expired without reconnect, disabling", this->parent_->address_str());
-      this->parent_->set_enabled(false);
-      this->disconnected_since_ms_ = now;
-      this->probe_started_ms_ = 0;
+      this->release_link_(now);
       break;
     case LifecycleAction::START_PROBE:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: %u min elapsed, starting probe", this->parent_->address_str(),
@@ -800,6 +818,7 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   const StatsView sv = decode_stats(p);
   if (!sv.valid)
     return;
+  this->last_stats_ms_ = millis();
   this->publish_stats_samples_(sv);
   this->sync_gear_entities_(sv);
   this->enforce_gear_mode_(sv);

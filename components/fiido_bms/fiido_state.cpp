@@ -1,5 +1,7 @@
 #include "fiido_state.h"
 
+#include <algorithm>
+
 namespace esphome::fiido_bms {
 
 StatsSamples stats_samples(const StatsView &view) {
@@ -45,20 +47,28 @@ uint32_t track_motor_off(uint32_t since_ms, bool motor_on, uint32_t now) {
 }
 
 LifecycleAction decide_lifecycle(const LifecycleInput &in) {
-  if (in.enabled && in.connected) {
-    if (in.motor_off_since_ms != 0 && (in.now - in.motor_off_since_ms) >= in.idle_disconnect_ms && !in.pending_writes)
-      return LifecycleAction::IDLE_DISCONNECT;
-    return LifecycleAction::NONE;
-  }
+  if (in.enabled && in.connected && in.motor_off_since_ms != 0 &&
+      (in.now - in.motor_off_since_ms) >= in.idle_disconnect_ms && !in.pending_writes)
+    return LifecycleAction::IDLE_DISCONNECT;
+  if (in.enabled && in.link_open && in.silent_link_ms != 0 && (in.now - in.last_stats_ms) >= in.silent_link_ms &&
+      !in.pending_writes)
+    return LifecycleAction::SILENT_LINK;
   if (in.enabled) {
-    if (in.probe_started_ms != 0 && (in.now - in.probe_started_ms) >= in.probe_window_ms && !in.pending_writes &&
-        (in.last_dispatch_ms == 0 || (in.now - in.last_dispatch_ms) >= in.write_verify_window_ms))
+    if (!in.connected && in.probe_started_ms != 0 && (in.now - in.probe_started_ms) >= in.probe_window_ms &&
+        !in.pending_writes && (in.last_dispatch_ms == 0 || (in.now - in.last_dispatch_ms) >= in.write_verify_window_ms))
       return LifecycleAction::PROBE_TIMEOUT;
     return LifecycleAction::NONE;
   }
   if (in.disconnected_since_ms != 0 && (in.now - in.disconnected_since_ms) >= in.periodic_probe_ms)
     return LifecycleAction::START_PROBE;
   return LifecycleAction::NONE;
+}
+
+uint32_t silent_link_timeout(uint32_t interval_on_ms, uint32_t interval_off_ms, uint32_t startup_delay_ms) {
+  constexpr uint64_t min_timeout_ms = 60 * 1000;
+  constexpr uint64_t missed_polls = 4;
+  const uint64_t window_ms = ((missed_polls + 1) * std::max(interval_on_ms, interval_off_ms)) + startup_delay_ms;
+  return static_cast<uint32_t>(std::min<uint64_t>(std::max(min_timeout_ms, window_ms), UINT32_MAX));
 }
 
 const char *resolve_speed_limit_option(uint8_t value, bool limit_on) {
