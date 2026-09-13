@@ -535,6 +535,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   // polled once per burst. Must exceed update_interval_off or it never throttles.
   static constexpr uint32_t AMBIGUOUS_LIMIT_LOG_INTERVAL_MS = 60000;
   static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
+  static constexpr size_t TX_DUMP_LEN = std::tuple_size_v<decltype(WriteFrame::bytes)>;
 
   WriteError send_raw_write_(FrameType type, Addr addr, std::span<const uint8_t> payload);
   void send_handshake_();

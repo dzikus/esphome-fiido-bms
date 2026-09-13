@@ -297,8 +297,10 @@ void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
   if (!notify.valid) {
     if (const uint32_t dropped = this->bad_notify_log_.tick(millis(), BAD_NOTIFY_LOG_INTERVAL_MS); dropped != 0) {
       const size_t dump = std::min(frame.size(), BAD_NOTIFY_DUMP_LEN);
+      std::array<char, format_hex_pretty_size(BAD_NOTIFY_DUMP_LEN)> hex{};
       ESP_LOGW(TAG, "[%s] NOTIFY invalid (len=%u, %u dropped since last log), head: %s", this->parent_->address_str(),
-               (unsigned)frame.size(), (unsigned)dropped, format_hex_pretty(frame.data(), dump).c_str());
+               (unsigned)frame.size(), (unsigned)dropped,
+               format_hex_pretty_to(hex.data(), hex.size(), frame.data(), dump, '.'));
     }
     return;
   }
@@ -449,9 +451,12 @@ WriteError FiidoBMSHub::send_raw_write_(FrameType type, Addr addr, std::span<con
     ESP_LOGW(TAG, "[%s] send_raw_write payload too long (%u)", this->parent_->address_str(), (unsigned)payload.size());
     return WriteError::PAYLOAD_TOO_LONG;
   }
+#ifdef ESPHOME_LOG_HAS_VERBOSE
+  std::array<char, format_hex_pretty_size(TX_DUMP_LEN)> hex{};
   ESP_LOGV(TAG, "[%s] RAW WRITE type=0x%02X addr=0x%02X len=%u -> %s", this->parent_->address_str(),
            static_cast<unsigned>(type), static_cast<uint8_t>(addr), (unsigned)payload.size(),
-           format_hex_pretty(frame.bytes.data(), frame.size).c_str());
+           format_hex_pretty_to(hex.data(), hex.size(), frame.bytes.data(), frame.size, '.'));
+#endif
   return this->send_frame_(frame.span(), "RAW_WRITE");
 }
 
@@ -460,8 +465,11 @@ WriteError FiidoBMSHub::send_frame_(std::span<const uint8_t> frame, const char *
     ESP_LOGW(TAG, "[%s] send %s skipped, FFE2 handle not yet known", this->parent_->address_str(), name);
     return WriteError::NO_HANDLE;
   }
+#ifdef ESPHOME_LOG_HAS_VERBOSE
+  std::array<char, format_hex_pretty_size(TX_DUMP_LEN)> hex{};
   ESP_LOGV(TAG, "[%s] POLL %-9s -> %s", this->parent_->address_str(), name,
-           format_hex_pretty(frame.data(), frame.size()).c_str());
+           format_hex_pretty_to(hex.data(), hex.size(), frame.data(), frame.size(), '.'));
+#endif
   const WriteError result = this->link_.send(this->parent_, frame);
   if (result != WriteError::NONE) {
     if (warn_on_fail) {
@@ -1195,9 +1203,10 @@ void FiidoBMSHub::pair_watch() {
     ESP_LOGW(TAG, "[%s] PAIR_WATCH: own BLE address not available", this->parent_->address_str());
     return;
   }
-  const std::span<const uint8_t> payload(mac, 6);
+  const std::span<const uint8_t> payload(mac, MAC_ADDRESS_SIZE);
+  std::array<char, format_hex_pretty_size(MAC_ADDRESS_SIZE)> hex{};
   ESP_LOGI(TAG, "[%s] PAIR_WATCH ADDR 0x09 MAC bytes (send order) = %s", this->parent_->address_str(),
-           format_hex_pretty(payload.data(), payload.size()).c_str());
+           format_hex_pretty_to(hex.data(), hex.size(), payload.data(), payload.size(), '.'));
   // Write-only address: no notify carries 0x09 back, so the send result is the
   // only signal there is.
   if (WriteError::NONE != this->send_raw_write_(FrameType::WRITE_J0, Addr::WATCH_PAIR, payload)) {
