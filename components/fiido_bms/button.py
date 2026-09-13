@@ -9,7 +9,7 @@ from . import (
     FIIDO_BMS_COMPONENT_SCHEMA,
     apply_entity_prefix,
     fiido_bms_ns,
-    hub_expose_dev,
+    hub_entity_config,
     hub_name_prefix,
     inject_entity_defaults,
 )
@@ -40,7 +40,9 @@ _DEFAULT_NAMES = [(key, name) for key, *_row, name in BUTTONS]
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES, hidden=DEV_BUTTON_KEYS)
+    return inject_entity_defaults(
+        config, _DEFAULT_NAMES, hidden=DEV_BUTTON_KEYS, platform="button"
+    )
 
 
 CONFIG_SCHEMA = cv.All(
@@ -66,12 +68,14 @@ async def to_code(config):
     config = apply_entity_prefix(
         config, _DEFAULT_NAMES, hub_name_prefix(config[CONF_FIIDO_BMS_ID])
     )
-    expose_dev = hub_expose_dev(config[CONF_FIIDO_BMS_ID])
     for key, _cls, setter, _icon, _default_name in BUTTONS:
         if key not in config:
             continue
-        if key in DEV_BUTTON_KEYS and not expose_dev:
+        entity = hub_entity_config(
+            config[CONF_FIIDO_BMS_ID], "button", key, config[key]
+        )
+        if entity is None:
             continue
-        btn_var = await button.new_button(config[key])
+        btn_var = await button.new_button(entity)
         await cg.register_parented(btn_var, hub)
         cg.add(getattr(hub, setter)(btn_var))

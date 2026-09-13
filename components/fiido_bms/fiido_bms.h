@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -21,6 +22,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "fiido_link.h"
+#include "fiido_model.h"
 #include "fiido_protocol.h"
 #include "fiido_state.h"
 
@@ -157,6 +159,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void set_startup_delay(uint32_t ms) { this->startup_delay_ms_ = ms; }
   void set_hub_index(int i) { this->hub_index_ = i; }
   void set_total_hubs(int n) { this->total_hubs_ = n; }
+  void set_model(Model model) { this->model_ = model; }
 
   void set_motor_enable(bool on);
   void set_light_enable(bool on);
@@ -261,6 +264,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   void enable_boost_poll() { this->poll_enabled_[poll_index(Addr::PAS_BOOST)] = true; }
   void enable_display_poll() { this->poll_enabled_[poll_index(Addr::DISPLAY)] = true; }
+  void enable_speed_limit_poll() { this->poll_enabled_[poll_index(Addr::SPEED_LIMIT)] = true; }
 
   void set_auto_shutdown_enabled(bool en);
 
@@ -535,6 +539,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   // polled once per burst. Must exceed update_interval_off or it never throttles.
   static constexpr uint32_t AMBIGUOUS_LIMIT_LOG_INTERVAL_MS = 60000;
   static constexpr size_t BAD_NOTIFY_DUMP_LEN = 8;
+  static constexpr size_t TX_DUMP_LEN = std::tuple_size_v<decltype(WriteFrame::bytes)>;
+  static constexpr size_t RX_DUMP_CHUNK = 64;
 
   WriteError send_raw_write_(FrameType type, Addr addr, std::span<const uint8_t> payload);
   void send_handshake_();
@@ -551,6 +557,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void schedule_write_verify_();
   void publish_flag_entities_(const FlagView &flags);
   void settle_probe_(bool motor_on);
+  void release_link_(uint32_t now);
   void publish_connected_(bool state);
   void mark_activity_(const char *reason);
 
@@ -573,6 +580,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void clear_persisted_light_bit_(bool motor_on);
   void track_activity_(const RideState &ride, uint16_t speed_raw);
   void update_idle_timer_(bool motor_on);
+  void log_capabilities_(const StatsView &sv);
   void parse_meter_(std::span<const uint8_t> payload);
   void parse_speed_limit_(std::span<const uint8_t> payload);
   void parse_boost_(std::span<const uint8_t> payload);
@@ -600,8 +608,11 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   // Everything the session has to forget when the link drops.
   void reset_session_state_();
 
+  [[nodiscard]] const ModelProfile &profile_() const { return model_profile(this->model_.value_or(Model::C11_PRO)); }
+
   uint32_t startup_delay_ms_{0};
   uint32_t connect_time_ms_{0};
+  bool link_open_{false};
   size_t burst_idx_{0};
   size_t burst_remaining_{0};
   uint8_t burst_retry_{0};
@@ -612,10 +623,12 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   LogThrottle unknown_addr_log_;
   LogThrottle ambiguous_limit_log_;
   LogThrottle gear_drop_throttle_;
+  std::optional<std::array<uint8_t, stats::CAPABILITY_LEN>> logged_capabilities_{};
 
   FiidoGearSelect *gear_select_{nullptr};
 
   bool ble_user_enabled_{true};
+  bool gatt_mismatch_{false};
 
   // Only bits 4..0 of ADDR 0x39 are defined; the cache keeps those and a write
   // builds from them.
@@ -633,6 +646,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   int hub_index_{0};
   int total_hubs_{1};
+  std::optional<Model> model_{};
 
   bool force_poll_stats_{false};
 
@@ -644,6 +658,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   uint32_t disconnected_since_ms_{0};
   uint32_t probe_started_ms_{0};
   uint32_t last_dispatch_ms_{0};
+  uint32_t last_stats_ms_{0};
+  uint32_t silent_link_ms_{0};
   PendingWrites pending_writes_;
 
   std::array<bool, POLL_TABLE_SIZE> poll_enabled_{default_poll_enables()};

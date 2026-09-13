@@ -43,6 +43,10 @@ ebikes exposing the same `Fiido_*` BLE service are likely compatible but unteste
 reports and PRs welcome. The K1 / Kidz children's line uses a different register
 layout and is not covered.
 
+A Fiido Air owner reports the same frames over a different GATT service, which
+`model: air` selects. No Air has been tested with this component; see
+**Fiido Air (untested)**.
+
 | Bike                  | BLE name        | MAC (example)       | Spec             |
 |-----------------------|-----------------|---------------------|------------------|
 | Fiido C11 Pro         | `Fiido_C11Pro`  | `XX:XX:XX:XX:XX:XX` | 48V/11.6Ah, 350W, 28 inch |
@@ -69,6 +73,16 @@ but Wi-Fi works too.
 
 Negotiated MTU: 247. The component does no DFU and never writes to `0xFE59`.
 
+Fiido Air profile, per the owner report:
+
+| Service                                  | Characteristic                                    | Use |
+|------------------------------------------|---------------------------------------------------|-----|
+| `c3e6fea0-e966-1000-8000-be99c223df6a`   | `c3e6fea2-e966-1000-8000-be99c223df6a` (NOTIFY)   | Rx  |
+| `c3e6fea0-e966-1000-8000-be99c223df6a`   | `c3e6fea1-e966-1000-8000-be99c223df6a` (WRITE)    | Tx  |
+
+The hub looks up both characteristics by UUID in the profile selected by `model`.
+`PROTOCOL.md` lists both profiles.
+
 ### What it exposes per bike
 
 Numbers are after the default `expose_dev_sensors: false`. With `expose_dev_sensors:
@@ -84,7 +98,8 @@ hidden in HA until you enable them per entity.
   lower voltage / current / temperature, motor magnetic / wire / steel / reduction
   ratio, battery current and trip / total energy, crank RPM / torque, meter
   diagnostics, gear start).
-- 1 binary sensor always on: `connected` (BLE link state).
+- 2 binary sensors always on: `connected` (BLE link state) and `pas_limit` (STATS
+  0x2C bit 7).
 - 1 dev binary sensor gated by `expose_dev_sensors`: `brake` (STATS 0x2A bit 5,
   hardware behaviour not user-verified).
 - 4 selects: `gear` (3 or 5 options depending on mode), `mode` (3 / 5, hidden on
@@ -98,6 +113,8 @@ hidden in HA until you enable them per entity.
   Experimental controls.
 - 3 numbers gated by `expose_dev_sensors`: `guard_time`, `brightness`, `boost`.
 - 1 button gated by `expose_dev_sensors`: `pair_watch`.
+
+A `model: air` hub builds fewer entities; see **Fiido Air (untested)**.
 
 ### Screenshots
 
@@ -173,6 +190,7 @@ Set on the `fiido_bms:` entry, not on the platforms.
 | Option                | Type     | Default | Effect                                                                                          |
 |-----------------------|----------|---------|-------------------------------------------------------------------------------------------------|
 | `ble_client_id`       | id       | -       | Required. Points to the `ble_client` entry for this bike's MAC.                                 |
+| `model`               | enum     | unset   | `c11_pro`, `m1_pro_2025` or `air`. Selects the GATT profile and, for `air`, the entity set. Unset: FFE0 profile, all entities. `c11_pro` and `m1_pro_2025` match unset and add a `Model:` line to `dump_config`. `air` rejects `ui_gear_mode_3: true` and `enforce_gear_mode_3: true`. See **Fiido Air (untested)**. |
 | `startup_delay`       | time     | `0s`    | Delays the first poll after connect, and sets this hub's burst phase for the whole uptime. Auto-derived from `hub_index` if omitted; set the same value on two hubs and their bursts collide. |
 | `update_interval_on`  | time     | `3s`    | Burst rotation period while motor controller is ON (bit 7 ADDR 0x27 set).                       |
 | `update_interval_off` | time     | `15s`   | Burst rotation period while motor controller is OFF. Fast enough to catch a physical power-on.  |
@@ -262,6 +280,7 @@ it is true.
 | Key         | Default name   | Source             | Notes                          |
 |-------------|----------------|--------------------|--------------------------------|
 | `connected` | BLE Connected  | BLE link state     | diagnostic category            |
+| `pas_limit` | PAS Limit      | STATS 0x2C bit 7   | diagnostic category, read-only view of the PAS cap the speed limit select writes |
 
 **Dev** (created only with `expose_dev_sensors: true`, then `disabled_by_default`):
 
@@ -401,8 +420,12 @@ only that injected default is subject to the hub's `name_prefix`.
 ### Two bikes on one ESP32
 
 Two `ble_client` entries and two `fiido_bms` hubs is all that is needed. The hub
-auto-offset spreads the polls, and ESP32 supports up to 3 concurrent BLE client
-connections out of the box (max 9 with `max_connections` raised in `esp32_ble_tracker`).
+auto-offset spreads the polls. Each `ble_client` uses one BLE connection slot.
+`esp32_ble` provides 3 slots by default and up to 9 with `max_connections`. The same
+option under `esp32_ble_tracker` is deprecated and still accepted. An active
+`bluetooth_proxy` takes its `connection_slots` (default 3) from the same pool.
+ESPHome logs a warning when the slots in use exceed `max_connections` and rejects a
+config that needs more than 9.
 
 ```yaml
 ble_client:
@@ -581,6 +604,210 @@ the official app cannot pair. To use the app:
 
 ESPHome will reconnect and start polling again on the next tick.
 
+### Fiido Air (untested)
+
+Air support is based on the owner reports in the README of the
+[mhd6271/esphome-fiido-air](https://github.com/mhd6271/esphome-fiido-air) fork, a copy
+of this component with the three GATT UUIDs changed to the FEA0 profile. Per those
+reports the Air answers the same `46 64` frames as the C11 Pro and M1 Pro 2025. No Air
+has been tested with this component. Statements marked as owner reports come from that
+README.
+
+```yaml
+external_components:
+  - source: github://dzikus/esphome-fiido-bms
+    components: [fiido_bms]
+
+esp32_ble_tracker:
+
+ble_client:
+  - id: ble_air
+    mac_address: XX:XX:XX:XX:XX:XX
+
+fiido_bms:
+  - id: hub_air
+    ble_client_id: ble_air
+    model: air
+
+sensor:
+  - platform: fiido_bms
+    fiido_bms_id: hub_air
+
+binary_sensor:
+  - platform: fiido_bms
+    fiido_bms_id: hub_air
+
+switch:
+  - platform: fiido_bms
+    fiido_bms_id: hub_air
+```
+
+This config builds 8 entities. The hub polls STATS and BATTERY and sends HANDSHAKE
+once per connection. A `select:` or `number:` block adds entities only with
+`expose_dev_sensors: true`. A `button:` block adds none.
+
+| Platform        | Built by default | Only with `expose_dev_sensors: true` (hidden in HA) | Never built |
+|-----------------|------------------|------------------------------------------------------|-------------|
+| `sensor`        | `battery_soc`, `battery_voltage`, `bicycle_speed`, `current_kilometers`, `total_kilometers` | the other 31, including `motor_temperature`, `battery_capacity` and `startup_time` | - |
+| `binary_sensor` | `connected`      | `brake`, `pas_limit`                                 | - |
+| `switch`        | `bluetooth`, `auto_shutdown` | `motor`, `light`, `speaker`, `key_sound`, `slow_mode_on_boot`, `bike_guard`, `cruise`, `start_mode`, `insensitivity`, `show_total_km`, `auto_screen_off`, `ring`, `double_speed` | `throttle` |
+| `select`        | -                | `speed_limit`                                        | `gear`, `mode`, `speed_unit` |
+| `number`        | -                | `boost`, `guard_time`                                | `brightness` |
+| `button`        | -                | -                                                    | `pair_watch` |
+
+Owner report: SOC, voltage, speed, both distances and the link state read correctly.
+`motor_temperature` stayed at 0 C, `speed_limit` never got a value and `pas_limit`
+stayed off. Gear, gear count, throttle and speed unit have no counterpart on the Air.
+`battery_voltage` read 36.0 V. On the C11 Pro and M1 Pro 2025 the same register holds
+the nameplate 48.0 V at all times. Whether the Air value is a measurement is not known.
+
+An Air hub sets `disabled_by_default: true` on every entity in the middle column. This
+happens at code generation, after validation, and overrides
+`disabled_by_default: false` in yaml. Keys in the last column are dropped regardless
+of their options, and each one written in yaml logs a warning at validation.
+
+#### Writes
+
+No write has been verified on an Air, `auto_shutdown` included. As on the C11 Pro
+and M1 Pro 2025, the switch is built by default, is not gated by
+`expose_dev_sensors` and defaults to on (`RESTORE_DEFAULT_ON`). After 15 minutes
+without activity while STATS reports the controller on (ADDR 0x27 bit 7), the hub
+writes ADDR 0x27 with bit 7 cleared. To prevent that write, turn the switch off, set
+`restore_mode: ALWAYS_OFF` on it, or set `auto_shutdown: false`, which leaves the
+switch out and turns the mechanism off.
+
+The dev controls write the same registers as on the C11 Pro and M1 Pro 2025. An Air
+hub never sends:
+
+- a gear write (no `gear` select),
+- the mode-3 enforcement (`enforce_gear_mode_3` is rejected),
+- a light bit clear, neither on the controller's falling edge nor in the Power OFF
+  write (`Light bit auto-clear: NO` in `dump_config`).
+
+#### Link behaviour
+
+Owner report: while the controller sleeps the BMS does not answer polls, and the
+connection can stay up without data.
+
+On every model the hub drops a link that delivers no valid STATS frame within the
+silent link timeout, printed as `Silent link timeout` in `dump_config`:
+
+```
+max(60 s, 5 x max(update_interval_on, update_interval_off) + startup_delay)
+```
+
+A single hub on default intervals gets 75 s, so four polls in a row can go
+unanswered. The timer starts when the connection opens, before service discovery,
+and each valid STATS frame restarts it, so a link that never reaches `READY` is
+dropped too. On expiry the hub logs `LIFECYCLE: no STATS for N s`, clears queued
+writes with a warning and probes again after 5 minutes.
+
+A bike that lacks the configured service and offers the other known one triggers an
+error naming the model to set:
+
+| Hub `model`                         | Bike offers | Log                                                        |
+|-------------------------------------|-------------|------------------------------------------------------------|
+| unset, `c11_pro` or `m1_pro_2025`   | FEA0        | `bike offers the FEA0 service, set model: air`             |
+| `air`                               | FFE0        | `bike offers the FFE0 service, set model: c11_pro or m1_pro_2025` |
+
+The hub then sets its warning status, clears queued writes and drops the link. Until
+the `bluetooth` switch is turned off and on or the node restarts, it does not probe
+and rejects writes from HA with
+`rejected: bike offers the GATT service of another model`. Any other lookup failure
+logs `service or characteristics not found` and the hub probes again after 5 minutes.
+
+#### One BLE central at a time
+
+Owner report: the paired watch and the official app each occupy the Air's only BLE
+connection. The `bluetooth` switch releases the link and takes it back, as in
+**App vs ESPHome**.
+
+#### Address
+
+`ble_client` connects to one fixed `mac_address`. The component does not bond and
+cannot follow a resolvable private address. The Air's address type is not known; a
+capture shows it in the `Parse Result:` block.
+
+#### C11, M1 and Air on one ESP32
+
+`model` is set per hub. One node can run a C11 Pro, an M1 Pro 2025 and an Air.
+**Two bikes on one ESP32** and **Entity names with two bikes** apply: a `device_id`
+per hub on every platform block and, for distinct names, a `name_prefix` per hub.
+Three `ble_client` entries use all 3 default connection slots.
+
+```yaml
+fiido_bms:
+  - id: hub_c11
+    ble_client_id: ble_c11
+    model: c11_pro
+    name_prefix: "C11"
+  - id: hub_m1
+    ble_client_id: ble_m1
+    model: m1_pro_2025
+    name_prefix: "M1"
+  - id: hub_air
+    ble_client_id: ble_air
+    model: air
+    name_prefix: "Air"
+```
+
+`expose_dev_sensors: true` on one hub compiles the dev code for the whole node
+(`USE_FIIDO_BMS_DEV`). Dev entities are created only on hubs that set the flag.
+
+### Frame capture for Air owners
+
+Verifying the Air statements above requires logs from an Air. The capture needs no
+yaml beyond this logger block:
+
+```yaml
+logger:
+  level: VERY_VERBOSE
+  logs:
+    fiido_bms: VERY_VERBOSE
+    esp32_ble_client: VERBOSE
+    ble_device_base: VERY_VERBOSE
+    esp32_ble_tracker: VERY_VERBOSE
+```
+
+- The global level must be `VERY_VERBOSE`. The `RX` dump is compiled only at that
+  level, and ESPHome rejects a per-tag level more verbose than the global level.
+- `fiido_bms` logs `RX len=<n> at=<offset> <hex>` for every frame from the notify
+  characteristic, before validation, one line per 64 bytes, and a `POLL` line for
+  every poll it sends.
+- `esp32_ble_client` logs a `Service UUID:` line for every service found after
+  connecting.
+- A `Parse Result:` block shows a received advertisement: address and address
+  type, name, advertised service UUIDs, `Manufacturer ID` with data. Its tag is
+  `esp32_ble_tracker` in ESPHome 2026.7.3 and `ble_device_base` in 2026.8.1. The
+  block above sets both.
+
+Return the logger to its usual level after the capture. Disconnect the watch and the
+app before each scenario:
+
+1. Leave the bike until it sleeps and log for at least 10 minutes. Of interest:
+   whether `READY` appears, whether `RX` lines follow, when `no STATS for` releases
+   the link, and whether the 5-minute probe wakes the bike or keeps it awake.
+2. Wake the bike, let the hub connect and log a few minutes of `RX` and `STATS`
+   lines.
+3. While connected, switch the bike on and off with its own button, then the light,
+   a few seconds apart, and note the times. The `addr27=` field of the `STATS` lines
+   shows which bits change.
+4. Plug the charger in and out while the hub is connected or probing.
+
+Attach to an issue:
+
+- the `dump_config` block from `Fiido BMS Hub:` on, with `Model`, `GATT service` and
+  `Silent link timeout`,
+- the `Parse Result:` block for the bike's address,
+- the `Service UUID:` lines,
+- every `CAPS 0x2D..0x34:` line (capability bytes, logged once per connection and
+  on every change),
+- the `RX len=` lines with the surrounding `POLL` and `STATS` lines,
+- every line containing `bike offers the`, `not found` or `LIFECYCLE`.
+
+The `fiido_bms` lines carry the bike's MAC address. Mask it before posting logs
+publicly.
+
 ---
 
 ## Upgrading
@@ -634,9 +861,9 @@ release changes nothing for you.
 
 ```
 components/fiido_bms/
-  __init__.py                  hub config + schema, auto-offset, dev gating
+  __init__.py                  hub config + schema, model entity sets, auto-offset, dev gating
   sensor.py                    sensor platform: 36 keys (10 always on, 26 dev), schema + to_code
-  binary_sensor.py             binary_sensor platform: 2 keys (1 always on, 1 dev)
+  binary_sensor.py             binary_sensor platform: 3 keys (2 always on, 1 dev)
   select.py                    4 select classes + platform
   switch.py                    16 switch classes + platform (9 stable, 7 dev)
   number.py                    3 number classes + platform, all dev
@@ -645,6 +872,8 @@ components/fiido_bms/
   fiido_protocol.{h,cpp}       pure C++: CRC XOR, frame builders, validate, POLL_TABLE
   fiido_state.{h,cpp}          pure C++: lifecycle, write gate, pending queue, burst
                                cadence, register cache, speed limit plan, gear clamp
+  fiido_model.h                pure C++: Model enum, GATT profiles, per-model traits
+  fiido_link.{h,cpp}           GATT handles by UUID, notify subscription, writes
   fiido_bms.{h,cpp}            FiidoBMSHub: BLE client + PollingComponent + state machine
 
   fiido_bool_switch.h          all 16 switches via two templates + one-line subclasses:
@@ -664,8 +893,9 @@ components/fiido_bms/
   fiido_speed_unit_select.{h,cpp}   bit 7 ADDR 0x28
 ```
 
-`fiido_protocol.{h,cpp}` is pure C++ with no ESPHome dependencies and is what the
-PlatformIO unit tests link against. Everything else needs the ESPHome runtime.
+`fiido_protocol.{h,cpp}`, `fiido_state.{h,cpp}` and `fiido_model.h` are pure C++ with
+no ESPHome dependencies and are what the PlatformIO unit tests build against.
+Everything else needs the ESPHome runtime.
 
 ### Polling model
 
@@ -701,10 +931,9 @@ BATTERY -> CTRL -> MOTOR -> ENERGY -> STATS -> METER -> SPEEDLIM -> BOOST -> DIS
 ```
 
 5 ms is the empirically established sweet spot; anything below ~3 ms makes the BMS
-drop frames. Polls whose group is disabled (no consumer sensor gated by
-`expose_dev_sensors`, or a number entity that is not configured) are skipped at burst
-time; a safety counter bounds the skip loop so a fully disabled rotation cannot spin
-forever.
+drop frames. Polls that no entity on the hub reads are skipped at burst time (see
+the note under the poll table below). A counter limits the skip loop to one pass over
+`POLL_TABLE`.
 
 After every successful WRITE the hub sets `force_poll_stats_ = true`, cancels the
 in-flight burst, and re-enters burst rotation starting with STATS so the WRITE's
@@ -736,6 +965,8 @@ visible effect (a flipped bit) shows up in HA within one burst step.
 | `PROBING -> CONNECTED`             | STATS arrives with bit 7 ADDR 0x27 set               | stay connected, run burst polls                                         |
 | `PROBING -> DISCONNECTED`          | STATS arrives with bit 7 ADDR 0x27 clear and no pending | `set_enabled(false)`                                                    |
 | `PROBING -> DISCONNECTED` (timeout)| `PROBE_WINDOW_MS` (60s) elapsed, still not linked, no pending | `set_enabled(false)`                                                    |
+| `CONNECTED -> DISCONNECTED` (silent link) | no valid STATS since the connection opened or since the last STATS for `silent_link_ms_` (`Silent link timeout` in `dump_config`), also before READY | `set_enabled(false)`; queued writes are dropped with a warning |
+| any `-> DISCONNECTED` (GATT)       | services resolved, but the configured profile's service or characteristics are missing | `set_enabled(false)` and warning status. If the bike offers the other known profile instead: queued writes cleared, later writes rejected, no probing until the `bluetooth` switch is cycled or the node restarts |
 | any `-> PROBING`                   | HA writes a control while link is down               | `enqueue_pending_write_(fn)` + `ensure_enabled_for_write_()` + `set_enabled(true)` |
 | WRITE drained                      | STATS valid after re-connect                         | `dispatch_pending_writes_()` runs every enqueued lambda                 |
 
@@ -814,9 +1045,19 @@ The full poll rotation:
 | BOOST     | 0x52 | 1   | `46 64 55 01 52 24`      | PAS boost level                                |
 | DISPLAY   | 0x57 | 2   | `46 64 55 02 57 22`      | display brightness (0x57) + guard time (0x58)  |
 
-STATS and SPEEDLIM are always issued; CTRL and METER are skipped from the rotation
-when `expose_dev_sensors` is false; BOOST and DISPLAY only run when the matching
-number entity (`boost`, or `brightness` / `guard_time`) is configured.
+STATS is always issued. Every other poll runs only on a hub that builds an entity
+reading it:
+
+| Poll                                | Enabled by                               |
+|-------------------------------------|------------------------------------------|
+| BATTERY, CTRL, MOTOR, ENERGY, METER | a sensor fed by that poll                |
+| SPEEDLIM                            | the `speed_limit` select                 |
+| BOOST                               | the `boost` number                       |
+| DISPLAY                             | the `brightness` or `guard_time` number  |
+
+CTRL and METER feed dev sensors only and drop out with `expose_dev_sensors: false`. A
+`model: air` hub without `expose_dev_sensors` sends STATS and BATTERY only. HANDSHAKE
+goes out once per connection, outside the rotation.
 
 ### Adding a new entity
 
@@ -877,9 +1118,9 @@ shape. Walking through a new switch on, say, bit 0 ADDR 0x39:
    and `FiidoMyThingSwitch *my_thing_switch_{nullptr};` in the protected section.
    `fiido_bms.cpp` already includes `fiido_bool_switch.h`, which defines the class.
 
-7. **Unit test the parse path** in `tests/test_protocol/test_main.cpp`: extend the
-   STATS fixture to set bit 0 of ADDR 0x39, build a frame, decode it, assert the
-   cache value.
+7. **Unit test the parse path** in `tests/test_protocol/test_decode.cpp` and register
+   it in `run_decode_tests()`: extend the STATS fixture to set bit 0 of ADDR 0x39,
+   build a frame, decode it, assert the cache value.
 
 For a new sensor the shape is the same minus steps 3-6: add it to `SENSORS` in
 `sensor.py`, add `set_my_sensor` and the member pointer in `fiido_bms.h`, publish
@@ -890,11 +1131,13 @@ to `DEV_SENSOR_KEYS` if it should be off by default.
 ### Testing
 
 Unit tests under `tests/test_protocol/` build with PlatformIO + Unity. They link
-`fiido_protocol.{h,cpp}` and `fiido_state.{h,cpp}` and run on the host (no ESP32
-required). 117 tests cover CRC, the poll and write frame builders, validate, the
-decode of every poll's payload via static fixtures in `fixtures.h`, and the state
-decisions: lifecycle, write gate, pending queue, burst cadence, speed limit plan,
-gear clamping.
+`fiido_protocol.{h,cpp}` and `fiido_state.{h,cpp}`, include the header-only
+`fiido_model.h`, and run on the host (no ESP32 required). 144 tests cover CRC, the
+poll and write frame builders, validate, the decode of every poll's payload via
+static fixtures in `fixtures.h`, the state decisions (lifecycle, write gate, pending
+queue, burst cadence, speed limit plan, gear clamping) and the model table: UUID
+format, the profile each model uses, and which known profile a bike offers instead
+of the configured one.
 
 ```
 pio test -d tests -e native
@@ -909,7 +1152,8 @@ pio test -d tests -e native
 | C11 charging cuts BLE entirely                                                             | `connected` goes OFF while the charger is plugged in. Unplug to restore the link.                                                  |
 | Current, controller and crank-energy registers read zero on the C11 / M1                   | Not a decode error and no write arms them; the bikes clear the capability bits for the sensors that would fill them. Use `battery_soc`. See Telemetry these bikes do not provide. |
 | M1 charging is invisible on BLE                                                            | No register reports charge current / voltage delta. Do not try to detect charging from BMS state.                                  |
-| Official app and the component share the BLE link                                          | Only one central at a time. Use the `bluetooth` switch to release the link before pairing with the app.                            |
+| Official app and the component share the BLE link                                          | Only one central at a time. Use the `bluetooth` switch to release the link before pairing with the app. Air owner report: the paired watch uses the same connection. |
+| `model: air` is untested                                                                   | No write has been verified on an Air, `auto_shutdown` included. Owner report: the Air BMS does not answer polls while the controller sleeps. See Fiido Air (untested). |
 | `slow_mode_on_boot` (bit 6 ADDR 0x2C) has an instant side-effect on ADDR 0x3C              | BMS rewrites the speed-limit value on the same WRITE: ON forces 6 km/h, OFF restores the user choice. The component only writes bit 6; do not also write 0x3C in the same burst. |
 | Speaker (bits 3:2 ADDR 0x38) is binary in firmware                                         | Only bits = 00 (audible) and bits = 01 (silent) have a physical effect. Other values collapse to silent.                           |
 | Key sound (bit 4 ADDR 0x2C) is inverted                                                    | bit = 0 means audible, bit = 1 means silent. Setter applies the inversion; the entity reads "ON" when the bike beeps.              |

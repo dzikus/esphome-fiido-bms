@@ -43,24 +43,33 @@ enum class LifecycleAction : uint8_t {
   IDLE_DISCONNECT,
   PROBE_TIMEOUT,
   START_PROBE,
+  SILENT_LINK,
 };
 
 struct LifecycleInput {
   uint32_t now;
   bool enabled;
   bool connected;
+  bool link_open;
   uint32_t motor_off_since_ms;
   uint32_t disconnected_since_ms;
   uint32_t probe_started_ms;
   uint32_t last_dispatch_ms;
+  uint32_t last_stats_ms;
   bool pending_writes;
+  bool probe_blocked;
   uint32_t idle_disconnect_ms;
   uint32_t probe_window_ms;
   uint32_t periodic_probe_ms;
   uint32_t write_verify_window_ms;
+  uint32_t silent_link_ms;
 };
 
 [[nodiscard]] LifecycleAction decide_lifecycle(const LifecycleInput &in);
+
+// Saturates at UINT32_MAX.
+[[nodiscard]] uint32_t silent_link_timeout(uint32_t interval_on_ms, uint32_t interval_off_ms,
+                                           uint32_t startup_delay_ms);
 
 // nullptr = keep the previous option.
 [[nodiscard]] const char *resolve_speed_limit_option(uint8_t value, bool limit_on);
@@ -105,6 +114,7 @@ struct AutoShutdownInput {
 enum class WriteGate : uint8_t {
   SEND = 0,
   REJECT_BLE_DISABLED,
+  REJECT_WRONG_MODEL,
   QUEUE_DISCONNECTED,
   DEFER_COLD_CACHE,
   REJECT_CONTROLLER_OFF,
@@ -112,6 +122,7 @@ enum class WriteGate : uint8_t {
 
 struct WriteGateInput {
   bool ble_enabled;
+  bool gatt_mismatch;
   bool connected;
   bool cache_valid;
   bool needs_controller;
@@ -120,8 +131,13 @@ struct WriteGateInput {
 
 [[nodiscard]] WriteGate gate_write(const WriteGateInput &in);
 
+[[nodiscard]] bool write_rejected(WriteGate verdict);
+
 // Upper nibble = gear count, lower = bike config. Cache unchanged unless mode is 3 or 5.
 [[nodiscard]] RegValue<Addr::GEAR_RANGE> encode_gear_mode(uint8_t mode, RegValue<Addr::GEAR_RANGE> cache_25);
+
+[[nodiscard]] RegValue<Addr::FLAGS_27> encode_power(bool on, bool light_bit_persists,
+                                                    RegValue<Addr::FLAGS_27> cache_27);
 
 [[nodiscard]] uint8_t clamp_gear(uint8_t gear, uint8_t max_gear);
 
@@ -163,7 +179,7 @@ enum class ProbeOutcome : uint8_t {
 
 [[nodiscard]] const char *resolve_mode_option(uint8_t gear_count);
 
-[[nodiscard]] bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on,
+[[nodiscard]] bool should_clear_light_bit(bool armed, bool prev_motor_on, bool motor_on,
                                           RegValue<Addr::FLAGS_27> cache_27);
 
 struct EnforceGearModeInput {

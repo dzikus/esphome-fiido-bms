@@ -1,5 +1,7 @@
 #include "fiido_state.h"
 
+#include <algorithm>
+
 namespace esphome::fiido_bms {
 
 StatsSamples stats_samples(const StatsView &view) {
@@ -45,20 +47,27 @@ uint32_t track_motor_off(uint32_t since_ms, bool motor_on, uint32_t now) {
 }
 
 LifecycleAction decide_lifecycle(const LifecycleInput &in) {
-  if (in.enabled && in.connected) {
-    if (in.motor_off_since_ms != 0 && (in.now - in.motor_off_since_ms) >= in.idle_disconnect_ms && !in.pending_writes)
-      return LifecycleAction::IDLE_DISCONNECT;
-    return LifecycleAction::NONE;
-  }
+  if (in.enabled && in.connected && in.motor_off_since_ms != 0 &&
+      (in.now - in.motor_off_since_ms) >= in.idle_disconnect_ms && !in.pending_writes)
+    return LifecycleAction::IDLE_DISCONNECT;
+  if (in.enabled && in.link_open && in.silent_link_ms != 0 && (in.now - in.last_stats_ms) >= in.silent_link_ms)
+    return LifecycleAction::SILENT_LINK;
   if (in.enabled) {
-    if (in.probe_started_ms != 0 && (in.now - in.probe_started_ms) >= in.probe_window_ms && !in.pending_writes &&
-        (in.last_dispatch_ms == 0 || (in.now - in.last_dispatch_ms) >= in.write_verify_window_ms))
+    if (!in.connected && in.probe_started_ms != 0 && (in.now - in.probe_started_ms) >= in.probe_window_ms &&
+        !in.pending_writes && (in.last_dispatch_ms == 0 || (in.now - in.last_dispatch_ms) >= in.write_verify_window_ms))
       return LifecycleAction::PROBE_TIMEOUT;
     return LifecycleAction::NONE;
   }
-  if (in.disconnected_since_ms != 0 && (in.now - in.disconnected_since_ms) >= in.periodic_probe_ms)
+  if (!in.probe_blocked && in.disconnected_since_ms != 0 && (in.now - in.disconnected_since_ms) >= in.periodic_probe_ms)
     return LifecycleAction::START_PROBE;
   return LifecycleAction::NONE;
+}
+
+uint32_t silent_link_timeout(uint32_t interval_on_ms, uint32_t interval_off_ms, uint32_t startup_delay_ms) {
+  constexpr uint64_t min_timeout_ms = 60 * 1000;
+  constexpr uint64_t missed_polls = 4;
+  const uint64_t window_ms = ((missed_polls + 1) * std::max(interval_on_ms, interval_off_ms)) + startup_delay_ms;
+  return static_cast<uint32_t>(std::min<uint64_t>(std::max(min_timeout_ms, window_ms), UINT32_MAX));
 }
 
 const char *resolve_speed_limit_option(uint8_t value, bool limit_on) {
@@ -82,6 +91,8 @@ bool should_auto_shutdown(const AutoShutdownInput &in) {
 WriteGate gate_write(const WriteGateInput &in) {
   if (!in.ble_enabled)
     return WriteGate::REJECT_BLE_DISABLED;
+  if (in.gatt_mismatch)
+    return WriteGate::REJECT_WRONG_MODEL;
   if (!in.connected)
     return WriteGate::QUEUE_DISCONNECTED;
   if (!in.cache_valid)
@@ -91,10 +102,31 @@ WriteGate gate_write(const WriteGateInput &in) {
   return WriteGate::SEND;
 }
 
+bool write_rejected(WriteGate verdict) {
+  switch (verdict) {
+    case WriteGate::REJECT_BLE_DISABLED:
+    case WriteGate::REJECT_WRONG_MODEL:
+    case WriteGate::REJECT_CONTROLLER_OFF:
+      return true;
+    case WriteGate::SEND:
+    case WriteGate::QUEUE_DISCONNECTED:
+    case WriteGate::DEFER_COLD_CACHE:
+      break;
+  }
+  return false;
+}
+
 RegValue<Addr::GEAR_RANGE> encode_gear_mode(uint8_t mode, RegValue<Addr::GEAR_RANGE> cache_25) {
   if (mode != 3 && mode != 5)
     return cache_25;
   return {static_cast<uint8_t>((mode << 4) | (cache_25.raw & 0x0F))};
+}
+
+RegValue<Addr::FLAGS_27> encode_power(bool on, bool light_bit_persists, RegValue<Addr::FLAGS_27> cache_27) {
+  const RegValue<Addr::FLAGS_27> b = flags_27::CONTROLLER.with(cache_27, on);
+  if (on || !light_bit_persists)
+    return b;
+  return flags_27::LIGHT.with(b, false);
 }
 
 uint8_t clamp_gear(uint8_t gear, uint8_t max_gear) {
@@ -176,8 +208,8 @@ const char *resolve_mode_option(uint8_t gear_count) {
   return gear_count == 3 ? "3" : "5";
 }
 
-bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on, RegValue<Addr::FLAGS_27> cache_27) {
-  return ble_enabled && prev_motor_on && !motor_on && flags_27::LIGHT.in(cache_27);
+bool should_clear_light_bit(bool armed, bool prev_motor_on, bool motor_on, RegValue<Addr::FLAGS_27> cache_27) {
+  return armed && prev_motor_on && !motor_on && flags_27::LIGHT.in(cache_27);
 }
 
 bool should_enforce_gear_mode_3(const EnforceGearModeInput &in) {

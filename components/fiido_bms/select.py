@@ -8,6 +8,7 @@ from . import (
     FIIDO_BMS_COMPONENT_SCHEMA,
     apply_entity_prefix,
     fiido_bms_ns,
+    hub_entity_config,
     hub_name_prefix,
     hub_ui_gear_mode_3,
     inject_entity_defaults,
@@ -77,7 +78,7 @@ _DEFAULT_NAMES = list(SELECT_DEFAULT_NAMES.items())
 
 
 def _inject_defaults(config):
-    return inject_entity_defaults(config, _DEFAULT_NAMES)
+    return inject_entity_defaults(config, _DEFAULT_NAMES, platform="select")
 
 
 CONFIG_SCHEMA = cv.All(
@@ -94,6 +95,13 @@ CONFIG_SCHEMA = cv.All(
 )
 
 
+def _entity_config(hub_id, config, key):
+    entity = config.get(key)
+    if entity is None:
+        return None
+    return hub_entity_config(hub_id, "select", key, entity)
+
+
 async def to_code(config):
     hub = await cg.get_variable(config[CONF_FIIDO_BMS_ID])
     config = apply_entity_prefix(
@@ -101,7 +109,7 @@ async def to_code(config):
     )
     ui_gear_3 = hub_ui_gear_mode_3(config[CONF_FIIDO_BMS_ID])
 
-    sub_config = config.get(CONF_GEAR)
+    sub_config = _entity_config(config[CONF_FIIDO_BMS_ID], config, CONF_GEAR)
     if sub_config is not None:
         sub_config = dict(sub_config)
         count = sub_config.pop(CONF_COUNT)
@@ -118,19 +126,20 @@ async def to_code(config):
         cg.add(sel_var.set_gear_count_pinned(ui_gear_3 or count == 3))
         cg.add(hub.set_gear_select(sel_var))
 
-    sub_config = config.get(CONF_MODE)
+    sub_config = _entity_config(config[CONF_FIIDO_BMS_ID], config, CONF_MODE)
     if sub_config is not None and not ui_gear_3:
         sel_var = await select.new_select(sub_config, options=MODE_OPTIONS)
         await cg.register_parented(sel_var, hub)
         cg.add(hub.set_mode_select(sel_var))
 
-    sub_config = config.get(CONF_SPEED_LIMIT)
+    sub_config = _entity_config(config[CONF_FIIDO_BMS_ID], config, CONF_SPEED_LIMIT)
     if sub_config is not None:
         sel_var = await select.new_select(sub_config, options=SPEED_LIMIT_OPTIONS)
         await cg.register_parented(sel_var, hub)
         cg.add(hub.set_speed_limit_select(sel_var))
+        cg.add(hub.enable_speed_limit_poll())
 
-    sub_config = config.get(CONF_SPEED_UNIT)
+    sub_config = _entity_config(config[CONF_FIIDO_BMS_ID], config, CONF_SPEED_UNIT)
     if sub_config is not None:
         sel_var = await select.new_select(sub_config, options=SPEED_UNIT_OPTIONS)
         await cg.register_parented(sel_var, hub)

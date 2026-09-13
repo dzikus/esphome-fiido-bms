@@ -15,6 +15,7 @@ int main() {
   run_decode_tests();
   run_captured_frame_tests();
   run_state_tests();
+  run_model_tests();
 
   return UNITY_END();
 }

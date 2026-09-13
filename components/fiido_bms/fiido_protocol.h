@@ -192,7 +192,7 @@ inline constexpr auto POLL_TABLE = std::to_array<PollDef>({
     {.addr = Addr::ENERGY, .len = 12, .name = "ENERGY"},
     {.addr = Addr::STATS, .len = 53, .name = "STATS"},
     {.addr = Addr::METER, .len = 13, .name = "METER"},
-    // Speed limit value (read-only baseline, log-only). Frame: 46 64 55 01 3C 4A.
+    // Speed limit value read-back (1 byte). Frame: 46 64 55 01 3C 4A.
     {.addr = Addr::SPEED_LIMIT, .len = 1, .name = "SPEEDLIM"},
     // Boost level read-back (1 byte). Frame: 46 64 55 01 52 24.
     {.addr = Addr::PAS_BOOST, .len = 1, .name = "BOOST"},
@@ -257,6 +257,9 @@ inline constexpr size_t ADDR_2B_OFFSET = 38;   // throttle / pairing / guard fla
 inline constexpr size_t ADDR_2C_OFFSET = 39;   // key_sound / slow_mode / pas_limit / gear_way flags
 inline constexpr size_t ADDR_38_OFFSET = 51;   // speaker / switchStatus / CAN protocol flags
 inline constexpr size_t ADDR_39_OFFSET = 52;   // auto_screen_off / ring / lock flags
+inline constexpr size_t CAPABILITY_OFFSET = 0x2D - static_cast<size_t>(Addr::STATS);
+inline constexpr size_t CAPABILITY_LEN = 8;
+static_assert(CAPABILITY_OFFSET + CAPABILITY_LEN <= PAYLOAD_LEN);
 // A XOR checksum lets a corrupted frame validate, and total_kilometers feeds a
 // total_increasing sensor where one bogus sample sticks in long-term statistics.
 // Samples outside these bounds are dropped and the last published value stays.
@@ -349,11 +352,10 @@ consteval size_t poll_index(Addr addr) {
   return address_not_in_table();
 }
 
-// No yaml option turns these two off.
+// No yaml option turns STATS off.
 consteval std::array<bool, POLL_TABLE_SIZE> default_poll_enables() {
   std::array<bool, POLL_TABLE_SIZE> out{};
   out[poll_index(Addr::STATS)] = true;
-  out[poll_index(Addr::SPEED_LIMIT)] = true;
   return out;
 }
 
@@ -399,6 +401,7 @@ struct StatsView {
   RegValue<Addr::FLAGS_2C> b2c;
   RegValue<Addr::FLAGS_38> b38;
   RegValue<Addr::FLAGS_39> b39;
+  std::array<uint8_t, stats::CAPABILITY_LEN> capabilities;
 };
 
 [[nodiscard]] StatsView decode_stats(std::span<const uint8_t> payload);

@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include <algorithm>
+#include <array>
 #include <vector>
 
 #include "fiido_state.h"
@@ -10,10 +12,12 @@ using namespace esphome::fiido_bms;
 static LifecycleInput lifecycle_base() {
   LifecycleInput in{};
   in.now = 1'000'000;
+  in.last_stats_ms = in.now;
   in.idle_disconnect_ms = 15 * 60 * 1000;
   in.probe_window_ms = 60 * 1000;
   in.periodic_probe_ms = 5 * 60 * 1000;
   in.write_verify_window_ms = 10 * 1000;
+  in.silent_link_ms = silent_link_timeout(3000, 15000, 0);
   return in;
 }
 
@@ -21,16 +25,18 @@ static void test_lifecycle_idle_disconnect_needs_the_full_window() {
   LifecycleInput in = lifecycle_base();
   in.enabled = true;
   in.connected = true;
+  in.link_open = true;
   in.motor_off_since_ms = in.now - in.idle_disconnect_ms + 1;
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
   in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
   TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
 }
 
-static void test_lifecycle_never_drops_the_link_with_a_write_queued() {
+static void test_lifecycle_idle_disconnect_waits_for_queued_writes() {
   LifecycleInput in = lifecycle_base();
   in.enabled = true;
   in.connected = true;
+  in.link_open = true;
   in.motor_off_since_ms = in.now - in.idle_disconnect_ms * 10;
   in.pending_writes = true;
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
@@ -41,10 +47,12 @@ static void test_lifecycle_zero_timestamp_is_not_an_elapsed_window() {
   LifecycleInput in = lifecycle_base();
   in.enabled = true;
   in.connected = true;
+  in.link_open = true;
   in.motor_off_since_ms = 0;
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
 
   in.connected = false;
+  in.link_open = false;
   in.probe_started_ms = 0;
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
 
@@ -79,9 +87,124 @@ static void test_lifecycle_survives_the_millis_wrap() {
   LifecycleInput in = lifecycle_base();
   in.enabled = true;
   in.connected = true;
+  in.link_open = true;
   in.now = 1000;
+  in.last_stats_ms = in.now;
   in.motor_off_since_ms = 0xFFFFFFFFu - (in.idle_disconnect_ms - 1000) + 1;
   TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+}
+
+static LifecycleInput silent_link_base() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = true;
+  in.connected = true;
+  in.link_open = true;
+  return in;
+}
+
+static void test_lifecycle_silent_link_releases_after_the_threshold() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.last_stats_ms = in.now - in.silent_link_ms * 10;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.silent_link_ms = 0;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_recent_stats_keeps_the_link() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.last_stats_ms = in.now;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_silent_link_releases_with_writes_queued() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  in.pending_writes = true;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.last_stats_ms = in.now - in.silent_link_ms + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  // Idle disconnect waits for the queue, a silent link does not.
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+}
+
+static void test_lifecycle_idle_disconnect_wins_over_silent_link() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+}
+
+static void test_lifecycle_silent_link_covers_a_link_that_never_got_ready() {
+  LifecycleInput in = silent_link_base();
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  in.connected = false;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.link_open = false;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.link_open = true;
+  in.enabled = false;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_silent_link_survives_the_millis_wrap() {
+  LifecycleInput in = silent_link_base();
+  in.now = 1000;
+  in.last_stats_ms = 0xFFFFFFFFu - (in.silent_link_ms - 1000) + 1;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.last_stats_ms++;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_blocked_probe_never_starts() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = false;
+  in.disconnected_since_ms = in.now - in.periodic_probe_ms * 10;
+  in.probe_blocked = true;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.probe_blocked = false;
+  TEST_ASSERT_EQUAL(LifecycleAction::START_PROBE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_probe_block_leaves_the_other_releases_alone() {
+  LifecycleInput in = silent_link_base();
+  in.probe_blocked = true;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+  in.motor_off_since_ms = 0;
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.connected = false;
+  in.link_open = false;
+  in.probe_started_ms = in.now - in.probe_window_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::PROBE_TIMEOUT, decide_lifecycle(in));
+}
+
+static void test_silent_link_timeout_outlasts_four_missed_polls() {
+  TEST_ASSERT_EQUAL_UINT32(75000, silent_link_timeout(3000, 15000, 0));
+  constexpr std::array<std::array<uint32_t, 3>, 4> cases{{
+      {3000, 15000, 0},
+      {3000, 120000, 1500},
+      {120000, 3000, 0},
+      {1000, 1000, 2000},
+  }};
+  for (const auto &[on, off, delay] : cases) {
+    const uint64_t four_missed = (uint64_t{4} * std::max(on, off)) + delay;
+    const uint32_t timeout = silent_link_timeout(on, off, delay);
+    TEST_ASSERT_TRUE(timeout > four_missed);
+    TEST_ASSERT_TRUE(timeout >= 60000);
+  }
+}
+
+static void test_silent_link_timeout_saturates() {
+  TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, silent_link_timeout(0, 0x3FFFFFFFu, 3));
+  TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, silent_link_timeout(0, 0x3FFFFFFFu, 4));
+  TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, silent_link_timeout(0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu));
 }
 
 static void test_activity_reports_every_signal_independently() {
@@ -186,8 +309,34 @@ static void test_write_gate_ladder_order() {
   TEST_ASSERT_EQUAL(WriteGate::DEFER_COLD_CACHE, gate_write(in));
   in.connected = false;
   TEST_ASSERT_EQUAL(WriteGate::QUEUE_DISCONNECTED, gate_write(in));
+  in.gatt_mismatch = true;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
   in.ble_enabled = false;
   TEST_ASSERT_EQUAL(WriteGate::REJECT_BLE_DISABLED, gate_write(in));
+}
+
+static void test_write_gate_wrong_model_beats_every_later_check() {
+  WriteGateInput in = gate_base();
+  in.gatt_mismatch = true;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
+  in.connected = false;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
+  in.connected = true;
+  in.cache_valid = false;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
+  in.cache_valid = true;
+  in.needs_controller = true;
+  in.controller_on = false;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
+}
+
+static void test_write_rejected_covers_the_reject_verdicts_only() {
+  TEST_ASSERT_TRUE(write_rejected(WriteGate::REJECT_BLE_DISABLED));
+  TEST_ASSERT_TRUE(write_rejected(WriteGate::REJECT_WRONG_MODEL));
+  TEST_ASSERT_TRUE(write_rejected(WriteGate::REJECT_CONTROLLER_OFF));
+  TEST_ASSERT_FALSE(write_rejected(WriteGate::SEND));
+  TEST_ASSERT_FALSE(write_rejected(WriteGate::QUEUE_DISCONNECTED));
+  TEST_ASSERT_FALSE(write_rejected(WriteGate::DEFER_COLD_CACHE));
 }
 
 static void test_write_gate_controller_only_when_required() {
@@ -311,7 +460,22 @@ static void test_light_bit_clears_only_on_the_motor_off_edge() {
   TEST_ASSERT_FALSE(should_clear_light_bit(true, true, false, {0x00}));
   TEST_ASSERT_FALSE(should_clear_light_bit(true, false, false, {0x08}));
   TEST_ASSERT_FALSE(should_clear_light_bit(true, true, true, {0x08}));
-  TEST_ASSERT_FALSE(should_clear_light_bit(false, true, false, {0x08}));
+}
+
+static void test_light_bit_never_clears_unless_armed() {
+  for (const uint8_t b27 : {0x08, 0x88, 0x28, 0xFF})
+    TEST_ASSERT_FALSE(should_clear_light_bit(false, true, false, {b27}));
+}
+
+static void test_power_on_sets_the_controller_bit_and_keeps_the_rest() {
+  TEST_ASSERT_EQUAL_UINT8(0x88, encode_power(true, true, {0x08}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0xA8, encode_power(true, false, {0x28}).raw);
+}
+
+static void test_power_off_clears_the_light_bit_only_on_models_that_keep_it() {
+  TEST_ASSERT_EQUAL_UINT8(0x20, encode_power(false, true, {0xA8}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x28, encode_power(false, false, {0xA8}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x00, encode_power(false, true, {0x80}).raw);
 }
 
 static void test_enforce_gear_mode_3_respects_every_gate() {
@@ -414,11 +578,21 @@ static void test_speed_limit_plan_and_readback_agree() {
 
 void run_state_tests() {
   RUN_TEST(test_lifecycle_idle_disconnect_needs_the_full_window);
-  RUN_TEST(test_lifecycle_never_drops_the_link_with_a_write_queued);
+  RUN_TEST(test_lifecycle_idle_disconnect_waits_for_queued_writes);
   RUN_TEST(test_lifecycle_zero_timestamp_is_not_an_elapsed_window);
   RUN_TEST(test_lifecycle_probe_timeout_waits_for_the_write_verify_window);
   RUN_TEST(test_lifecycle_disconnected_probes_on_its_period);
   RUN_TEST(test_lifecycle_survives_the_millis_wrap);
+  RUN_TEST(test_lifecycle_silent_link_releases_after_the_threshold);
+  RUN_TEST(test_lifecycle_recent_stats_keeps_the_link);
+  RUN_TEST(test_lifecycle_silent_link_releases_with_writes_queued);
+  RUN_TEST(test_lifecycle_idle_disconnect_wins_over_silent_link);
+  RUN_TEST(test_lifecycle_silent_link_covers_a_link_that_never_got_ready);
+  RUN_TEST(test_lifecycle_silent_link_survives_the_millis_wrap);
+  RUN_TEST(test_lifecycle_blocked_probe_never_starts);
+  RUN_TEST(test_lifecycle_probe_block_leaves_the_other_releases_alone);
+  RUN_TEST(test_silent_link_timeout_outlasts_four_missed_polls);
+  RUN_TEST(test_silent_link_timeout_saturates);
   RUN_TEST(test_activity_reports_every_signal_independently);
   RUN_TEST(test_auto_startup_delay_spreads_hubs_over_one_interval);
   RUN_TEST(test_motor_off_window_opens_once_and_clears_on_motor_on);
@@ -427,6 +601,8 @@ void run_state_tests() {
   RUN_TEST(test_log_throttle_reports_how_many_it_swallowed);
   RUN_TEST(test_log_throttle_starts_over_after_reset);
   RUN_TEST(test_write_gate_ladder_order);
+  RUN_TEST(test_write_gate_wrong_model_beats_every_later_check);
+  RUN_TEST(test_write_rejected_covers_the_reject_verdicts_only);
   RUN_TEST(test_write_gate_controller_only_when_required);
   RUN_TEST(test_write_gate_cold_cache_beats_controller_check);
   RUN_TEST(test_encode_gear_mode_preserves_the_low_nibble);
@@ -442,6 +618,9 @@ void run_state_tests() {
   RUN_TEST(test_resolve_gear_count_keeps_what_the_select_has);
   RUN_TEST(test_resolve_mode_option_is_3_only_for_three_gears);
   RUN_TEST(test_light_bit_clears_only_on_the_motor_off_edge);
+  RUN_TEST(test_light_bit_never_clears_unless_armed);
+  RUN_TEST(test_power_on_sets_the_controller_bit_and_keeps_the_rest);
+  RUN_TEST(test_power_off_clears_the_light_bit_only_on_models_that_keep_it);
   RUN_TEST(test_enforce_gear_mode_3_respects_every_gate);
   RUN_TEST(test_speed_limit_option_needs_the_enable_bit);
   RUN_TEST(test_speed_limit_option_parsing_rejects_anything_else);

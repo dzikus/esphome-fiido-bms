@@ -94,6 +94,8 @@ void FiidoBMSHub::setup() {
                (unsigned)this->update_interval_on_ms_);
     }
   }
+  this->silent_link_ms_ =
+      silent_link_timeout(this->update_interval_on_ms_, this->update_interval_off_ms_, this->startup_delay_ms_);
   this->desired_interval_ms_ = this->update_interval_off_ms_;
   // Baseline so periodic-probe branch can fire if first BLE connect never lands.
   this->disconnected_since_ms_ = millis();
@@ -103,12 +105,18 @@ void FiidoBMSHub::setup() {
 void FiidoBMSHub::dump_config() {
   ESP_LOGCONFIG(TAG, "Fiido BMS Hub:");
   ESP_LOGCONFIG(TAG, "  MAC: %s", this->parent_->address_str());
+  if (this->model_.has_value()) {
+    ESP_LOGCONFIG(TAG, "  Model: %s", this->profile_().name);
+  }
+  ESP_LOGCONFIG(TAG, "  GATT service: %s", this->profile_().gatt.service);
+  ESP_LOGCONFIG(TAG, "  Light bit auto-clear: %s", YESNO(this->profile_().traits.light_bit_persists));
   ESP_LOGCONFIG(TAG, "  Startup delay: %u ms (hub %d of %d)", (unsigned)this->startup_delay_ms_, this->hub_index_,
                 this->total_hubs_);
   ESP_LOGCONFIG(TAG, "  Update interval ON/OFF: %u / %u ms", (unsigned)this->update_interval_on_ms_,
                 (unsigned)this->update_interval_off_ms_);
   ESP_LOGCONFIG(TAG, "  Polls: %u (burst %ums apart)", (unsigned)POLL_TABLE_SIZE, (unsigned)BURST_INTERVAL_MS);
   ESP_LOGCONFIG(TAG, "  Idle auto-shutdown: %u min", (unsigned)(IDLE_SHUTDOWN_MS / 60000));
+  ESP_LOGCONFIG(TAG, "  Silent link timeout: %u s", (unsigned)(this->silent_link_ms_ / 1000));
   // The LOG_ macros print nothing for an entity the yaml left out.
   this->log_sensors_(BATTERY_FIELDS);
   this->log_sensors_(CTRL_FIELDS);
@@ -164,12 +172,16 @@ void FiidoBMSHub::settle_probe_(bool motor_on) {
       break;
     case ProbeOutcome::DROP_LINK:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: probe -> bike still OFF, disabling ble_client", this->parent_->address_str());
-      this->probe_started_ms_ = 0;
-      this->parent_->set_enabled(false);
-      this->disconnected_since_ms_ = millis();
-      this->motor_off_since_ms_ = 0;
+      this->release_link_(millis());
       break;
   }
+}
+
+void FiidoBMSHub::release_link_(uint32_t now) {
+  this->parent_->set_enabled(false);
+  this->disconnected_since_ms_ = now;
+  this->motor_off_since_ms_ = 0;
+  this->probe_started_ms_ = 0;
 }
 
 void FiidoBMSHub::publish_flag_entities_(const FlagView &f) {
@@ -206,6 +218,9 @@ void FiidoBMSHub::reset_session_state_() {
   this->registers_.clear();
   this->prev_ride_ = {.gear = 0xFF, .motor_on = false, .light_on = false};
   this->last_dispatch_ms_ = 0;
+  this->last_stats_ms_ = 0;
+  this->link_open_ = false;
+  this->logged_capabilities_.reset();
   this->bad_notify_log_.reset();
   this->unknown_addr_log_.reset();
   this->ambiguous_limit_log_.reset();
@@ -249,8 +264,14 @@ void FiidoBMSHub::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
 }
 
 void FiidoBMSHub::on_open_() {
+  // The event also reaches the node when the open failed and the client went back to IDLE.
+  const espbt::ClientState state = this->parent_->state();
+  if (state != espbt::ClientState::CONNECTED && state != espbt::ClientState::ESTABLISHED)
+    return;
   ESP_LOGI(TAG, "[%s] Connection opened", this->parent_->address_str());
   this->connect_time_ms_ = millis();
+  this->last_stats_ms_ = this->connect_time_ms_;
+  this->link_open_ = true;
   this->handshake_sent_ = false;
   this->link_.set_congested(false);
 }
@@ -273,11 +294,26 @@ void FiidoBMSHub::on_disconnect_() {
 }
 
 void FiidoBMSHub::on_services_resolved_() {
-  if (!this->link_.resolve(this->parent_)) {
-    ESP_LOGE(TAG, "[%s] FFE1/FFE2 not found, not a Fiido BMS?", this->parent_->address_str());
+  const GattProfile &gatt = this->profile_().gatt;
+  if (!this->link_.resolve(this->parent_, gatt)) {
+    const GattProfile *foreign =
+        foreign_gatt(gatt, [this](std::string_view uuid) { return FiidoLink::has_service_(this->parent_, uuid); });
+    if (foreign != nullptr) {
+      ESP_LOGE(TAG, "[%s] bike offers the %s service, set model: %s", this->parent_->address_str(), foreign->label,
+               foreign->used_by);
+      this->status_set_warning("GATT service of another model");
+      this->pending_writes_.clear();
+      this->gatt_mismatch_ = true;
+    } else {
+      ESP_LOGE(TAG, "[%s] %s service or characteristics not found", this->parent_->address_str(), gatt.label);
+      this->status_set_warning("GATT service not found");
+    }
+    this->defer([this]() { this->release_link_(millis()); });
     return;
   }
-  ESP_LOGD(TAG, "[%s] FFE2 (write)=0x%02X  FFE1 (notify)=0x%02X", this->parent_->address_str(),
+  this->status_clear_warning();
+  this->gatt_mismatch_ = false;
+  ESP_LOGD(TAG, "[%s] %s write=0x%02X notify=0x%02X", this->parent_->address_str(), gatt.label,
            this->link_.write_handle(), this->link_.notify_handle());
   this->link_.subscribe(this->parent_);
 }
@@ -285,7 +321,7 @@ void FiidoBMSHub::on_services_resolved_() {
 void FiidoBMSHub::on_notify_registered_() {
   this->node_state = espbt::ClientState::ESTABLISHED;
   this->publish_connected_(true);
-  ESP_LOGI(TAG, "[%s] READY (FFE1 notify enabled)", this->parent_->address_str());
+  ESP_LOGI(TAG, "[%s] READY (%s notify enabled)", this->parent_->address_str(), this->profile_().gatt.label);
   // A stale desired_interval_ms_ (e.g. the 15 s OFF window) would stall the first
   // poll after a HA-triggered reconnect that carries pending writes.
   this->burst_started_ = false;
@@ -293,12 +329,23 @@ void FiidoBMSHub::on_notify_registered_() {
 }
 
 void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
+#ifdef ESPHOME_LOG_HAS_VERY_VERBOSE
+  // One line per chunk: a whole notify in hex overruns the logger buffer.
+  for (size_t at = 0; at < frame.size(); at += RX_DUMP_CHUNK) {
+    const std::span<const uint8_t> chunk = frame.subspan(at, std::min(RX_DUMP_CHUNK, frame.size() - at));
+    std::array<char, format_hex_pretty_size(RX_DUMP_CHUNK)> rx_hex{};
+    ESP_LOGVV(TAG, "[%s] RX len=%u at=%u %s", this->parent_->address_str(), (unsigned)frame.size(), (unsigned)at,
+              format_hex_pretty_to(rx_hex.data(), rx_hex.size(), chunk.data(), chunk.size(), '.'));
+  }
+#endif
   const NotifyView notify = validate_notify(frame);
   if (!notify.valid) {
     if (const uint32_t dropped = this->bad_notify_log_.tick(millis(), BAD_NOTIFY_LOG_INTERVAL_MS); dropped != 0) {
       const size_t dump = std::min(frame.size(), BAD_NOTIFY_DUMP_LEN);
+      std::array<char, format_hex_pretty_size(BAD_NOTIFY_DUMP_LEN)> hex{};
       ESP_LOGW(TAG, "[%s] NOTIFY invalid (len=%u, %u dropped since last log), head: %s", this->parent_->address_str(),
-               (unsigned)frame.size(), (unsigned)dropped, format_hex_pretty(frame.data(), dump).c_str());
+               (unsigned)frame.size(), (unsigned)dropped,
+               format_hex_pretty_to(hex.data(), hex.size(), frame.data(), dump, '.'));
     }
     return;
   }
@@ -449,19 +496,26 @@ WriteError FiidoBMSHub::send_raw_write_(FrameType type, Addr addr, std::span<con
     ESP_LOGW(TAG, "[%s] send_raw_write payload too long (%u)", this->parent_->address_str(), (unsigned)payload.size());
     return WriteError::PAYLOAD_TOO_LONG;
   }
+#ifdef ESPHOME_LOG_HAS_VERBOSE
+  std::array<char, format_hex_pretty_size(TX_DUMP_LEN)> hex{};
   ESP_LOGV(TAG, "[%s] RAW WRITE type=0x%02X addr=0x%02X len=%u -> %s", this->parent_->address_str(),
            static_cast<unsigned>(type), static_cast<uint8_t>(addr), (unsigned)payload.size(),
-           format_hex_pretty(frame.bytes.data(), frame.size).c_str());
+           format_hex_pretty_to(hex.data(), hex.size(), frame.bytes.data(), frame.size, '.'));
+#endif
   return this->send_frame_(frame.span(), "RAW_WRITE");
 }
 
 WriteError FiidoBMSHub::send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail) {
   if (!this->link_.ready()) {
-    ESP_LOGW(TAG, "[%s] send %s skipped, FFE2 handle not yet known", this->parent_->address_str(), name);
+    ESP_LOGW(TAG, "[%s] send %s skipped, %s write handle not yet known", this->parent_->address_str(), name,
+             this->profile_().gatt.label);
     return WriteError::NO_HANDLE;
   }
+#ifdef ESPHOME_LOG_HAS_VERBOSE
+  std::array<char, format_hex_pretty_size(TX_DUMP_LEN)> hex{};
   ESP_LOGV(TAG, "[%s] POLL %-9s -> %s", this->parent_->address_str(), name,
-           format_hex_pretty(frame.data(), frame.size()).c_str());
+           format_hex_pretty_to(hex.data(), hex.size(), frame.data(), frame.size(), '.'));
+#endif
   const WriteError result = this->link_.send(this->parent_, frame);
   if (result != WriteError::NONE) {
     if (warn_on_fail) {
@@ -535,31 +589,41 @@ void FiidoBMSHub::manage_lifecycle_() {
       .now = now,
       .enabled = this->parent_->enabled,
       .connected = this->node_state == espbt::ClientState::ESTABLISHED,
+      .link_open = this->link_open_,
       .motor_off_since_ms = this->motor_off_since_ms_,
       .disconnected_since_ms = this->disconnected_since_ms_,
       .probe_started_ms = this->probe_started_ms_,
       .last_dispatch_ms = this->last_dispatch_ms_,
+      .last_stats_ms = this->last_stats_ms_,
       .pending_writes = !this->pending_writes_.empty(),
+      .probe_blocked = this->gatt_mismatch_,
       .idle_disconnect_ms = this->idle_disconnect_ms_,
       .probe_window_ms = PROBE_WINDOW_MS,
       .periodic_probe_ms = PERIODIC_PROBE_MS,
       .write_verify_window_ms = WRITE_VERIFY_WINDOW_MS,
+      .silent_link_ms = this->silent_link_ms_,
   };
 
   switch (decide_lifecycle(in)) {
     case LifecycleAction::IDLE_DISCONNECT:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: motor OFF for %u min, disabling ble_client", this->parent_->address_str(),
                (unsigned)((now - this->motor_off_since_ms_) / 60000));
-      this->parent_->set_enabled(false);
-      this->disconnected_since_ms_ = now;
-      this->motor_off_since_ms_ = 0;
-      this->probe_started_ms_ = 0;
+      this->release_link_(now);
+      break;
+    case LifecycleAction::SILENT_LINK:
+      if (this->pending_writes_.empty()) {
+        ESP_LOGI(TAG, "[%s] LIFECYCLE: no STATS for %u s, disabling ble_client", this->parent_->address_str(),
+                 (unsigned)((now - this->last_stats_ms_) / 1000));
+      } else {
+        ESP_LOGW(TAG, "[%s] LIFECYCLE: no STATS for %u s, dropping %u queued writes", this->parent_->address_str(),
+                 (unsigned)((now - this->last_stats_ms_) / 1000), (unsigned)this->pending_writes_.size());
+        this->pending_writes_.clear();
+      }
+      this->release_link_(now);
       break;
     case LifecycleAction::PROBE_TIMEOUT:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: probe window expired without reconnect, disabling", this->parent_->address_str());
-      this->parent_->set_enabled(false);
-      this->disconnected_since_ms_ = now;
-      this->probe_started_ms_ = 0;
+      this->release_link_(now);
       break;
     case LifecycleAction::START_PROBE:
       ESP_LOGI(TAG, "[%s] LIFECYCLE: %u min elapsed, starting probe", this->parent_->address_str(),
@@ -633,6 +697,7 @@ void FiidoBMSHub::set_ble_user_enabled(bool en) {
     this->disconnected_since_ms_ = 0;
     ESP_LOGI(TAG, "[%s] BLE user-disabled, halting all activity", this->parent_->address_str());
   } else {
+    this->gatt_mismatch_ = false;
     this->parent_->set_enabled(true);
     this->probe_started_ms_ = millis();
     this->disconnected_since_ms_ = 0;
@@ -735,7 +800,8 @@ void FiidoBMSHub::apply_adaptive_interval_(bool motor_on) {
 // dispatched write has already set in 0x27.
 void FiidoBMSHub::clear_persisted_light_bit_(bool motor_on) {
   const RegValue<Addr::FLAGS_27> cache_27 = this->registers_.value_or<Addr::FLAGS_27>();
-  if (!should_clear_light_bit(this->ble_user_enabled_, this->prev_ride_.motor_on, motor_on, cache_27))
+  const bool armed = this->ble_user_enabled_ && this->profile_().traits.light_bit_persists;
+  if (!should_clear_light_bit(armed, this->prev_ride_.motor_on, motor_on, cache_27))
     return;
   const RegValue<Addr::FLAGS_27> b = flags_27::LIGHT.with(cache_27, false);
   ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)", this->parent_->address_str(),
@@ -784,6 +850,7 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
   const StatsView sv = decode_stats(p);
   if (!sv.valid)
     return;
+  this->last_stats_ms_ = millis();
   this->publish_stats_samples_(sv);
   this->sync_gear_entities_(sv);
   this->enforce_gear_mode_(sv);
@@ -812,25 +879,33 @@ void FiidoBMSHub::parse_stats_(std::span<const uint8_t> p) {
            p[stats::ADDR_27_OFFSET], p[stats::ADDR_28_OFFSET], p[stats::ADDR_2A_OFFSET], p[stats::ADDR_2B_OFFSET],
            p[stats::ADDR_2C_OFFSET], p[stats::ADDR_38_OFFSET], motor_on ? "ON" : "OFF",
            (unsigned)((millis() - this->last_activity_ms_) / 1000));
+  this->log_capabilities_(sv);
+}
+
+void FiidoBMSHub::log_capabilities_(const StatsView &sv) {
+  if (this->logged_capabilities_ == sv.capabilities)
+    return;
+  this->logged_capabilities_ = sv.capabilities;
+#ifdef ESPHOME_LOG_HAS_DEBUG
+  std::array<char, format_hex_pretty_size(stats::CAPABILITY_LEN)> hex{};
+  ESP_LOGD(TAG, "[%s] CAPS 0x2D..0x34: %s", this->parent_->address_str(),
+           format_hex_pretty_to(hex.data(), hex.size(), sv.capabilities.data(), sv.capabilities.size(), '.'));
+#endif
 }
 
 void FiidoBMSHub::set_motor_enable(bool on) {
   const WriteGate verdict =
       this->gate_(this->registers_.has<Addr::FLAGS_27>(), false, "MOTOR", [this, on]() { this->set_motor_enable(on); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF) {
+  if (write_rejected(verdict)) {
     if (this->motor_switch_ != nullptr)
       this->motor_switch_->publish_state(!on);
   }
   if (verdict != WriteGate::SEND)
     return;
   const RegValue<Addr::FLAGS_27> cached = this->registers_.value_or<Addr::FLAGS_27>();
-  RegValue<Addr::FLAGS_27> b = flags_27::CONTROLLER.with(cached, on);
-  // The BMS keeps the light bit across an OFF/ON cycle.
-  if (!on && flags_27::LIGHT.in(b)) {
-    b = flags_27::LIGHT.with(b, false);
-    if (this->light_switch_ != nullptr)
-      this->light_switch_->publish_state(false);
-  }
+  const RegValue<Addr::FLAGS_27> b = encode_power(on, this->profile_().traits.light_bit_persists, cached);
+  if (flags_27::LIGHT.in(cached) && !flags_27::LIGHT.in(b) && this->light_switch_ != nullptr)
+    this->light_switch_->publish_state(false);
   ESP_LOGI(TAG, "[%s] MOTOR %s ADDR 0x27: 0x%02X -> 0x%02X", this->parent_->address_str(), on ? "ENABLE" : "DISABLE",
            cached.raw, b.raw);
   if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b.raw})) {
@@ -844,7 +919,7 @@ void FiidoBMSHub::set_motor_enable(bool on) {
 void FiidoBMSHub::set_light_enable(bool on) {
   const WriteGate verdict =
       this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "LIGHT", [this, on]() { this->set_light_enable(on); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF) {
+  if (write_rejected(verdict)) {
     if (this->light_switch_ != nullptr)
       this->light_switch_->publish_state(false);
   }
@@ -870,7 +945,7 @@ void FiidoBMSHub::set_gear(uint8_t gear) {
   }
   const WriteGate verdict =
       this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "GEAR", [this, gear]() { this->set_gear(gear); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_select(this->gear_select_);
   if (verdict != WriteGate::SEND)
     return;
@@ -891,7 +966,7 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
   }
   const bool cache_ready = this->registers_.has<Addr::FLAGS_27>() && this->registers_.has<Addr::GEAR_RANGE>();
   const WriteGate verdict = this->gate_(cache_ready, true, "GEAR MODE", [this, mode]() { this->set_gear_mode(mode); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_select(this->mode_select_);
   if (verdict != WriteGate::SEND)
     return;
@@ -957,7 +1032,7 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
   const bool cache_ready = this->registers_.has<Addr::FLAGS_27>() && this->registers_.has<Addr::FLAGS_2C>();
   const WriteGate verdict =
       this->gate_(cache_ready, false, "SPEED_LIMIT", [this, option]() { this->apply_speed_limit_(option); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_select(this->speed_limit_select_);
   if (verdict != WriteGate::SEND)
     return;
@@ -1020,7 +1095,7 @@ void FiidoBMSHub::set_speed_unit(const std::string &option) {
 void FiidoBMSHub::apply_speed_unit_(bool mile) {
   const WriteGate verdict = this->gate_(this->registers_.has<Addr::FLAGS_28>(), false, "SPEED_UNIT",
                                         [this, mile]() { this->apply_speed_unit_(mile); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_select(this->speed_unit_select_);
   if (verdict != WriteGate::SEND)
     return;
@@ -1030,6 +1105,7 @@ void FiidoBMSHub::apply_speed_unit_(bool mile) {
 WriteGate FiidoBMSHub::gate_(bool cache_valid, bool needs_controller, const char *name, PendingWrite retry) {
   const WriteGate verdict = gate_write({
       .ble_enabled = this->ble_user_enabled_,
+      .gatt_mismatch = this->gatt_mismatch_,
       .connected = this->node_state == espbt::ClientState::ESTABLISHED,
       .cache_valid = cache_valid,
       .needs_controller = needs_controller,
@@ -1047,6 +1123,10 @@ WriteGate FiidoBMSHub::gate_(bool cache_valid, bool needs_controller, const char
       break;
     case WriteGate::REJECT_BLE_DISABLED:
       ESP_LOGW(TAG, "[%s] %s rejected: BLE user-disabled", this->parent_->address_str(), name);
+      break;
+    case WriteGate::REJECT_WRONG_MODEL:
+      ESP_LOGW(TAG, "[%s] %s rejected: bike offers the GATT service of another model", this->parent_->address_str(),
+               name);
       break;
     case WriteGate::REJECT_CONTROLLER_OFF:
       ESP_LOGW(TAG, "[%s] %s rejected: bike controller is OFF (bit 7 ADDR 0x27)", this->parent_->address_str(), name);
@@ -1080,7 +1160,7 @@ void FiidoBMSHub::set_flag_(FlagId id, bool on) {
   const FlagControl &c = FLAG_CONTROLS[static_cast<size_t>(id)];
   const WriteGate verdict = this->gate_(this->registers_.at(c.slot).has_value(), false, c.name,
                                         [this, id, on]() { this->set_flag_(id, on); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF) {
+  if (write_rejected(verdict)) {
     switch_::Switch *entity = this->*(c.entity);
     if (entity != nullptr)
       entity->publish_state(!on);
@@ -1155,7 +1235,7 @@ void FiidoBMSHub::set_byte_(ByteId id, float value) {
   const uint8_t v = static_cast<uint8_t>(std::clamp(value, 0.0f, 255.0f));
   // A whole-byte write has no cache to wait for.
   const WriteGate verdict = this->gate_(true, false, c.name, [this, id, value]() { this->set_byte_(id, value); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_number(entity);
   if (verdict != WriteGate::SEND)
     return;
@@ -1195,9 +1275,10 @@ void FiidoBMSHub::pair_watch() {
     ESP_LOGW(TAG, "[%s] PAIR_WATCH: own BLE address not available", this->parent_->address_str());
     return;
   }
-  const std::span<const uint8_t> payload(mac, 6);
+  const std::span<const uint8_t> payload(mac, MAC_ADDRESS_SIZE);
+  std::array<char, format_hex_pretty_size(MAC_ADDRESS_SIZE)> hex{};
   ESP_LOGI(TAG, "[%s] PAIR_WATCH ADDR 0x09 MAC bytes (send order) = %s", this->parent_->address_str(),
-           format_hex_pretty(payload.data(), payload.size()).c_str());
+           format_hex_pretty_to(hex.data(), hex.size(), payload.data(), payload.size(), '.'));
   // Write-only address: no notify carries 0x09 back, so the send result is the
   // only signal there is.
   if (WriteError::NONE != this->send_raw_write_(FrameType::WRITE_J0, Addr::WATCH_PAIR, payload)) {
