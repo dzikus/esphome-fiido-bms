@@ -192,7 +192,7 @@ inline constexpr auto POLL_TABLE = std::to_array<PollDef>({
     {.addr = Addr::ENERGY, .len = 12, .name = "ENERGY"},
     {.addr = Addr::STATS, .len = 53, .name = "STATS"},
     {.addr = Addr::METER, .len = 13, .name = "METER"},
-    // Speed limit value (read-only baseline, log-only). Frame: 46 64 55 01 3C 4A.
+    // Speed limit value read-back (1 byte). Frame: 46 64 55 01 3C 4A.
     {.addr = Addr::SPEED_LIMIT, .len = 1, .name = "SPEEDLIM"},
     // Boost level read-back (1 byte). Frame: 46 64 55 01 52 24.
     {.addr = Addr::PAS_BOOST, .len = 1, .name = "BOOST"},
@@ -349,11 +349,10 @@ consteval size_t poll_index(Addr addr) {
   return address_not_in_table();
 }
 
-// No yaml option turns these two off.
+// No yaml option turns STATS off.
 consteval std::array<bool, POLL_TABLE_SIZE> default_poll_enables() {
   std::array<bool, POLL_TABLE_SIZE> out{};
   out[poll_index(Addr::STATS)] = true;
-  out[poll_index(Addr::SPEED_LIMIT)] = true;
   return out;
 }
 

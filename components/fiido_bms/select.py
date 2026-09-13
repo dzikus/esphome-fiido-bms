@@ -129,6 +129,7 @@ async def to_code(config):
         sel_var = await select.new_select(sub_config, options=SPEED_LIMIT_OPTIONS)
         await cg.register_parented(sel_var, hub)
         cg.add(hub.set_speed_limit_select(sel_var))
+        cg.add(hub.enable_speed_limit_poll())
 
     sub_config = config.get(CONF_SPEED_UNIT)
     if sub_config is not None:

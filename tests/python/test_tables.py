@@ -44,6 +44,33 @@ class PollGroups(unittest.TestCase):
         groups = {g for g in fb_sensor.SENSOR_POLL_GROUP.values() if g is not None}
         self.assertEqual(groups, {"battery", "ctrl", "motor", "energy", "meter"})
 
+    def test_every_poll_enable_emitted_by_codegen_exists_on_the_hub(self):
+        # Codegen emits any method name as given; a missing one fails only when
+        # the firmware compiles.
+        component = os.path.join(
+            os.path.dirname(__file__), "..", "..", "components", "fiido_bms"
+        )
+        called = set()
+        for name in sorted(os.listdir(component)):
+            if name.endswith(".py"):
+                with open(os.path.join(component, name), encoding="utf-8") as handle:
+                    called |= set(
+                        re.findall(r"\bhub\.(enable_\w+_poll)\(", handle.read())
+                    )
+        with open(os.path.join(component, "fiido_bms.h"), encoding="utf-8") as handle:
+            declared = set(
+                re.findall(r"\bvoid\s+(enable_\w+_poll)\s*\(\s*\)", handle.read())
+            )
+        self.assertIn("enable_speed_limit_poll", called)
+        emitted = {
+            f"enable_{g}_poll"
+            for g in fb_sensor.SENSOR_POLL_GROUP.values()
+            if g is not None
+        }
+        emitted |= {enable for _key, _cls, _setter, enable, *_row in fb_number.NUMBERS}
+        emitted |= called
+        self.assertEqual(emitted - declared, set())
+
 
 class GearNames(unittest.TestCase):
     def test_the_two_gear_name_tables_agree(self):

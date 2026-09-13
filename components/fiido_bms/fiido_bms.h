@@ -261,6 +261,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   void enable_boost_poll() { this->poll_enabled_[poll_index(Addr::PAS_BOOST)] = true; }
   void enable_display_poll() { this->poll_enabled_[poll_index(Addr::DISPLAY)] = true; }
+  void enable_speed_limit_poll() { this->poll_enabled_[poll_index(Addr::SPEED_LIMIT)] = true; }
 
   void set_auto_shutdown_enabled(bool en);
 

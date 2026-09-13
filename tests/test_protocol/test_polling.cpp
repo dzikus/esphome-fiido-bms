@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include <array>
+
 #include "fiido_protocol.h"
 #include "test_groups.h"
 
@@ -89,6 +91,12 @@ static void test_skip_disabled_polls_terminates_when_all_are_off() {
   TEST_ASSERT_EQUAL_UINT(0, c.remaining);
 }
 
+static void test_default_polls_enable_stats_only() {
+  const std::array<bool, POLL_TABLE_SIZE> enabled = default_poll_enables();
+  for (size_t i = 0; i < POLL_TABLE_SIZE; i++)
+    TEST_ASSERT_EQUAL_MESSAGE(i == poll_index(Addr::STATS), enabled[i], POLL_TABLE[i].name);
+}
+
 static void test_advance_burst_repeats_the_same_poll_until_the_retries_run_out() {
   const PollCursor at{.index = 3, .remaining = 5};
   const BurstStep first = advance_burst(at, 0, 2, false);
@@ -135,6 +143,7 @@ void run_polling_tests() {
   RUN_TEST(test_skip_disabled_polls_stops_on_an_enabled_one);
   RUN_TEST(test_skip_disabled_polls_consumes_one_slot_each);
   RUN_TEST(test_skip_disabled_polls_terminates_when_all_are_off);
+  RUN_TEST(test_default_polls_enable_stats_only);
   RUN_TEST(test_advance_burst_repeats_the_same_poll_until_the_retries_run_out);
   RUN_TEST(test_advance_burst_gives_up_after_the_last_retry);
   RUN_TEST(test_advance_burst_moves_on_after_a_good_send);
