@@ -611,8 +611,14 @@ void FiidoBMSHub::manage_lifecycle_() {
       this->release_link_(now);
       break;
     case LifecycleAction::SILENT_LINK:
-      ESP_LOGI(TAG, "[%s] LIFECYCLE: no STATS for %u s, disabling ble_client", this->parent_->address_str(),
-               (unsigned)((now - this->last_stats_ms_) / 1000));
+      if (this->pending_writes_.empty()) {
+        ESP_LOGI(TAG, "[%s] LIFECYCLE: no STATS for %u s, disabling ble_client", this->parent_->address_str(),
+                 (unsigned)((now - this->last_stats_ms_) / 1000));
+      } else {
+        ESP_LOGW(TAG, "[%s] LIFECYCLE: no STATS for %u s, dropping %u queued writes", this->parent_->address_str(),
+                 (unsigned)((now - this->last_stats_ms_) / 1000), (unsigned)this->pending_writes_.size());
+        this->pending_writes_.clear();
+      }
       this->release_link_(now);
       break;
     case LifecycleAction::PROBE_TIMEOUT:

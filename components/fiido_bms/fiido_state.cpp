@@ -50,8 +50,7 @@ LifecycleAction decide_lifecycle(const LifecycleInput &in) {
   if (in.enabled && in.connected && in.motor_off_since_ms != 0 &&
       (in.now - in.motor_off_since_ms) >= in.idle_disconnect_ms && !in.pending_writes)
     return LifecycleAction::IDLE_DISCONNECT;
-  if (in.enabled && in.link_open && in.silent_link_ms != 0 && (in.now - in.last_stats_ms) >= in.silent_link_ms &&
-      !in.pending_writes)
+  if (in.enabled && in.link_open && in.silent_link_ms != 0 && (in.now - in.last_stats_ms) >= in.silent_link_ms)
     return LifecycleAction::SILENT_LINK;
   if (in.enabled) {
     if (!in.connected && in.probe_started_ms != 0 && (in.now - in.probe_started_ms) >= in.probe_window_ms &&

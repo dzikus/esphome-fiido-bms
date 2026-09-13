@@ -32,7 +32,7 @@ static void test_lifecycle_idle_disconnect_needs_the_full_window() {
   TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
 }
 
-static void test_lifecycle_never_drops_the_link_with_a_write_queued() {
+static void test_lifecycle_idle_disconnect_waits_for_queued_writes() {
   LifecycleInput in = lifecycle_base();
   in.enabled = true;
   in.connected = true;
@@ -120,11 +120,17 @@ static void test_lifecycle_recent_stats_keeps_the_link() {
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
 }
 
-static void test_lifecycle_silent_link_waits_for_queued_writes() {
+static void test_lifecycle_silent_link_releases_with_writes_queued() {
   LifecycleInput in = silent_link_base();
-  in.last_stats_ms = in.now - in.silent_link_ms * 10;
+  in.last_stats_ms = in.now - in.silent_link_ms;
   in.pending_writes = true;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.last_stats_ms = in.now - in.silent_link_ms + 1;
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  // Idle disconnect waits for the queue, a silent link does not.
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
 }
 
 static void test_lifecycle_idle_disconnect_wins_over_silent_link() {
@@ -546,14 +552,14 @@ static void test_speed_limit_plan_and_readback_agree() {
 
 void run_state_tests() {
   RUN_TEST(test_lifecycle_idle_disconnect_needs_the_full_window);
-  RUN_TEST(test_lifecycle_never_drops_the_link_with_a_write_queued);
+  RUN_TEST(test_lifecycle_idle_disconnect_waits_for_queued_writes);
   RUN_TEST(test_lifecycle_zero_timestamp_is_not_an_elapsed_window);
   RUN_TEST(test_lifecycle_probe_timeout_waits_for_the_write_verify_window);
   RUN_TEST(test_lifecycle_disconnected_probes_on_its_period);
   RUN_TEST(test_lifecycle_survives_the_millis_wrap);
   RUN_TEST(test_lifecycle_silent_link_releases_after_the_threshold);
   RUN_TEST(test_lifecycle_recent_stats_keeps_the_link);
-  RUN_TEST(test_lifecycle_silent_link_waits_for_queued_writes);
+  RUN_TEST(test_lifecycle_silent_link_releases_with_writes_queued);
   RUN_TEST(test_lifecycle_idle_disconnect_wins_over_silent_link);
   RUN_TEST(test_lifecycle_silent_link_covers_a_link_that_never_got_ready);
   RUN_TEST(test_lifecycle_silent_link_survives_the_millis_wrap);
