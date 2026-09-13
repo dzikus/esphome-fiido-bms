@@ -123,6 +123,9 @@ struct WriteGateInput {
 // Upper nibble = gear count, lower = bike config. Cache unchanged unless mode is 3 or 5.
 [[nodiscard]] RegValue<Addr::GEAR_RANGE> encode_gear_mode(uint8_t mode, RegValue<Addr::GEAR_RANGE> cache_25);
 
+[[nodiscard]] RegValue<Addr::FLAGS_27> encode_power(bool on, bool light_bit_persists,
+                                                    RegValue<Addr::FLAGS_27> cache_27);
+
 [[nodiscard]] uint8_t clamp_gear(uint8_t gear, uint8_t max_gear);
 
 [[nodiscard]] uint8_t gear_in_mode(uint8_t index_of_five, uint8_t gear_count);
@@ -163,7 +166,7 @@ enum class ProbeOutcome : uint8_t {
 
 [[nodiscard]] const char *resolve_mode_option(uint8_t gear_count);
 
-[[nodiscard]] bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on,
+[[nodiscard]] bool should_clear_light_bit(bool armed, bool prev_motor_on, bool motor_on,
                                           RegValue<Addr::FLAGS_27> cache_27);
 
 struct EnforceGearModeInput {

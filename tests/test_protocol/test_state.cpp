@@ -311,7 +311,22 @@ static void test_light_bit_clears_only_on_the_motor_off_edge() {
   TEST_ASSERT_FALSE(should_clear_light_bit(true, true, false, {0x00}));
   TEST_ASSERT_FALSE(should_clear_light_bit(true, false, false, {0x08}));
   TEST_ASSERT_FALSE(should_clear_light_bit(true, true, true, {0x08}));
-  TEST_ASSERT_FALSE(should_clear_light_bit(false, true, false, {0x08}));
+}
+
+static void test_light_bit_never_clears_unless_armed() {
+  for (const uint8_t b27 : {0x08, 0x88, 0x28, 0xFF})
+    TEST_ASSERT_FALSE(should_clear_light_bit(false, true, false, {b27}));
+}
+
+static void test_power_on_sets_the_controller_bit_and_keeps_the_rest() {
+  TEST_ASSERT_EQUAL_UINT8(0x88, encode_power(true, true, {0x08}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0xA8, encode_power(true, false, {0x28}).raw);
+}
+
+static void test_power_off_clears_the_light_bit_only_on_models_that_keep_it() {
+  TEST_ASSERT_EQUAL_UINT8(0x20, encode_power(false, true, {0xA8}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x28, encode_power(false, false, {0xA8}).raw);
+  TEST_ASSERT_EQUAL_UINT8(0x00, encode_power(false, true, {0x80}).raw);
 }
 
 static void test_enforce_gear_mode_3_respects_every_gate() {
@@ -442,6 +457,9 @@ void run_state_tests() {
   RUN_TEST(test_resolve_gear_count_keeps_what_the_select_has);
   RUN_TEST(test_resolve_mode_option_is_3_only_for_three_gears);
   RUN_TEST(test_light_bit_clears_only_on_the_motor_off_edge);
+  RUN_TEST(test_light_bit_never_clears_unless_armed);
+  RUN_TEST(test_power_on_sets_the_controller_bit_and_keeps_the_rest);
+  RUN_TEST(test_power_off_clears_the_light_bit_only_on_models_that_keep_it);
   RUN_TEST(test_enforce_gear_mode_3_respects_every_gate);
   RUN_TEST(test_speed_limit_option_needs_the_enable_bit);
   RUN_TEST(test_speed_limit_option_parsing_rejects_anything_else);

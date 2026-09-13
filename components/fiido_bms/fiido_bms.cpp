@@ -103,6 +103,11 @@ void FiidoBMSHub::setup() {
 void FiidoBMSHub::dump_config() {
   ESP_LOGCONFIG(TAG, "Fiido BMS Hub:");
   ESP_LOGCONFIG(TAG, "  MAC: %s", this->parent_->address_str());
+  if (this->model_.has_value()) {
+    ESP_LOGCONFIG(TAG, "  Model: %s", this->profile_().name);
+  }
+  ESP_LOGCONFIG(TAG, "  GATT service: %s", this->profile_().gatt.service);
+  ESP_LOGCONFIG(TAG, "  Light bit auto-clear: %s", YESNO(this->profile_().traits.light_bit_persists));
   ESP_LOGCONFIG(TAG, "  Startup delay: %u ms (hub %d of %d)", (unsigned)this->startup_delay_ms_, this->hub_index_,
                 this->total_hubs_);
   ESP_LOGCONFIG(TAG, "  Update interval ON/OFF: %u / %u ms", (unsigned)this->update_interval_on_ms_,
@@ -273,11 +278,12 @@ void FiidoBMSHub::on_disconnect_() {
 }
 
 void FiidoBMSHub::on_services_resolved_() {
-  if (!this->link_.resolve(this->parent_)) {
-    ESP_LOGE(TAG, "[%s] FFE1/FFE2 not found, not a Fiido BMS?", this->parent_->address_str());
+  const GattProfile &gatt = this->profile_().gatt;
+  if (!this->link_.resolve(this->parent_, gatt)) {
+    ESP_LOGE(TAG, "[%s] %s service or characteristics not found", this->parent_->address_str(), gatt.label);
     return;
   }
-  ESP_LOGD(TAG, "[%s] FFE2 (write)=0x%02X  FFE1 (notify)=0x%02X", this->parent_->address_str(),
+  ESP_LOGD(TAG, "[%s] %s write=0x%02X notify=0x%02X", this->parent_->address_str(), gatt.label,
            this->link_.write_handle(), this->link_.notify_handle());
   this->link_.subscribe(this->parent_);
 }
@@ -285,7 +291,7 @@ void FiidoBMSHub::on_services_resolved_() {
 void FiidoBMSHub::on_notify_registered_() {
   this->node_state = espbt::ClientState::ESTABLISHED;
   this->publish_connected_(true);
-  ESP_LOGI(TAG, "[%s] READY (FFE1 notify enabled)", this->parent_->address_str());
+  ESP_LOGI(TAG, "[%s] READY (%s notify enabled)", this->parent_->address_str(), this->profile_().gatt.label);
   // A stale desired_interval_ms_ (e.g. the 15 s OFF window) would stall the first
   // poll after a HA-triggered reconnect that carries pending writes.
   this->burst_started_ = false;
@@ -462,7 +468,8 @@ WriteError FiidoBMSHub::send_raw_write_(FrameType type, Addr addr, std::span<con
 
 WriteError FiidoBMSHub::send_frame_(std::span<const uint8_t> frame, const char *name, bool warn_on_fail) {
   if (!this->link_.ready()) {
-    ESP_LOGW(TAG, "[%s] send %s skipped, FFE2 handle not yet known", this->parent_->address_str(), name);
+    ESP_LOGW(TAG, "[%s] send %s skipped, %s write handle not yet known", this->parent_->address_str(), name,
+             this->profile_().gatt.label);
     return WriteError::NO_HANDLE;
   }
 #ifdef ESPHOME_LOG_HAS_VERBOSE
@@ -743,7 +750,8 @@ void FiidoBMSHub::apply_adaptive_interval_(bool motor_on) {
 // dispatched write has already set in 0x27.
 void FiidoBMSHub::clear_persisted_light_bit_(bool motor_on) {
   const RegValue<Addr::FLAGS_27> cache_27 = this->registers_.value_or<Addr::FLAGS_27>();
-  if (!should_clear_light_bit(this->ble_user_enabled_, this->prev_ride_.motor_on, motor_on, cache_27))
+  const bool armed = this->ble_user_enabled_ && this->profile_().traits.light_bit_persists;
+  if (!should_clear_light_bit(armed, this->prev_ride_.motor_on, motor_on, cache_27))
     return;
   const RegValue<Addr::FLAGS_27> b = flags_27::LIGHT.with(cache_27, false);
   ESP_LOGD(TAG, "[%s] clearing persisted light bit on motor OFF (0x%02X -> 0x%02X)", this->parent_->address_str(),
@@ -832,13 +840,9 @@ void FiidoBMSHub::set_motor_enable(bool on) {
   if (verdict != WriteGate::SEND)
     return;
   const RegValue<Addr::FLAGS_27> cached = this->registers_.value_or<Addr::FLAGS_27>();
-  RegValue<Addr::FLAGS_27> b = flags_27::CONTROLLER.with(cached, on);
-  // The BMS keeps the light bit across an OFF/ON cycle.
-  if (!on && flags_27::LIGHT.in(b)) {
-    b = flags_27::LIGHT.with(b, false);
-    if (this->light_switch_ != nullptr)
-      this->light_switch_->publish_state(false);
-  }
+  const RegValue<Addr::FLAGS_27> b = encode_power(on, this->profile_().traits.light_bit_persists, cached);
+  if (flags_27::LIGHT.in(cached) && !flags_27::LIGHT.in(b) && this->light_switch_ != nullptr)
+    this->light_switch_->publish_state(false);
   ESP_LOGI(TAG, "[%s] MOTOR %s ADDR 0x27: 0x%02X -> 0x%02X", this->parent_->address_str(), on ? "ENABLE" : "DISABLE",
            cached.raw, b.raw);
   if (WriteError::NONE == this->send_raw_write_(FrameType::WRITE_L0, Addr::FLAGS_27, std::array<uint8_t, 1>{b.raw})) {

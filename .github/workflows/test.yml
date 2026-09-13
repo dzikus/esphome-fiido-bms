@@ -120,6 +120,8 @@ jobs:
                   -Wsign-conversion -Wshadow -Wold-style-cast -I components/fiido_bms)
           g++ "${strict[@]}" components/fiido_bms/fiido_protocol.cpp
           g++ "${strict[@]}" components/fiido_bms/fiido_state.cpp
+          # A header given as the main file trips #pragma once under -Werror.
+          g++ "${strict[@]}" -x c++ - <<< '#include "fiido_model.h"'
   clang-tidy:
     name: clang-tidy (esp32 compile database)
     needs: lint

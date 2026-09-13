@@ -97,6 +97,13 @@ RegValue<Addr::GEAR_RANGE> encode_gear_mode(uint8_t mode, RegValue<Addr::GEAR_RA
   return {static_cast<uint8_t>((mode << 4) | (cache_25.raw & 0x0F))};
 }
 
+RegValue<Addr::FLAGS_27> encode_power(bool on, bool light_bit_persists, RegValue<Addr::FLAGS_27> cache_27) {
+  const RegValue<Addr::FLAGS_27> b = flags_27::CONTROLLER.with(cache_27, on);
+  if (on || !light_bit_persists)
+    return b;
+  return flags_27::LIGHT.with(b, false);
+}
+
 uint8_t clamp_gear(uint8_t gear, uint8_t max_gear) {
   return gear > max_gear ? max_gear : gear;
 }
@@ -176,8 +183,8 @@ const char *resolve_mode_option(uint8_t gear_count) {
   return gear_count == 3 ? "3" : "5";
 }
 
-bool should_clear_light_bit(bool ble_enabled, bool prev_motor_on, bool motor_on, RegValue<Addr::FLAGS_27> cache_27) {
-  return ble_enabled && prev_motor_on && !motor_on && flags_27::LIGHT.in(cache_27);
+bool should_clear_light_bit(bool armed, bool prev_motor_on, bool motor_on, RegValue<Addr::FLAGS_27> cache_27) {
+  return armed && prev_motor_on && !motor_on && flags_27::LIGHT.in(cache_27);
 }
 
 bool should_enforce_gear_mode_3(const EnforceGearModeInput &in) {

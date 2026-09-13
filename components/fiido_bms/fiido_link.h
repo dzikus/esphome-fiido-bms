@@ -6,6 +6,7 @@
 #include <span>
 
 #include "esphome/components/ble_client/ble_client.h"
+#include "fiido_model.h"
 #include "fiido_protocol.h"
 
 namespace esphome::fiido_bms {
@@ -13,8 +14,7 @@ namespace esphome::fiido_bms {
 // The GATT handles and every esp_ble_gattc_ call the hub needs.
 class FiidoLink {
  public:
-  // False when FFE1/FFE2 are missing, which means this is not a Fiido BMS.
-  [[nodiscard]] bool resolve(ble_client::BLEClient *parent);
+  [[nodiscard]] bool resolve(ble_client::BLEClient *parent, const GattProfile &gatt);
   void subscribe(ble_client::BLEClient *parent) const;
   void unsubscribe(ble_client::BLEClient *parent) const;
   void reset();

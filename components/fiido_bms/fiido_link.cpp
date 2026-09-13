@@ -10,14 +10,14 @@ namespace esphome::fiido_bms {
 
 static const char *const TAG = "fiido_bms";
 
-// Custom Fiido service (FFE0 base): write to FFE2, notify from FFE1.
-static const auto SERVICE_UUID = esp32_ble_tracker::ESPBTUUID::from_raw("00010203-0405-0607-0809-0a0b0c0dffe0");
-static const auto NOTIFY_CHAR_UUID = esp32_ble_tracker::ESPBTUUID::from_raw("00010203-0405-0607-0809-0a0b0c0dffe1");
-static const auto WRITE_CHAR_UUID = esp32_ble_tracker::ESPBTUUID::from_raw("00010203-0405-0607-0809-0a0b0c0dffe2");
+static esp32_ble_tracker::ESPBTUUID uuid_from_text(std::string_view text) {
+  return esp32_ble_tracker::ESPBTUUID::from_raw(text.data(), text.size());
+}
 
-bool FiidoLink::resolve(ble_client::BLEClient *parent) {
-  auto *notify_chr = parent->get_characteristic(SERVICE_UUID, NOTIFY_CHAR_UUID);
-  auto *write_chr = parent->get_characteristic(SERVICE_UUID, WRITE_CHAR_UUID);
+bool FiidoLink::resolve(ble_client::BLEClient *parent, const GattProfile &gatt) {
+  const auto service = uuid_from_text(gatt.service);
+  auto *notify_chr = parent->get_characteristic(service, uuid_from_text(gatt.notify));
+  auto *write_chr = parent->get_characteristic(service, uuid_from_text(gatt.write));
   if (notify_chr == nullptr || write_chr == nullptr)
     return false;
   this->notify_handle_ = notify_chr->handle;

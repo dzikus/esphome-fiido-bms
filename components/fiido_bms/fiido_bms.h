@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -21,6 +22,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "fiido_link.h"
+#include "fiido_model.h"
 #include "fiido_protocol.h"
 #include "fiido_state.h"
 
@@ -157,6 +159,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void set_startup_delay(uint32_t ms) { this->startup_delay_ms_ = ms; }
   void set_hub_index(int i) { this->hub_index_ = i; }
   void set_total_hubs(int n) { this->total_hubs_ = n; }
+  void set_model(Model model) { this->model_ = model; }
 
   void set_motor_enable(bool on);
   void set_light_enable(bool on);
@@ -602,6 +605,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   // Everything the session has to forget when the link drops.
   void reset_session_state_();
 
+  [[nodiscard]] const ModelProfile &profile_() const { return model_profile(this->model_.value_or(Model::C11_PRO)); }
+
   uint32_t startup_delay_ms_{0};
   uint32_t connect_time_ms_{0};
   size_t burst_idx_{0};
@@ -635,6 +640,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
 
   int hub_index_{0};
   int total_hubs_{1};
+  std::optional<Model> model_{};
 
   bool force_poll_stats_{false};
 
