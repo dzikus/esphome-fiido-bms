@@ -625,6 +625,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   FiidoGearSelect *gear_select_{nullptr};
 
   bool ble_user_enabled_{true};
+  bool gatt_mismatch_{false};
 
   // Only bits 4..0 of ADDR 0x39 are defined; the cache keeps those and a write
   // builds from them.

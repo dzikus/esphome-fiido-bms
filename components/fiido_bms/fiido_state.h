@@ -57,6 +57,7 @@ struct LifecycleInput {
   uint32_t last_dispatch_ms;
   uint32_t last_stats_ms;
   bool pending_writes;
+  bool probe_blocked;
   uint32_t idle_disconnect_ms;
   uint32_t probe_window_ms;
   uint32_t periodic_probe_ms;

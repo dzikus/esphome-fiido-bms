@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -19,6 +20,7 @@ struct GattProfile {
   const char *service;
   const char *notify;
   const char *write;
+  const char *used_by;
 };
 
 inline constexpr GattProfile FFE0_GATT{
@@ -26,6 +28,7 @@ inline constexpr GattProfile FFE0_GATT{
     .service = "00010203-0405-0607-0809-0a0b0c0dffe0",
     .notify = "00010203-0405-0607-0809-0a0b0c0dffe1",
     .write = "00010203-0405-0607-0809-0a0b0c0dffe2",
+    .used_by = "c11_pro or m1_pro_2025",
 };
 
 inline constexpr GattProfile FEA0_GATT{
@@ -33,7 +36,10 @@ inline constexpr GattProfile FEA0_GATT{
     .service = "c3e6fea0-e966-1000-8000-be99c223df6a",
     .notify = "c3e6fea2-e966-1000-8000-be99c223df6a",
     .write = "c3e6fea1-e966-1000-8000-be99c223df6a",
+    .used_by = "air",
 };
+
+inline constexpr std::array KNOWN_GATT_PROFILES{FFE0_GATT, FEA0_GATT};
 
 struct ModelTraits {
   // Known to keep ADDR 0x27 bit 3 set across a controller OFF/ON cycle.
@@ -83,20 +89,51 @@ static_assert([] {
 }());
 
 // A malformed UUID matches no characteristic.
-static_assert(std::ranges::all_of(MODEL_PROFILES, [](const ModelProfile &row) {
-  return is_uuid128_text(row.gatt.service) && is_uuid128_text(row.gatt.notify) && is_uuid128_text(row.gatt.write);
+static_assert(std::ranges::all_of(KNOWN_GATT_PROFILES, [](const GattProfile &gatt) {
+  return is_uuid128_text(gatt.service) && is_uuid128_text(gatt.notify) && is_uuid128_text(gatt.write);
 }));
 
-static_assert(std::ranges::all_of(MODEL_PROFILES, [](const ModelProfile &row) {
-  const std::string_view service{row.gatt.service};
-  const std::string_view notify{row.gatt.notify};
-  return service != notify && service != row.gatt.write && notify != row.gatt.write;
+static_assert(std::ranges::all_of(KNOWN_GATT_PROFILES, [](const GattProfile &gatt) {
+  const std::string_view service{gatt.service};
+  const std::string_view notify{gatt.notify};
+  return service != notify && service != gatt.write && notify != gatt.write && *gatt.used_by != '\0';
 }));
 
-static_assert(!same_service(FFE0_GATT, FEA0_GATT));
+// foreign_gatt() tells known profiles apart by service and prints used_by as the
+// model to set.
+static_assert([] {
+  for (size_t i = 0; i < KNOWN_GATT_PROFILES.size(); i++) {
+    for (size_t j = i + 1; j < KNOWN_GATT_PROFILES.size(); j++) {
+      if (same_service(KNOWN_GATT_PROFILES[i], KNOWN_GATT_PROFILES[j]))
+        return false;
+    }
+  }
+  return true;
+}());
+
+static_assert(std::ranges::all_of(MODEL_PROFILES, [](const ModelProfile &row) {
+  return std::ranges::any_of(KNOWN_GATT_PROFILES,
+                             [&row](const GattProfile &known) { return same_service(known, row.gatt); });
+}));
+
+static_assert(std::ranges::all_of(KNOWN_GATT_PROFILES, [](const GattProfile &known) {
+  return std::ranges::any_of(MODEL_PROFILES,
+                             [&known](const ModelProfile &row) { return same_service(known, row.gatt); });
+}));
 
 [[nodiscard]] constexpr const ModelProfile &model_profile(Model model) {
   return MODEL_PROFILES[static_cast<size_t>(model)];
+}
+
+template <std::predicate<std::string_view> HasService>
+[[nodiscard]] constexpr const GattProfile *foreign_gatt(const GattProfile &configured, HasService has_service) {
+  if (has_service(std::string_view{configured.service}))
+    return nullptr;
+  for (const GattProfile &known : KNOWN_GATT_PROFILES) {
+    if (!same_service(known, configured) && has_service(std::string_view{known.service}))
+      return &known;
+  }
+  return nullptr;
 }
 
 }  // namespace esphome::fiido_bms

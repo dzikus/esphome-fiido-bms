@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 #include "esphome/components/ble_client/ble_client.h"
 #include "fiido_model.h"
@@ -15,6 +16,7 @@ namespace esphome::fiido_bms {
 class FiidoLink {
  public:
   [[nodiscard]] bool resolve(ble_client::BLEClient *parent, const GattProfile &gatt);
+  [[nodiscard]] static bool has_service_(ble_client::BLEClient *parent, std::string_view uuid);
   void subscribe(ble_client::BLEClient *parent) const;
   void unsubscribe(ble_client::BLEClient *parent) const;
   void reset();

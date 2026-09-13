@@ -155,6 +155,30 @@ static void test_lifecycle_silent_link_survives_the_millis_wrap() {
   TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
 }
 
+static void test_lifecycle_blocked_probe_never_starts() {
+  LifecycleInput in = lifecycle_base();
+  in.enabled = false;
+  in.disconnected_since_ms = in.now - in.periodic_probe_ms * 10;
+  in.probe_blocked = true;
+  TEST_ASSERT_EQUAL(LifecycleAction::NONE, decide_lifecycle(in));
+  in.probe_blocked = false;
+  TEST_ASSERT_EQUAL(LifecycleAction::START_PROBE, decide_lifecycle(in));
+}
+
+static void test_lifecycle_probe_block_leaves_the_other_releases_alone() {
+  LifecycleInput in = silent_link_base();
+  in.probe_blocked = true;
+  in.motor_off_since_ms = in.now - in.idle_disconnect_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::IDLE_DISCONNECT, decide_lifecycle(in));
+  in.motor_off_since_ms = 0;
+  in.last_stats_ms = in.now - in.silent_link_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::SILENT_LINK, decide_lifecycle(in));
+  in.connected = false;
+  in.link_open = false;
+  in.probe_started_ms = in.now - in.probe_window_ms;
+  TEST_ASSERT_EQUAL(LifecycleAction::PROBE_TIMEOUT, decide_lifecycle(in));
+}
+
 static void test_silent_link_timeout_outlasts_four_missed_polls() {
   TEST_ASSERT_EQUAL_UINT32(75000, silent_link_timeout(3000, 15000, 0));
   constexpr std::array<std::array<uint32_t, 3>, 4> cases{{
@@ -533,6 +557,8 @@ void run_state_tests() {
   RUN_TEST(test_lifecycle_idle_disconnect_wins_over_silent_link);
   RUN_TEST(test_lifecycle_silent_link_covers_a_link_that_never_got_ready);
   RUN_TEST(test_lifecycle_silent_link_survives_the_millis_wrap);
+  RUN_TEST(test_lifecycle_blocked_probe_never_starts);
+  RUN_TEST(test_lifecycle_probe_block_leaves_the_other_releases_alone);
   RUN_TEST(test_silent_link_timeout_outlasts_four_missed_polls);
   RUN_TEST(test_silent_link_timeout_saturates);
   RUN_TEST(test_activity_reports_every_signal_independently);

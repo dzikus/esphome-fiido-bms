@@ -295,9 +295,23 @@ void FiidoBMSHub::on_disconnect_() {
 void FiidoBMSHub::on_services_resolved_() {
   const GattProfile &gatt = this->profile_().gatt;
   if (!this->link_.resolve(this->parent_, gatt)) {
-    ESP_LOGE(TAG, "[%s] %s service or characteristics not found", this->parent_->address_str(), gatt.label);
+    const GattProfile *foreign =
+        foreign_gatt(gatt, [this](std::string_view uuid) { return FiidoLink::has_service_(this->parent_, uuid); });
+    if (foreign != nullptr) {
+      ESP_LOGE(TAG, "[%s] bike offers the %s service, set model: %s", this->parent_->address_str(), foreign->label,
+               foreign->used_by);
+      this->status_set_warning("GATT service of another model");
+      this->pending_writes_.clear();
+      this->gatt_mismatch_ = true;
+    } else {
+      ESP_LOGE(TAG, "[%s] %s service or characteristics not found", this->parent_->address_str(), gatt.label);
+      this->status_set_warning("GATT service not found");
+    }
+    this->defer([this]() { this->release_link_(millis()); });
     return;
   }
+  this->status_clear_warning();
+  this->gatt_mismatch_ = false;
   ESP_LOGD(TAG, "[%s] %s write=0x%02X notify=0x%02X", this->parent_->address_str(), gatt.label,
            this->link_.write_handle(), this->link_.notify_handle());
   this->link_.subscribe(this->parent_);
@@ -572,6 +586,7 @@ void FiidoBMSHub::manage_lifecycle_() {
       .last_dispatch_ms = this->last_dispatch_ms_,
       .last_stats_ms = this->last_stats_ms_,
       .pending_writes = !this->pending_writes_.empty(),
+      .probe_blocked = this->gatt_mismatch_,
       .idle_disconnect_ms = this->idle_disconnect_ms_,
       .probe_window_ms = PROBE_WINDOW_MS,
       .periodic_probe_ms = PERIODIC_PROBE_MS,
@@ -666,6 +681,7 @@ void FiidoBMSHub::set_ble_user_enabled(bool en) {
     this->disconnected_since_ms_ = 0;
     ESP_LOGI(TAG, "[%s] BLE user-disabled, halting all activity", this->parent_->address_str());
   } else {
+    this->gatt_mismatch_ = false;
     this->parent_->set_enabled(true);
     this->probe_started_ms_ = millis();
     this->disconnected_since_ms_ = 0;

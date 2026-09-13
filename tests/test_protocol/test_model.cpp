@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include <string_view>
+
 #include "fiido_model.h"
 #include "test_groups.h"
 
@@ -54,6 +56,34 @@ static void test_reference_models_use_the_ffe0_profile() {
   TEST_ASSERT_EQUAL_STRING("M1 Pro 2025", model_profile(Model::M1_PRO_2025).name);
 }
 
+static void test_foreign_gatt_is_null_while_the_configured_service_is_present() {
+  const auto offers_every_service = [](std::string_view) { return true; };
+  TEST_ASSERT_NULL(foreign_gatt(FFE0_GATT, offers_every_service));
+  TEST_ASSERT_NULL(foreign_gatt(FEA0_GATT, offers_every_service));
+}
+
+static void test_foreign_gatt_names_the_other_known_profile() {
+  const auto offers_fea0 = [](std::string_view uuid) { return uuid == FEA0_GATT.service; };
+  const GattProfile *found = foreign_gatt(FFE0_GATT, offers_fea0);
+  TEST_ASSERT_NOT_NULL(found);
+  TEST_ASSERT_EQUAL_STRING("FEA0", found->label);
+  TEST_ASSERT_EQUAL_STRING("air", found->used_by);
+}
+
+static void test_foreign_gatt_is_null_for_a_bike_with_no_known_service() {
+  const auto offers_nothing = [](std::string_view) { return false; };
+  TEST_ASSERT_NULL(foreign_gatt(FFE0_GATT, offers_nothing));
+  TEST_ASSERT_NULL(foreign_gatt(FEA0_GATT, offers_nothing));
+}
+
+static void test_air_on_an_ffe0_bike_points_to_the_reference_models() {
+  const auto offers_ffe0 = [](std::string_view uuid) { return uuid == FFE0_GATT.service; };
+  const GattProfile *found = foreign_gatt(model_profile(Model::AIR).gatt, offers_ffe0);
+  TEST_ASSERT_NOT_NULL(found);
+  TEST_ASSERT_EQUAL_STRING("FFE0", found->label);
+  TEST_ASSERT_EQUAL_STRING("c11_pro or m1_pro_2025", found->used_by);
+}
+
 void run_model_tests() {
   RUN_TEST(test_uuid_text_accepts_the_profile_uuids);
   RUN_TEST(test_uuid_text_rejects_the_wrong_length);
@@ -61,4 +91,8 @@ void run_model_tests() {
   RUN_TEST(test_uuid_text_rejects_a_non_hex_digit);
   RUN_TEST(test_air_uses_the_fea0_profile);
   RUN_TEST(test_reference_models_use_the_ffe0_profile);
+  RUN_TEST(test_foreign_gatt_is_null_while_the_configured_service_is_present);
+  RUN_TEST(test_foreign_gatt_names_the_other_known_profile);
+  RUN_TEST(test_foreign_gatt_is_null_for_a_bike_with_no_known_service);
+  RUN_TEST(test_air_on_an_ffe0_bike_points_to_the_reference_models);
 }

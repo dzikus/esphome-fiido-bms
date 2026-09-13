@@ -59,7 +59,7 @@ LifecycleAction decide_lifecycle(const LifecycleInput &in) {
       return LifecycleAction::PROBE_TIMEOUT;
     return LifecycleAction::NONE;
   }
-  if (in.disconnected_since_ms != 0 && (in.now - in.disconnected_since_ms) >= in.periodic_probe_ms)
+  if (!in.probe_blocked && in.disconnected_since_ms != 0 && (in.now - in.disconnected_since_ms) >= in.periodic_probe_ms)
     return LifecycleAction::START_PROBE;
   return LifecycleAction::NONE;
 }

@@ -25,6 +25,10 @@ bool FiidoLink::resolve(ble_client::BLEClient *parent, const GattProfile &gatt) 
   return true;
 }
 
+bool FiidoLink::has_service_(ble_client::BLEClient *parent, std::string_view uuid) {
+  return parent->get_service(uuid_from_text(uuid)) != nullptr;
+}
+
 void FiidoLink::subscribe(ble_client::BLEClient *parent) const {
   const auto status =
       esp_ble_gattc_register_for_notify(parent->get_gattc_if(), parent->get_remote_bda(), this->notify_handle_);
