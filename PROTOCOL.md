@@ -1,19 +1,31 @@
 # Fiido BMS BLE protocol
 
-Reconstructed from a live C11 Pro and M1 Pro 2025.
-Kept in step with `components/fiido_bms/fiido_protocol.h`.
+Reconstructed from a live C11 Pro and M1 Pro 2025. Fiido Air details come from an
+Air owner's reports; no Air was tested. Kept in step with
+`components/fiido_bms/fiido_protocol.h` and `fiido_model.h`.
 
 ## Transport
 
-Service `00010203-0405-0607-0809-0A0B0C0DFFE0`:
+Two GATT profiles carry the same frames:
 
-| characteristic | handle | direction |
-|---|---|---|
-| `…FFE1` | 0x12 | notify, bike to host |
-| `…FFE2` | 0x10 | write, host to bike |
+| profile | service | notify, bike to host | write, host to bike | bikes |
+|---|---|---|---|---|
+| FFE0 | `00010203-0405-0607-0809-0a0b0c0dffe0` | `00010203-0405-0607-0809-0a0b0c0dffe1` | `00010203-0405-0607-0809-0a0b0c0dffe2` | C11 Pro, M1 Pro 2025 |
+| FEA0 | `c3e6fea0-e966-1000-8000-be99c223df6a` | `c3e6fea2-e966-1000-8000-be99c223df6a` | `c3e6fea1-e966-1000-8000-be99c223df6a` | Air (owner report) |
 
 Writes go out as write-without-response. Negotiated MTU is 247, and no frame in
 this protocol comes near it.
+
+On the C11 Pro and M1 Pro 2025 the notify handle is 0x12 and the write handle is
+0x10. The component resolves both characteristics by UUID from the profile selected
+by the hub's `model`.
+
+The Air owner reports the `46 64` frames below working over FEA0.
+
+The component takes the profile from the hub's `model` option, not from the
+advertisement. If the bike lacks the configured service and offers the other one,
+the hub logs the `model` to set, drops the link, stops probing and rejects writes
+until the `bluetooth` switch is cycled or the node restarts.
 
 ## Frame layout
 
@@ -122,7 +134,24 @@ the bars on the bike's own display.
 - The controller has to be on before a gear or gear-count write is accepted.
 - Bit 3 of ADDR 0x27, the light, survives an off/on cycle, so the bike would
   come back on with the lamp lit. The component clears it on the falling edge
-  of the controller.
+  of the controller and in its own Power OFF write, except on a hub with
+  `model: air`.
 - A read-back that latches does not prove the function works. Several bits
   persist on hardware with no support for them. ADDR 0x2D..0x34 carry the
   capability bits that say which functions the bike declares support for.
+- Air, owner report: the BMS does not answer polls while the controller sleeps,
+  and the connection can stay open without data. The C11 Pro and M1 Pro 2025
+  answer polls with the controller off. The component drops a link that delivers
+  no valid STATS frame within the `Silent link timeout` shown in `dump_config`,
+  counted from the moment the connection opens.
+
+## Log lines for captures
+
+- `RX len=<n> at=<offset> <hex>` at VERY_VERBOSE: every frame from the notify
+  characteristic, one line per 64 bytes, logged before validation, including
+  frames the parser rejects.
+- `CAPS 0x2D..0x34: <hex>` at DEBUG: the eight capability bytes, STATS payload
+  offsets 40..47, logged once per connection and on every change.
+- `STATS` at DEBUG: the flag bytes 0x25, 0x27, 0x28, 0x2A, 0x2B, 0x2C and 0x38. On
+  the C11 Pro and M1 Pro 2025 the bike's Power and Light buttons change bits 7 and
+  3 of `addr27=`.
