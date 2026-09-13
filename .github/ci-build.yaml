@@ -1,4 +1,4 @@
-# CI-only configuration that compiles the full component (all platforms, two
+# CI-only configuration that compiles the full component (all platforms, three
 # hubs) so a build-breaking change in any source file fails CI. Not meant for
 # flashing. Uses dummy BLE MACs; no device is contacted during compile.
 
@@ -13,6 +13,8 @@ esphome:
   devices:
     - id: dev_second
       name: "Second Bike"
+    - id: dev_air
+      name: "Air Bike"
 
 esp32:
   board: ${board}
@@ -35,6 +37,8 @@ ble_client:
     mac_address: AA:BB:CC:DD:EE:FF
   - id: ble_second
     mac_address: AA:BB:CC:DD:EE:F0
+  - id: ble_air
+    mac_address: AA:BB:CC:DD:EE:F1
 
 fiido_bms:
   - id: hub_test
@@ -42,10 +46,16 @@ fiido_bms:
     name_prefix: ""
   - id: hub_second
     ble_client_id: ble_second
+    model: m1_pro_2025
     name_prefix: "Second"
     expose_dev_sensors: ${expose_dev}
     ui_gear_mode_3: true
     enforce_gear_mode_3: true
+  - id: hub_air
+    ble_client_id: ble_air
+    model: air
+    name_prefix: "Air"
+    expose_dev_sensors: ${expose_dev}
 
 sensor:
   - platform: fiido_bms
@@ -53,6 +63,9 @@ sensor:
   - platform: fiido_bms
     fiido_bms_id: hub_second
     device_id: dev_second
+  - platform: fiido_bms
+    fiido_bms_id: hub_air
+    device_id: dev_air
 
 binary_sensor:
   - platform: fiido_bms
@@ -60,6 +73,9 @@ binary_sensor:
   - platform: fiido_bms
     fiido_bms_id: hub_second
     device_id: dev_second
+  - platform: fiido_bms
+    fiido_bms_id: hub_air
+    device_id: dev_air
 
 select:
   - platform: fiido_bms
@@ -67,6 +83,9 @@ select:
   - platform: fiido_bms
     fiido_bms_id: hub_second
     device_id: dev_second
+  - platform: fiido_bms
+    fiido_bms_id: hub_air
+    device_id: dev_air
 
 switch:
   - platform: fiido_bms
@@ -74,6 +93,9 @@ switch:
   - platform: fiido_bms
     fiido_bms_id: hub_second
     device_id: dev_second
+  - platform: fiido_bms
+    fiido_bms_id: hub_air
+    device_id: dev_air
 
 number:
   - platform: fiido_bms
@@ -81,6 +103,9 @@ number:
   - platform: fiido_bms
     fiido_bms_id: hub_second
     device_id: dev_second
+  - platform: fiido_bms
+    fiido_bms_id: hub_air
+    device_id: dev_air
 
 button:
   - platform: fiido_bms
@@ -88,3 +113,6 @@ button:
   - platform: fiido_bms
     fiido_bms_id: hub_second
     device_id: dev_second
+  - platform: fiido_bms
+    fiido_bms_id: hub_air
+    device_id: dev_air
