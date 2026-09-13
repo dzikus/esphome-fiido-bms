@@ -309,8 +309,34 @@ static void test_write_gate_ladder_order() {
   TEST_ASSERT_EQUAL(WriteGate::DEFER_COLD_CACHE, gate_write(in));
   in.connected = false;
   TEST_ASSERT_EQUAL(WriteGate::QUEUE_DISCONNECTED, gate_write(in));
+  in.gatt_mismatch = true;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
   in.ble_enabled = false;
   TEST_ASSERT_EQUAL(WriteGate::REJECT_BLE_DISABLED, gate_write(in));
+}
+
+static void test_write_gate_wrong_model_beats_every_later_check() {
+  WriteGateInput in = gate_base();
+  in.gatt_mismatch = true;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
+  in.connected = false;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
+  in.connected = true;
+  in.cache_valid = false;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
+  in.cache_valid = true;
+  in.needs_controller = true;
+  in.controller_on = false;
+  TEST_ASSERT_EQUAL(WriteGate::REJECT_WRONG_MODEL, gate_write(in));
+}
+
+static void test_write_rejected_covers_the_reject_verdicts_only() {
+  TEST_ASSERT_TRUE(write_rejected(WriteGate::REJECT_BLE_DISABLED));
+  TEST_ASSERT_TRUE(write_rejected(WriteGate::REJECT_WRONG_MODEL));
+  TEST_ASSERT_TRUE(write_rejected(WriteGate::REJECT_CONTROLLER_OFF));
+  TEST_ASSERT_FALSE(write_rejected(WriteGate::SEND));
+  TEST_ASSERT_FALSE(write_rejected(WriteGate::QUEUE_DISCONNECTED));
+  TEST_ASSERT_FALSE(write_rejected(WriteGate::DEFER_COLD_CACHE));
 }
 
 static void test_write_gate_controller_only_when_required() {
@@ -575,6 +601,8 @@ void run_state_tests() {
   RUN_TEST(test_log_throttle_reports_how_many_it_swallowed);
   RUN_TEST(test_log_throttle_starts_over_after_reset);
   RUN_TEST(test_write_gate_ladder_order);
+  RUN_TEST(test_write_gate_wrong_model_beats_every_later_check);
+  RUN_TEST(test_write_rejected_covers_the_reject_verdicts_only);
   RUN_TEST(test_write_gate_controller_only_when_required);
   RUN_TEST(test_write_gate_cold_cache_beats_controller_check);
   RUN_TEST(test_encode_gear_mode_preserves_the_low_nibble);

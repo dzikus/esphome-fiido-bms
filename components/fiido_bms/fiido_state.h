@@ -114,6 +114,7 @@ struct AutoShutdownInput {
 enum class WriteGate : uint8_t {
   SEND = 0,
   REJECT_BLE_DISABLED,
+  REJECT_WRONG_MODEL,
   QUEUE_DISCONNECTED,
   DEFER_COLD_CACHE,
   REJECT_CONTROLLER_OFF,
@@ -121,6 +122,7 @@ enum class WriteGate : uint8_t {
 
 struct WriteGateInput {
   bool ble_enabled;
+  bool gatt_mismatch;
   bool connected;
   bool cache_valid;
   bool needs_controller;
@@ -128,6 +130,8 @@ struct WriteGateInput {
 };
 
 [[nodiscard]] WriteGate gate_write(const WriteGateInput &in);
+
+[[nodiscard]] bool write_rejected(WriteGate verdict);
 
 // Upper nibble = gear count, lower = bike config. Cache unchanged unless mode is 3 or 5.
 [[nodiscard]] RegValue<Addr::GEAR_RANGE> encode_gear_mode(uint8_t mode, RegValue<Addr::GEAR_RANGE> cache_25);

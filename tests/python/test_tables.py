@@ -149,6 +149,30 @@ class ModelNames(unittest.TestCase):
         )
         self.assertEqual([key.upper() for key in fb.MODELS], self.enumerators)
 
+    def test_used_by_names_the_models_whose_rows_use_the_profile(self):
+        # The firmware prints used_by as the model: value to set.
+        profiles = dict(
+            re.findall(
+                r"inline\s+constexpr\s+GattProfile\s+(\w+)\s*\{[^}]*?"
+                r"\.used_by\s*=\s*\"([^\"]*)\"",
+                self.header,
+            )
+        )
+        rows = re.findall(
+            r"\.model\s*=\s*Model::(\w+)\s*,[^{}]*?\.gatt\s*=\s*(\w+)", self.header
+        )
+        key_of = {
+            str(value).rsplit("::", 1)[-1]: key for key, value in fb.MODELS.items()
+        }
+        self.assertTrue(profiles)
+        self.assertEqual(len(rows), len(self.enumerators))
+        self.assertLessEqual({gatt for _model, gatt in rows}, set(profiles))
+        for profile, used_by in profiles.items():
+            with self.subTest(profile=profile):
+                named = re.split(r"\s*,\s*|\s+or\s+", used_by.strip())
+                using = [key_of[model] for model, gatt in rows if gatt == profile]
+                self.assertEqual(sorted(named), sorted(using))
+
 
 class ModelEntitySets(unittest.TestCase):
     def test_each_set_belongs_to_a_model(self):

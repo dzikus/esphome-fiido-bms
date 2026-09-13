@@ -91,6 +91,8 @@ bool should_auto_shutdown(const AutoShutdownInput &in) {
 WriteGate gate_write(const WriteGateInput &in) {
   if (!in.ble_enabled)
     return WriteGate::REJECT_BLE_DISABLED;
+  if (in.gatt_mismatch)
+    return WriteGate::REJECT_WRONG_MODEL;
   if (!in.connected)
     return WriteGate::QUEUE_DISCONNECTED;
   if (!in.cache_valid)
@@ -98,6 +100,20 @@ WriteGate gate_write(const WriteGateInput &in) {
   if (in.needs_controller && !in.controller_on)
     return WriteGate::REJECT_CONTROLLER_OFF;
   return WriteGate::SEND;
+}
+
+bool write_rejected(WriteGate verdict) {
+  switch (verdict) {
+    case WriteGate::REJECT_BLE_DISABLED:
+    case WriteGate::REJECT_WRONG_MODEL:
+    case WriteGate::REJECT_CONTROLLER_OFF:
+      return true;
+    case WriteGate::SEND:
+    case WriteGate::QUEUE_DISCONNECTED:
+    case WriteGate::DEFER_COLD_CACHE:
+      break;
+  }
+  return false;
 }
 
 RegValue<Addr::GEAR_RANGE> encode_gear_mode(uint8_t mode, RegValue<Addr::GEAR_RANGE> cache_25) {

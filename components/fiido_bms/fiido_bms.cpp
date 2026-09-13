@@ -896,7 +896,7 @@ void FiidoBMSHub::log_capabilities_(const StatsView &sv) {
 void FiidoBMSHub::set_motor_enable(bool on) {
   const WriteGate verdict =
       this->gate_(this->registers_.has<Addr::FLAGS_27>(), false, "MOTOR", [this, on]() { this->set_motor_enable(on); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF) {
+  if (write_rejected(verdict)) {
     if (this->motor_switch_ != nullptr)
       this->motor_switch_->publish_state(!on);
   }
@@ -919,7 +919,7 @@ void FiidoBMSHub::set_motor_enable(bool on) {
 void FiidoBMSHub::set_light_enable(bool on) {
   const WriteGate verdict =
       this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "LIGHT", [this, on]() { this->set_light_enable(on); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF) {
+  if (write_rejected(verdict)) {
     if (this->light_switch_ != nullptr)
       this->light_switch_->publish_state(false);
   }
@@ -945,7 +945,7 @@ void FiidoBMSHub::set_gear(uint8_t gear) {
   }
   const WriteGate verdict =
       this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "GEAR", [this, gear]() { this->set_gear(gear); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_select(this->gear_select_);
   if (verdict != WriteGate::SEND)
     return;
@@ -966,7 +966,7 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
   }
   const bool cache_ready = this->registers_.has<Addr::FLAGS_27>() && this->registers_.has<Addr::GEAR_RANGE>();
   const WriteGate verdict = this->gate_(cache_ready, true, "GEAR MODE", [this, mode]() { this->set_gear_mode(mode); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_select(this->mode_select_);
   if (verdict != WriteGate::SEND)
     return;
@@ -1032,7 +1032,7 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
   const bool cache_ready = this->registers_.has<Addr::FLAGS_27>() && this->registers_.has<Addr::FLAGS_2C>();
   const WriteGate verdict =
       this->gate_(cache_ready, false, "SPEED_LIMIT", [this, option]() { this->apply_speed_limit_(option); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_select(this->speed_limit_select_);
   if (verdict != WriteGate::SEND)
     return;
@@ -1095,7 +1095,7 @@ void FiidoBMSHub::set_speed_unit(const std::string &option) {
 void FiidoBMSHub::apply_speed_unit_(bool mile) {
   const WriteGate verdict = this->gate_(this->registers_.has<Addr::FLAGS_28>(), false, "SPEED_UNIT",
                                         [this, mile]() { this->apply_speed_unit_(mile); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_select(this->speed_unit_select_);
   if (verdict != WriteGate::SEND)
     return;
@@ -1105,6 +1105,7 @@ void FiidoBMSHub::apply_speed_unit_(bool mile) {
 WriteGate FiidoBMSHub::gate_(bool cache_valid, bool needs_controller, const char *name, PendingWrite retry) {
   const WriteGate verdict = gate_write({
       .ble_enabled = this->ble_user_enabled_,
+      .gatt_mismatch = this->gatt_mismatch_,
       .connected = this->node_state == espbt::ClientState::ESTABLISHED,
       .cache_valid = cache_valid,
       .needs_controller = needs_controller,
@@ -1122,6 +1123,10 @@ WriteGate FiidoBMSHub::gate_(bool cache_valid, bool needs_controller, const char
       break;
     case WriteGate::REJECT_BLE_DISABLED:
       ESP_LOGW(TAG, "[%s] %s rejected: BLE user-disabled", this->parent_->address_str(), name);
+      break;
+    case WriteGate::REJECT_WRONG_MODEL:
+      ESP_LOGW(TAG, "[%s] %s rejected: bike offers the GATT service of another model", this->parent_->address_str(),
+               name);
       break;
     case WriteGate::REJECT_CONTROLLER_OFF:
       ESP_LOGW(TAG, "[%s] %s rejected: bike controller is OFF (bit 7 ADDR 0x27)", this->parent_->address_str(), name);
@@ -1155,7 +1160,7 @@ void FiidoBMSHub::set_flag_(FlagId id, bool on) {
   const FlagControl &c = FLAG_CONTROLS[static_cast<size_t>(id)];
   const WriteGate verdict = this->gate_(this->registers_.at(c.slot).has_value(), false, c.name,
                                         [this, id, on]() { this->set_flag_(id, on); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF) {
+  if (write_rejected(verdict)) {
     switch_::Switch *entity = this->*(c.entity);
     if (entity != nullptr)
       entity->publish_state(!on);
@@ -1230,7 +1235,7 @@ void FiidoBMSHub::set_byte_(ByteId id, float value) {
   const uint8_t v = static_cast<uint8_t>(std::clamp(value, 0.0f, 255.0f));
   // A whole-byte write has no cache to wait for.
   const WriteGate verdict = this->gate_(true, false, c.name, [this, id, value]() { this->set_byte_(id, value); });
-  if (verdict == WriteGate::REJECT_BLE_DISABLED || verdict == WriteGate::REJECT_CONTROLLER_OFF)
+  if (write_rejected(verdict))
     revert_number(entity);
   if (verdict != WriteGate::SEND)
     return;
