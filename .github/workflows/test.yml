@@ -116,7 +116,7 @@ jobs:
           key: ${{ steps.cache.outputs.cache-primary-key }}
   clang-tidy:
     name: clang-tidy (esp32 compile database)
-    needs: lint
+    needs: unit-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -277,7 +277,7 @@ jobs:
           key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
   config-build-floor:
     name: config check and build at the ESPHome floor
-    needs: lint
+    needs: unit-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
