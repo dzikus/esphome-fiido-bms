@@ -15,7 +15,15 @@ log="$(mktemp -t esp32-warnings-XXXXXX.log)"
 # esphome copies a source into the build tree only when its content changed, so
 # touching it does not force a rebuild. Drop the objects instead.
 config_dir="$(cd "$(dirname "${config}")" && pwd)"
-find "${config_dir}/.esphome/build" -path "*fiido_bms*" -name "*.obj" -delete 2>/dev/null || true
+build_dir="${config_dir}/.esphome/build"
+# The IDF cmake cache refuses a different target in the same build tree.
+board_marker="${build_dir}/.board"
+if [[ -d "${build_dir}" && "$(cat "${board_marker}" 2>/dev/null)" != "${board}" ]]; then
+  rm -rf "${build_dir}"
+fi
+mkdir -p "${build_dir}"
+echo "${board}" > "${board_marker}"
+find "${build_dir}" -path "*fiido_bms*" -name "*.obj" -delete 2>/dev/null || true
 
 "${esphome_bin}" -s board "${board}" -s expose_dev "${expose_dev}" compile "${config}" > "${log}" 2>&1 || {
   echo "build failed; see ${log}" >&2
