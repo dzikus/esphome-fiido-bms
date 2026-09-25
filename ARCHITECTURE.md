@@ -224,6 +224,10 @@ with a `STATS_SENSORS` row for `dump_config`.
 
 ## Testing
 
+New functionality comes with tests in the same pull request: protocol, decoding and
+hub state in `tests/test_protocol/`, code generation and the entity tables in
+`tests/python/`.
+
 - 144 host unit tests (PlatformIO + Unity) in `tests/test_protocol/` cover
   `fiido_protocol`, `fiido_state` and `fiido_model.h`:
 

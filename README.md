@@ -868,3 +868,20 @@ release changes nothing for you.
 | Experimental controls are capability-gated                                                 | `cruise`, `start_mode`, `insensitivity`, `show_total_km`, `auto_screen_off`, `ring`, `double_speed`, `bike_guard`, `brightness`, `boost`, `guard_time`, and `pair_watch` write real registers, but the C11 / M1 report them as unsupported and toggling them had no observable effect. They ship `disabled_by_default` (except `bike_guard`). See [Experimental controls](#experimental-controls). |
 | Frame CRC is a plain XOR, so a corrupted frame can still validate                          | STATS samples outside plausible bounds are dropped and the last good value kept: total <= 200000 km, trip <= 1000 km, speed <= 100 km/h, SOC <= 100%, motor temperature -40..125 C. |
 | A fragmented BLE stream can reject every frame                                             | Invalid and unhandled-address NOTIFY frames are logged at most once per 5 s per category, each line carrying the count dropped since the previous log, so the log cannot flood. |
+
+## Issues and pull requests
+
+Report problems at <https://github.com/dzikus/esphome-fiido-bms/issues>. Include
+the component version or commit, the ESPHome version, the bike model, the
+configuration and the node log. Report security issues privately, see
+[SECURITY.md](SECURITY.md).
+
+Pull requests go against `main`:
+
+- Run `pre-commit install` once. The hooks format C++ and Python and check that
+  commit messages follow Conventional Commits.
+- A pull request that adds functionality adds tests for it, see
+  [Testing](ARCHITECTURE.md#testing).
+- CI runs pre-commit, the host and Python tests, clang-tidy and the ESP32 builds
+  on every pull request. All of them must pass before merge.
+- User-visible changes get an entry in [CHANGELOG.md](CHANGELOG.md).
