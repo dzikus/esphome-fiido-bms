@@ -7,3 +7,4 @@ RUN grep -v '^homeassistant' /tmp/requirements.txt > /tmp/tools.txt \
     && pip install --no-cache-dir --no-deps "$(grep '^homeassistant' /tmp/requirements.txt)" \
     && rm /tmp/requirements.txt /tmp/tools.txt
 USER vscode
+RUN mkdir -p /home/vscode/.cache/esphome /home/vscode/.platformio
