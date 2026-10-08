@@ -1,7 +1,7 @@
-esphome==2026.9.0
+esphome==2026.9.1
 platformio==6.1.19
 pre-commit==4.6.2
-ruff==0.16.8
+ruff==0.16.9
 clang-tidy==22.1.8
 clang-format==23.1.1
-homeassistant==2026.9.3
+homeassistant==2026.9.4
