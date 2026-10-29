@@ -15,7 +15,7 @@ void FiidoSpeedLimitSelect::control(const std::string &value) {
     return;
   }
   ESP_LOGW(FIIDO_BMS_TAG, "value '%s' not in options - rejected", value.c_str());
-  auto opt = this->current_option();
+  const auto opt = this->current_option();
   if (!opt.empty()) {
     this->publish_state(opt.c_str());
   }
