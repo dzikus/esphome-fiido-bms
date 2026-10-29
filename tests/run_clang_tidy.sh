@@ -71,7 +71,7 @@ out = []
 for e in entries:
     args = [a for a in shlex.split(e['command']) if a not in gcc_only]
     args[0] = 'clang++'
-    extra = ['--target=riscv32-unknown-elf', '-nostdinc++']
+    extra = ['--target=riscv32-unknown-elf', '-nostdinc++', '-Wno-ignored-gch']
     for path in system_includes:
         extra += ['-isystem', path]
     args[1:1] = extra
