@@ -60,7 +60,7 @@ struct RegBit {
 
   [[nodiscard]] constexpr bool in(RegValue<A> reg) const { return (reg.raw & this->mask) != 0; }
   [[nodiscard]] constexpr RegValue<A> with(RegValue<A> reg, bool on) const {
-    return {static_cast<uint8_t>(on ? (reg.raw | this->mask) : (reg.raw & ~this->mask))};
+    return {static_cast<uint8_t>(on ? (reg.raw | this->mask) : (reg.raw & static_cast<uint8_t>(~this->mask)))};
   }
   [[nodiscard]] constexpr RegValue<A> keep(RegValue<A> reg) const {
     return {static_cast<uint8_t>(reg.raw & this->mask)};
@@ -174,7 +174,7 @@ struct NotifyView {
 [[nodiscard]] inline uint16_t u16be(std::span<const uint8_t> buf, size_t off) {
   if (off + 2 > buf.size())
     return 0;
-  return (uint16_t(buf[off]) << 8) | uint16_t(buf[off + 1]);
+  return uint16_t((uint32_t(buf[off]) << 8) | uint32_t(buf[off + 1]));
 }
 
 [[nodiscard]] inline uint32_t u32be(std::span<const uint8_t> buf, size_t off) {

@@ -16,8 +16,8 @@ static esp32_ble_tracker::ESPBTUUID uuid_from_text(std::string_view text) {
 
 bool FiidoLink::resolve(ble_client::BLEClient *parent, const GattProfile &gatt) {
   const auto service = uuid_from_text(gatt.service);
-  auto *notify_chr = parent->get_characteristic(service, uuid_from_text(gatt.notify));
-  auto *write_chr = parent->get_characteristic(service, uuid_from_text(gatt.write));
+  const auto *notify_chr = parent->get_characteristic(service, uuid_from_text(gatt.notify));
+  const auto *write_chr = parent->get_characteristic(service, uuid_from_text(gatt.write));
   if (notify_chr == nullptr || write_chr == nullptr)
     return false;
   this->notify_handle_ = notify_chr->handle;

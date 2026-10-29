@@ -20,9 +20,11 @@ bool should_retry_send(uint8_t retry_count, uint8_t max_retries, bool send_ok) {
 BurstStep advance_burst(PollCursor cursor, uint8_t retry_count, uint8_t max_retries, bool send_ok) {
   if (should_retry_send(retry_count, max_retries, send_ok))
     return {.retry = true, .retry_count = static_cast<uint8_t>(retry_count + 1), .cursor = cursor};
-  return {.retry = false,
-          .retry_count = 0,
-          .cursor = {.index = (cursor.index + 1) % POLL_TABLE_SIZE, .remaining = cursor.remaining - 1}};
+  return {
+      .retry = false,
+      .retry_count = 0,
+      .cursor = {.index = (cursor.index + 1) % POLL_TABLE_SIZE, .remaining = cursor.remaining - 1},
+  };
 }
 
 BurstGate evaluate_burst_gate(uint32_t now, uint32_t interval, uint32_t phase, BurstState state, bool forced) {
@@ -52,7 +54,8 @@ uint8_t compute_crc(std::span<const uint8_t> data) {
 
 std::array<uint8_t, POLL_FRAME_LEN> build_poll_frame(Addr addr, uint8_t len) {
   std::array<uint8_t, POLL_FRAME_LEN> frame{
-      FIIDO_SIG_0, FIIDO_SIG_1, FRAME_TYPE_POLL, len, static_cast<uint8_t>(addr), 0};
+      FIIDO_SIG_0, FIIDO_SIG_1, FRAME_TYPE_POLL, len, static_cast<uint8_t>(addr), 0,
+  };
   frame.back() = compute_crc(std::span<const uint8_t>(frame).first(POLL_FRAME_LEN - 1));
   return frame;
 }
@@ -74,7 +77,8 @@ WriteFrame build_write_frame(FrameType type, Addr addr, std::span<const uint8_t>
 }
 
 MaskedWrite compute_masked_write(Addr addr, uint8_t cache, uint8_t mask, uint8_t new_bits) {
-  const uint8_t value = static_cast<uint8_t>((cache & ~mask) | (new_bits & mask));
+  const uint32_t m = mask;
+  const uint8_t value = static_cast<uint8_t>((cache & ~m) | (new_bits & m));
   if (addr == Addr::FLAGS_39) {
     return {.type = FrameType::WRITE_J0, .value = flags_39::DEFINED.keep({value}).raw};
   }
@@ -98,7 +102,7 @@ StatsView decode_stats(std::span<const uint8_t> payload) {
   v.gear_start = payload[stats::ADDR_25_OFFSET];
   // ADDR 0x25 packs the gear count into a nibble pair, not a plain number.
   const uint8_t raw_25 = payload[stats::ADDR_25_OFFSET];
-  const uint8_t upper = (raw_25 >> 4) & 0x0F;
+  const uint8_t upper = static_cast<uint8_t>(raw_25 >> 4);
   const uint8_t lower = raw_25 & 0x0F;
   const uint8_t max_gear = upper > lower ? upper : lower;
   v.max_gear = (max_gear == 3 || max_gear == 5) ? max_gear : 0;

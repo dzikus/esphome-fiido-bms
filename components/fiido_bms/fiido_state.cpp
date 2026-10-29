@@ -6,7 +6,7 @@ namespace esphome::fiido_bms {
 
 StatsSamples stats_samples(const StatsView &view) {
   StatsSamples out{};
-  auto add = [&out](StatsChannel channel, float value) {
+  const auto add = [&out](StatsChannel channel, float value) {
     out.items[out.size++] = {.channel = channel, .value = value};
   };
   if (!view.valid)
@@ -119,7 +119,7 @@ bool write_rejected(WriteGate verdict) {
 RegValue<Addr::GEAR_RANGE> encode_gear_mode(uint8_t mode, RegValue<Addr::GEAR_RANGE> cache_25) {
   if (mode != 3 && mode != 5)
     return cache_25;
-  return {static_cast<uint8_t>((mode << 4) | (cache_25.raw & 0x0F))};
+  return {static_cast<uint8_t>((static_cast<uint32_t>(mode) << 4) | (cache_25.raw & 0x0FU))};
 }
 
 RegValue<Addr::FLAGS_27> encode_power(bool on, bool light_bit_persists, RegValue<Addr::FLAGS_27> cache_27) {

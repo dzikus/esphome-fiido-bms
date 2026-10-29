@@ -31,7 +31,7 @@ class FiidoBoolSwitchWithRestore : public switch_::Switch, public Parented<Fiido
     // enabled=true. This switch runs at DATA (600), so calling the setter here
     // would be overwritten. Defer so the restored intent applies after the
     // client is fully set up.
-    this->defer([this, state]() { (this->parent_->*Setter)(state); });
+    this->defer([this, state] { (this->parent_->*Setter)(state); });
   }
   void write_state(bool state) override {
     (this->parent_->*Setter)(state);

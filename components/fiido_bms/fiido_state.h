@@ -288,7 +288,7 @@ class PendingWrite {
   PendingWrite() = default;
 
   template <QueuedWrite F>
-  PendingWrite(F callable)  // NOLINT(google-explicit-constructor)
+  PendingWrite(F callable)  // NOLINT(*-explicit-constructor)
       : invoke_([](const std::byte *storage) { (*std::launder(reinterpret_cast<const F *>(storage)))(); }) {
     new (this->storage_.data()) F(callable);
   }

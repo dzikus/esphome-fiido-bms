@@ -73,16 +73,18 @@ void flag_bits_outside_mask();
 template <Addr A>
 [[nodiscard]] consteval FlagControl flag_control(RegBit<A> bit, uint8_t bits_on, uint8_t bits_off, const char *name,
                                                  switch_::Switch *FiidoBMSHub::*entity, bool FlagView::*state) {
-  if ((bits_on & ~bit.mask) != 0 || (bits_off & ~bit.mask) != 0)
+  if ((bits_on & static_cast<uint8_t>(~bit.mask)) != 0 || (bits_off & static_cast<uint8_t>(~bit.mask)) != 0)
     flag_bits_outside_mask();
-  return {.addr = A,
-          .slot = cache_slot(A),
-          .mask = bit.mask,
-          .bits_on = bits_on,
-          .bits_off = bits_off,
-          .name = name,
-          .entity = entity,
-          .state = state};
+  return {
+      .addr = A,
+      .slot = cache_slot(A),
+      .mask = bit.mask,
+      .bits_on = bits_on,
+      .bits_off = bits_off,
+      .name = name,
+      .entity = entity,
+      .state = state,
+  };
 }
 
 template <Addr A>
@@ -319,197 +321,275 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void set_flag_(FlagId id, bool on);
 
 #ifdef USE_FIIDO_BMS_DEV
-  static constexpr std::array<ByteControl, 3> BYTE_CONTROLS{{
-      {.type = FrameType::WRITE_J0,
-       .addr = Addr::DISPLAY,
-       .slot = cache_slot(Addr::DISPLAY),
-       .name = "BRIGHTNESS",
-       .entity = &FiidoBMSHub::brightness_number_},
-      {.type = FrameType::WRITE_L0,
-       .addr = Addr::PAS_BOOST,
-       .slot = cache_slot(Addr::PAS_BOOST),
-       .name = "BOOST",
-       .entity = &FiidoBMSHub::boost_number_},
-      {.type = FrameType::WRITE_J0,
-       .addr = Addr::GUARD_TIME,
-       .slot = cache_slot(Addr::GUARD_TIME),
-       .name = "GUARD_TIME",
-       .entity = &FiidoBMSHub::guard_time_number_},
-  }};
+  static constexpr std::array<ByteControl, 3> BYTE_CONTROLS{
+      {
+          {
+              .type = FrameType::WRITE_J0,
+              .addr = Addr::DISPLAY,
+              .slot = cache_slot(Addr::DISPLAY),
+              .name = "BRIGHTNESS",
+              .entity = &FiidoBMSHub::brightness_number_,
+          },
+          {
+              .type = FrameType::WRITE_L0,
+              .addr = Addr::PAS_BOOST,
+              .slot = cache_slot(Addr::PAS_BOOST),
+              .name = "BOOST",
+              .entity = &FiidoBMSHub::boost_number_,
+          },
+          {
+              .type = FrameType::WRITE_J0,
+              .addr = Addr::GUARD_TIME,
+              .slot = cache_slot(Addr::GUARD_TIME),
+              .name = "GUARD_TIME",
+              .entity = &FiidoBMSHub::guard_time_number_,
+          },
+      },
+  };
   static_assert(BYTE_CONTROLS.size() == static_cast<size_t>(ByteId::COUNT), "ByteId and BYTE_CONTROLS disagree");
   void set_byte_(ByteId id, float value);
 #endif
 
-  static constexpr std::array<SensorField, 7> BATTERY_FIELDS{{
-      {.entity = &FiidoBMSHub::battery_hw_version_sensor_,
-       .offset = battery::HW_VERSION,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Battery Hw Version"},
-      {.entity = &FiidoBMSHub::battery_sw_version_sensor_,
-       .offset = battery::SW_VERSION,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Battery Sw Version"},
-      {.entity = &FiidoBMSHub::battery_capacity_sensor_,
-       .offset = battery::CAPACITY_AH,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "Battery Capacity"},
-      {.entity = &FiidoBMSHub::battery_voltage_sensor_,
-       .offset = battery::VOLTAGE_V,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "Battery Voltage"},
-      {.entity = &FiidoBMSHub::battery_current_voltage_sensor_,
-       .offset = battery::CURRENT_VOLTAGE_V,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "Battery Current Voltage"},
-      {.entity = &FiidoBMSHub::battery_current_sensor_,
-       .offset = battery::CURRENT_A,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "Battery Current"},
-      {.entity = &FiidoBMSHub::battery_manufacturer_sensor_,
-       .offset = battery::MANUFACTURER,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Battery Manufacturer"},
-  }};
+  static constexpr std::array<SensorField, 7> BATTERY_FIELDS{
+      {
+          {
+              .entity = &FiidoBMSHub::battery_hw_version_sensor_,
+              .offset = battery::HW_VERSION,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Battery Hw Version",
+          },
+          {
+              .entity = &FiidoBMSHub::battery_sw_version_sensor_,
+              .offset = battery::SW_VERSION,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Battery Sw Version",
+          },
+          {
+              .entity = &FiidoBMSHub::battery_capacity_sensor_,
+              .offset = battery::CAPACITY_AH,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "Battery Capacity",
+          },
+          {
+              .entity = &FiidoBMSHub::battery_voltage_sensor_,
+              .offset = battery::VOLTAGE_V,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "Battery Voltage",
+          },
+          {
+              .entity = &FiidoBMSHub::battery_current_voltage_sensor_,
+              .offset = battery::CURRENT_VOLTAGE_V,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "Battery Current Voltage",
+          },
+          {
+              .entity = &FiidoBMSHub::battery_current_sensor_,
+              .offset = battery::CURRENT_A,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "Battery Current",
+          },
+          {
+              .entity = &FiidoBMSHub::battery_manufacturer_sensor_,
+              .offset = battery::MANUFACTURER,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Battery Manufacturer",
+          },
+      },
+  };
 
-  static constexpr std::array<SensorField, 7> CTRL_FIELDS{{
-      {.entity = &FiidoBMSHub::ctrl_hw_version_sensor_,
-       .offset = ctrl::HW_VERSION,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Ctrl Hw Version"},
-      {.entity = &FiidoBMSHub::ctrl_sw_version_sensor_,
-       .offset = ctrl::SW_VERSION,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Ctrl Sw Version"},
-      {.entity = &FiidoBMSHub::ctrl_upper_voltage_sensor_,
-       .offset = ctrl::UPPER_VOLTAGE_V,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "Ctrl Upper Voltage"},
-      {.entity = &FiidoBMSHub::ctrl_lower_voltage_sensor_,
-       .offset = ctrl::LOWER_VOLTAGE_V,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "Ctrl Lower Voltage"},
-      {.entity = &FiidoBMSHub::ctrl_current_sensor_,
-       .offset = ctrl::CURRENT_A,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "Ctrl Current"},
-      {.entity = &FiidoBMSHub::ctrl_version_sensor_,
-       .offset = ctrl::VERSION,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Ctrl Version"},
-      {.entity = &FiidoBMSHub::ctrl_manufacturer_sensor_,
-       .offset = ctrl::MANUFACTURER,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Ctrl Manufacturer"},
-  }};
+  static constexpr std::array<SensorField, 7> CTRL_FIELDS{
+      {
+          {
+              .entity = &FiidoBMSHub::ctrl_hw_version_sensor_,
+              .offset = ctrl::HW_VERSION,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Ctrl Hw Version",
+          },
+          {
+              .entity = &FiidoBMSHub::ctrl_sw_version_sensor_,
+              .offset = ctrl::SW_VERSION,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Ctrl Sw Version",
+          },
+          {
+              .entity = &FiidoBMSHub::ctrl_upper_voltage_sensor_,
+              .offset = ctrl::UPPER_VOLTAGE_V,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "Ctrl Upper Voltage",
+          },
+          {
+              .entity = &FiidoBMSHub::ctrl_lower_voltage_sensor_,
+              .offset = ctrl::LOWER_VOLTAGE_V,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "Ctrl Lower Voltage",
+          },
+          {
+              .entity = &FiidoBMSHub::ctrl_current_sensor_,
+              .offset = ctrl::CURRENT_A,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "Ctrl Current",
+          },
+          {
+              .entity = &FiidoBMSHub::ctrl_version_sensor_,
+              .offset = ctrl::VERSION,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Ctrl Version",
+          },
+          {
+              .entity = &FiidoBMSHub::ctrl_manufacturer_sensor_,
+              .offset = ctrl::MANUFACTURER,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Ctrl Manufacturer",
+          },
+      },
+  };
 
   // Temperature is signed and range-checked; it is parsed outside the table.
-  static constexpr std::array<SensorField, 7> MOTOR_FIELDS{{
-      {.entity = &FiidoBMSHub::motor_version_sensor_,
-       .offset = motor::VERSION,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Motor Version"},
-      {.entity = &FiidoBMSHub::motor_magnetic_sensor_,
-       .offset = motor::MAGNETIC,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Motor Magnetic"},
-      {.entity = &FiidoBMSHub::motor_wire_count_sensor_,
-       .offset = motor::WIRE_COUNT,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Motor Wire Count"},
-      {.entity = &FiidoBMSHub::motor_steel_count_sensor_,
-       .offset = motor::STEEL_COUNT,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Motor Steel Count"},
-      {.entity = &FiidoBMSHub::motor_reduction_ratio_sensor_,
-       .offset = motor::REDUCTION_RATIO,
-       .width = FieldWidth::U8,
-       .divisor = 10.0f,
-       .label = "Motor Reduction Ratio"},
-      {.entity = &FiidoBMSHub::motor_wheel_diameter_sensor_,
-       .offset = motor::WHEEL_DIAMETER_IN,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "Motor Wheel Diameter"},
-      {.entity = &FiidoBMSHub::motor_capacity_sensor_,
-       .offset = motor::CAPACITY_W,
-       .width = FieldWidth::U16BE,
-       .divisor = 1.0f,
-       .label = "Motor Capacity"},
-  }};
+  static constexpr std::array<SensorField, 7> MOTOR_FIELDS{
+      {
+          {
+              .entity = &FiidoBMSHub::motor_version_sensor_,
+              .offset = motor::VERSION,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Motor Version",
+          },
+          {
+              .entity = &FiidoBMSHub::motor_magnetic_sensor_,
+              .offset = motor::MAGNETIC,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Motor Magnetic",
+          },
+          {
+              .entity = &FiidoBMSHub::motor_wire_count_sensor_,
+              .offset = motor::WIRE_COUNT,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Motor Wire Count",
+          },
+          {
+              .entity = &FiidoBMSHub::motor_steel_count_sensor_,
+              .offset = motor::STEEL_COUNT,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Motor Steel Count",
+          },
+          {
+              .entity = &FiidoBMSHub::motor_reduction_ratio_sensor_,
+              .offset = motor::REDUCTION_RATIO,
+              .width = FieldWidth::U8,
+              .divisor = 10.0f,
+              .label = "Motor Reduction Ratio",
+          },
+          {
+              .entity = &FiidoBMSHub::motor_wheel_diameter_sensor_,
+              .offset = motor::WHEEL_DIAMETER_IN,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "Motor Wheel Diameter",
+          },
+          {
+              .entity = &FiidoBMSHub::motor_capacity_sensor_,
+              .offset = motor::CAPACITY_W,
+              .width = FieldWidth::U16BE,
+              .divisor = 1.0f,
+              .label = "Motor Capacity",
+          },
+      },
+  };
 
-  static constexpr std::array<SensorField, 5> ENERGY_FIELDS{{
-      {.entity = &FiidoBMSHub::crank_torque_sensor_,
-       .offset = energy::CRANK_TORQUE_NM,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "Crank Torque"},
-      {.entity = &FiidoBMSHub::crank_rpm_sensor_,
-       .offset = energy::CRANK_RPM,
-       .width = FieldWidth::U16BE,
-       .divisor = 1.0f,
-       .label = "Crank Rpm"},
-      {.entity = &FiidoBMSHub::this_take_energy_sensor_,
-       .offset = energy::THIS_TAKE_WH,
-       .width = FieldWidth::U16BE,
-       .divisor = 10.0f,
-       .label = "This Take Energy"},
-      {.entity = &FiidoBMSHub::total_take_energy_sensor_,
-       .offset = energy::TOTAL_TAKE_WH,
-       .width = FieldWidth::U32BE,
-       .divisor = 10.0f,
-       .label = "Total Take Energy"},
-      {.entity = &FiidoBMSHub::startup_time_sensor_,
-       .offset = energy::STARTUP_TIME_S,
-       .width = FieldWidth::U16BE,
-       .divisor = 1.0f,
-       .label = "Startup Time"},
-  }};
+  static constexpr std::array<SensorField, 5> ENERGY_FIELDS{
+      {
+          {
+              .entity = &FiidoBMSHub::crank_torque_sensor_,
+              .offset = energy::CRANK_TORQUE_NM,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "Crank Torque",
+          },
+          {
+              .entity = &FiidoBMSHub::crank_rpm_sensor_,
+              .offset = energy::CRANK_RPM,
+              .width = FieldWidth::U16BE,
+              .divisor = 1.0f,
+              .label = "Crank Rpm",
+          },
+          {
+              .entity = &FiidoBMSHub::this_take_energy_sensor_,
+              .offset = energy::THIS_TAKE_WH,
+              .width = FieldWidth::U16BE,
+              .divisor = 10.0f,
+              .label = "This Take Energy",
+          },
+          {
+              .entity = &FiidoBMSHub::total_take_energy_sensor_,
+              .offset = energy::TOTAL_TAKE_WH,
+              .width = FieldWidth::U32BE,
+              .divisor = 10.0f,
+              .label = "Total Take Energy",
+          },
+          {
+              .entity = &FiidoBMSHub::startup_time_sensor_,
+              .offset = energy::STARTUP_TIME_S,
+              .width = FieldWidth::U16BE,
+              .divisor = 1.0f,
+              .label = "Startup Time",
+          },
+      },
+  };
 
-  static constexpr std::array<SensorField, 3> METER_FIELDS{{
-      {.entity = &FiidoBMSHub::meter_hw_version_sensor_,
-       .offset = meter::HW_VERSION,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Meter Hw Version"},
-      {.entity = &FiidoBMSHub::meter_sw_version_sensor_,
-       .offset = meter::SW_VERSION,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Meter Sw Version"},
-      {.entity = &FiidoBMSHub::meter_mode_data_sensor_,
-       .offset = meter::MODE_DATA,
-       .width = FieldWidth::U8,
-       .divisor = 1.0f,
-       .label = "Meter Mode Data"},
-  }};
+  static constexpr std::array<SensorField, 3> METER_FIELDS{
+      {
+          {
+              .entity = &FiidoBMSHub::meter_hw_version_sensor_,
+              .offset = meter::HW_VERSION,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Meter Hw Version",
+          },
+          {
+              .entity = &FiidoBMSHub::meter_sw_version_sensor_,
+              .offset = meter::SW_VERSION,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Meter Sw Version",
+          },
+          {
+              .entity = &FiidoBMSHub::meter_mode_data_sensor_,
+              .offset = meter::MODE_DATA,
+              .width = FieldWidth::U8,
+              .divisor = 1.0f,
+              .label = "Meter Mode Data",
+          },
+      },
+  };
 
   // Sensors filled from STATS rather than from a poll payload offset.
-  static constexpr std::array<std::pair<sensor::Sensor * FiidoBMSHub::*, const char *>, 6> STATS_SENSORS{{
-      {&FiidoBMSHub::bicycle_speed_sensor_, "Bicycle Speed"},
-      {&FiidoBMSHub::current_kilometers_sensor_, "Current Kilometers"},
-      {&FiidoBMSHub::total_kilometers_sensor_, "Total Kilometers"},
-      {&FiidoBMSHub::battery_soc_sensor_, "Battery Soc"},
-      {&FiidoBMSHub::bicycle_gear_start_sensor_, "Bicycle Gear Start"},
-      {&FiidoBMSHub::motor_temperature_sensor_, "Motor Temperature"},
-  }};
+  static constexpr std::array<std::pair<sensor::Sensor * FiidoBMSHub::*, const char *>, 6> STATS_SENSORS{
+      {
+          {&FiidoBMSHub::bicycle_speed_sensor_, "Bicycle Speed"},
+          {&FiidoBMSHub::current_kilometers_sensor_, "Current Kilometers"},
+          {&FiidoBMSHub::total_kilometers_sensor_, "Total Kilometers"},
+          {&FiidoBMSHub::battery_soc_sensor_, "Battery Soc"},
+          {&FiidoBMSHub::bicycle_gear_start_sensor_, "Bicycle Gear Start"},
+          {&FiidoBMSHub::motor_temperature_sensor_, "Motor Temperature"},
+      },
+  };
 
   void publish_fields_(std::span<const uint8_t> payload, std::span<const SensorField> fields);
   void log_sensors_(std::span<const SensorField> fields) const;

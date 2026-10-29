@@ -99,7 +99,7 @@ void FiidoBMSHub::setup() {
   this->desired_interval_ms_ = this->update_interval_off_ms_;
   // Baseline so periodic-probe branch can fire if first BLE connect never lands.
   this->disconnected_since_ms_ = millis();
-  this->set_interval("lifecycle", LIFECYCLE_TICK_MS, [this]() { this->manage_lifecycle_(); });
+  this->set_interval("lifecycle", LIFECYCLE_TICK_MS, [this] { this->manage_lifecycle_(); });
 }
 
 void FiidoBMSHub::dump_config() {
@@ -154,7 +154,7 @@ void FiidoBMSHub::log_sensors_(std::span<const SensorField> fields) const {
 
 void FiidoBMSHub::schedule_write_verify_() {
   this->force_poll_stats_ = true;
-  this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this]() { this->update(); });
+  this->set_timeout("force_stats_tick", FORCE_STATS_DELAY_MS, [this] { this->update(); });
 }
 
 void FiidoBMSHub::settle_probe_(bool motor_on) {
@@ -308,7 +308,7 @@ void FiidoBMSHub::on_services_resolved_() {
       ESP_LOGE(TAG, "[%s] %s service or characteristics not found", this->parent_->address_str(), gatt.label);
       this->status_set_warning("GATT service not found");
     }
-    this->defer([this]() { this->release_link_(millis()); });
+    this->defer([this] { this->release_link_(millis()); });
     return;
   }
   this->status_clear_warning();
@@ -465,7 +465,7 @@ void FiidoBMSHub::send_burst_poll_() {
   if (this->burst_remaining_ == 0)
     return;
   if (this->link_.congested()) {
-    this->set_timeout("burst", BURST_RETRY_MS, [this]() { this->send_burst_poll_(); });
+    this->set_timeout("burst", BURST_RETRY_MS, [this] { this->send_burst_poll_(); });
     return;
   }
   const bool last_try = this->burst_retry_ >= BURST_SEND_RETRIES;
@@ -475,9 +475,9 @@ void FiidoBMSHub::send_burst_poll_() {
   this->burst_idx_ = step.cursor.index;
   this->burst_remaining_ = step.cursor.remaining;
   if (step.retry) {
-    this->set_timeout("burst", BURST_RETRY_MS, [this]() { this->send_burst_poll_(); });
+    this->set_timeout("burst", BURST_RETRY_MS, [this] { this->send_burst_poll_(); });
   } else if (this->burst_remaining_ > 0) {
-    this->set_timeout("burst", BURST_INTERVAL_MS, [this]() { this->send_burst_poll_(); });
+    this->set_timeout("burst", BURST_INTERVAL_MS, [this] { this->send_burst_poll_(); });
   }
 }
 
@@ -758,13 +758,15 @@ void FiidoBMSHub::sync_gear_entities_(const StatsView &sv) {
 // ESP32 flips it back to 5. set_gear_mode rejects the write with the controller
 // OFF, and a rejection still spends the cooldown.
 void FiidoBMSHub::enforce_gear_mode_(const StatsView &sv) {
-  if (!should_enforce_gear_mode_3({.enabled = this->enforce_gear_mode_3_,
-                                   .max_gear = sv.max_gear,
-                                   .ble_enabled = this->ble_user_enabled_,
-                                   .controller_on = flags_27::CONTROLLER.in(sv.b27),
-                                   .now = millis(),
-                                   .last_write_ms = this->last_enforce_gear_3_ms_,
-                                   .cooldown_ms = ENFORCE_GEAR_MODE_3_COOLDOWN_MS}))
+  if (!should_enforce_gear_mode_3({
+          .enabled = this->enforce_gear_mode_3_,
+          .max_gear = sv.max_gear,
+          .ble_enabled = this->ble_user_enabled_,
+          .controller_on = flags_27::CONTROLLER.in(sv.b27),
+          .now = millis(),
+          .last_write_ms = this->last_enforce_gear_3_ms_,
+          .cooldown_ms = ENFORCE_GEAR_MODE_3_COOLDOWN_MS,
+      }))
     return;
   ESP_LOGI(TAG, "[%s] enforce_gear_mode_3: BMS reports 5-gear, writing 3", this->parent_->address_str());
   this->last_enforce_gear_3_ms_ = millis();
@@ -824,11 +826,13 @@ void FiidoBMSHub::track_activity_(const RideState &ride, uint16_t speed_raw) {
     this->mark_activity_("speed");
   if (activity.light_changed)
     this->mark_activity_("light");
-  if (!should_auto_shutdown({.now = millis(),
-                             .last_activity_ms = this->last_activity_ms_,
-                             .idle_ms = IDLE_SHUTDOWN_MS,
-                             .enabled = this->auto_shutdown_enabled_,
-                             .motor_on = ride.motor_on}))
+  if (!should_auto_shutdown({
+          .now = millis(),
+          .last_activity_ms = this->last_activity_ms_,
+          .idle_ms = IDLE_SHUTDOWN_MS,
+          .enabled = this->auto_shutdown_enabled_,
+          .motor_on = ride.motor_on,
+      }))
     return;
   ESP_LOGI(TAG, "[%s] AUTO-SHUTDOWN: no activity for %u min, disabling motor", this->parent_->address_str(),
            (unsigned)((millis() - this->last_activity_ms_) / 60000));
@@ -895,11 +899,9 @@ void FiidoBMSHub::log_capabilities_(const StatsView &sv) {
 
 void FiidoBMSHub::set_motor_enable(bool on) {
   const WriteGate verdict =
-      this->gate_(this->registers_.has<Addr::FLAGS_27>(), false, "MOTOR", [this, on]() { this->set_motor_enable(on); });
-  if (write_rejected(verdict)) {
-    if (this->motor_switch_ != nullptr)
-      this->motor_switch_->publish_state(!on);
-  }
+      this->gate_(this->registers_.has<Addr::FLAGS_27>(), false, "MOTOR", [this, on] { this->set_motor_enable(on); });
+  if (write_rejected(verdict) && this->motor_switch_ != nullptr)
+    this->motor_switch_->publish_state(!on);
   if (verdict != WriteGate::SEND)
     return;
   const RegValue<Addr::FLAGS_27> cached = this->registers_.value_or<Addr::FLAGS_27>();
@@ -918,11 +920,9 @@ void FiidoBMSHub::set_motor_enable(bool on) {
 
 void FiidoBMSHub::set_light_enable(bool on) {
   const WriteGate verdict =
-      this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "LIGHT", [this, on]() { this->set_light_enable(on); });
-  if (write_rejected(verdict)) {
-    if (this->light_switch_ != nullptr)
-      this->light_switch_->publish_state(false);
-  }
+      this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "LIGHT", [this, on] { this->set_light_enable(on); });
+  if (write_rejected(verdict) && this->light_switch_ != nullptr)
+    this->light_switch_->publish_state(false);
   if (verdict != WriteGate::SEND)
     return;
   const RegValue<Addr::FLAGS_27> cached = this->registers_.value_or<Addr::FLAGS_27>();
@@ -944,7 +944,7 @@ void FiidoBMSHub::set_gear(uint8_t gear) {
     gear = clamp_gear(gear, max_gear);
   }
   const WriteGate verdict =
-      this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "GEAR", [this, gear]() { this->set_gear(gear); });
+      this->gate_(this->registers_.has<Addr::FLAGS_27>(), true, "GEAR", [this, gear] { this->set_gear(gear); });
   if (write_rejected(verdict))
     revert_select(this->gear_select_);
   if (verdict != WriteGate::SEND)
@@ -965,7 +965,7 @@ void FiidoBMSHub::set_gear_mode(uint8_t mode) {
     return;
   }
   const bool cache_ready = this->registers_.has<Addr::FLAGS_27>() && this->registers_.has<Addr::GEAR_RANGE>();
-  const WriteGate verdict = this->gate_(cache_ready, true, "GEAR MODE", [this, mode]() { this->set_gear_mode(mode); });
+  const WriteGate verdict = this->gate_(cache_ready, true, "GEAR MODE", [this, mode] { this->set_gear_mode(mode); });
   if (write_rejected(verdict))
     revert_select(this->mode_select_);
   if (verdict != WriteGate::SEND)
@@ -1031,7 +1031,7 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
   this->cancel_timeout("speed_limit_phase2");
   const bool cache_ready = this->registers_.has<Addr::FLAGS_27>() && this->registers_.has<Addr::FLAGS_2C>();
   const WriteGate verdict =
-      this->gate_(cache_ready, false, "SPEED_LIMIT", [this, option]() { this->apply_speed_limit_(option); });
+      this->gate_(cache_ready, false, "SPEED_LIMIT", [this, option] { this->apply_speed_limit_(option); });
   if (write_rejected(verdict))
     revert_select(this->speed_limit_select_);
   if (verdict != WriteGate::SEND)
@@ -1048,7 +1048,7 @@ void FiidoBMSHub::apply_speed_limit_(SpeedLimitOption option) {
   }
   // The 50ms delay opens a window for a disconnect or a transient reconnect.
   // The link and cache are checked again inside.
-  auto phase2 = [this, name, plan]() {
+  const auto phase2 = [this, name, plan] {
     if (!this->ble_user_enabled_ || this->node_state != espbt::ClientState::ESTABLISHED ||
         !this->registers_.has<Addr::FLAGS_27>()) {
       ESP_LOGW(TAG, "[%s] SPEED_LIMIT phase2 aborted - BLE disabled or link/cache not ready",
@@ -1094,7 +1094,7 @@ void FiidoBMSHub::set_speed_unit(const std::string &option) {
 
 void FiidoBMSHub::apply_speed_unit_(bool mile) {
   const WriteGate verdict = this->gate_(this->registers_.has<Addr::FLAGS_28>(), false, "SPEED_UNIT",
-                                        [this, mile]() { this->apply_speed_unit_(mile); });
+                                        [this, mile] { this->apply_speed_unit_(mile); });
   if (write_rejected(verdict))
     revert_select(this->speed_unit_select_);
   if (verdict != WriteGate::SEND)
@@ -1158,8 +1158,8 @@ void FiidoBMSHub::write_masked_bits_(Addr addr, size_t slot, uint8_t mask, uint8
 
 void FiidoBMSHub::set_flag_(FlagId id, bool on) {
   const FlagControl &c = FLAG_CONTROLS[static_cast<size_t>(id)];
-  const WriteGate verdict = this->gate_(this->registers_.at(c.slot).has_value(), false, c.name,
-                                        [this, id, on]() { this->set_flag_(id, on); });
+  const WriteGate verdict =
+      this->gate_(this->registers_.at(c.slot).has_value(), false, c.name, [this, id, on] { this->set_flag_(id, on); });
   if (write_rejected(verdict)) {
     switch_::Switch *entity = this->*(c.entity);
     if (entity != nullptr)
@@ -1234,7 +1234,7 @@ void FiidoBMSHub::set_byte_(ByteId id, float value) {
   }
   const uint8_t v = static_cast<uint8_t>(std::clamp(value, 0.0f, 255.0f));
   // A whole-byte write has no cache to wait for.
-  const WriteGate verdict = this->gate_(true, false, c.name, [this, id, value]() { this->set_byte_(id, value); });
+  const WriteGate verdict = this->gate_(true, false, c.name, [this, id, value] { this->set_byte_(id, value); });
   if (write_rejected(verdict))
     revert_number(entity);
   if (verdict != WriteGate::SEND)

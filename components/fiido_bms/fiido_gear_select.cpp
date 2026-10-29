@@ -38,7 +38,7 @@ void FiidoGearSelect::control(const std::string &value) {
   }
   ESP_LOGW(FIIDO_BMS_TAG, "value '%s' is not valid in current gear mode (count=%u) - rejected", value.c_str(),
            this->gear_count_);
-  auto opt = this->current_option();
+  const auto opt = this->current_option();
   if (!opt.empty()) {
     this->publish_state(opt.c_str());
   }

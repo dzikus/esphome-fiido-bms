@@ -129,6 +129,8 @@ Checks: >-
 WarningsAsErrors: '*'
 FormatStyle:     google
 CheckOptions:
+  - key:             bugprone-signed-bitwise.IgnorePositiveIntegerLiterals
+    value:           'true'
   - key:             google-readability-function-size.StatementThreshold
     value:           '800'
   - key:             google-runtime-int.TypeSuffix
