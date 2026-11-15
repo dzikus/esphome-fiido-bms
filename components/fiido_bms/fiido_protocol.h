@@ -34,6 +34,7 @@ enum class Addr : uint8_t {
   FLAGS_2B = 0x2B,
   FLAGS_2C = 0x2C,
   SPEED_LIMIT = 0x3C,
+  RIDE_SPEED = 0x3E,
   PAS_BOOST = 0x52,
   DISPLAY = 0x57,
   GUARD_TIME = 0x58,
@@ -199,6 +200,7 @@ inline constexpr auto POLL_TABLE = std::to_array<PollDef>({
     // Display block read-back: 0x57 brightness + 0x58 guard time (2 bytes).
     // Frame: 46 64 55 02 57 22.
     {.addr = Addr::DISPLAY, .len = 2, .name = "DISPLAY"},
+    {.addr = Addr::RIDE_SPEED, .len = 4, .name = "RIDESPEED"},
 });
 inline constexpr size_t POLL_TABLE_SIZE = POLL_TABLE.size();
 
@@ -330,6 +332,12 @@ inline constexpr size_t VALUE_KMH = 0;
 inline constexpr uint8_t NO_LIMIT = 100;
 }  // namespace speed_limit
 
+namespace ride_speed {
+inline constexpr size_t PAYLOAD_LEN = 4;
+inline constexpr size_t MAX_KMH = 0;
+inline constexpr size_t AVG_KMH = 2;
+}  // namespace ride_speed
+
 namespace pas_boost {
 inline constexpr size_t PAYLOAD_LEN = 1;
 inline constexpr size_t LEVEL = 0;
@@ -373,6 +381,7 @@ static_assert(poll_len(Addr::MOTOR) == motor::PAYLOAD_LEN);
 static_assert(poll_len(Addr::ENERGY) == energy::PAYLOAD_LEN);
 static_assert(poll_len(Addr::METER) == meter::PAYLOAD_LEN);
 static_assert(poll_len(Addr::SPEED_LIMIT) == speed_limit::PAYLOAD_LEN);
+static_assert(poll_len(Addr::RIDE_SPEED) == ride_speed::PAYLOAD_LEN);
 static_assert(poll_len(Addr::PAS_BOOST) == pas_boost::PAYLOAD_LEN);
 static_assert(poll_len(Addr::DISPLAY) == display::PAYLOAD_LEN);
 static_assert(poll_len(Addr::STATS) == stats::PAYLOAD_LEN);
@@ -405,6 +414,16 @@ struct StatsView {
 };
 
 [[nodiscard]] StatsView decode_stats(std::span<const uint8_t> payload);
+
+struct RideSpeedView {
+  bool valid;
+  float max_kmh;
+  bool max_ok;
+  float avg_kmh;
+  bool avg_ok;
+};
+
+[[nodiscard]] RideSpeedView decode_ride_speed(std::span<const uint8_t> payload);
 
 // Two of these are inverted on the wire; see decode_flags.
 struct FlagView {

@@ -67,6 +67,45 @@ static void test_decode_stats_bounds_reject_impossible_values() {
   TEST_ASSERT_TRUE(v.speed_ok);
 }
 
+static void test_decode_ride_speed_reads_max_then_average() {
+  const uint8_t p[] = {0x01, 0xEB, 0x00, 0x7B};
+  const RideSpeedView v = decode_ride_speed(p);
+  TEST_ASSERT_TRUE(v.valid);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 49.1f, v.max_kmh);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 12.3f, v.avg_kmh);
+  TEST_ASSERT_TRUE(v.max_ok);
+  TEST_ASSERT_TRUE(v.avg_ok);
+}
+
+static void test_decode_ride_speed_rejects_wrong_length() {
+  const uint8_t too_short[2] = {0x01, 0xEB};
+  TEST_ASSERT_FALSE(decode_ride_speed(too_short).valid);
+  const uint8_t too_long[5] = {0x01, 0xEB, 0x00, 0x7B, 0x00};
+  TEST_ASSERT_FALSE(decode_ride_speed(too_long).valid);
+}
+
+static void test_decode_ride_speed_bounds_each_value_on_its_own() {
+  const uint8_t p[] = {0x03, 0xE8, 0x03, 0xE9};
+  const RideSpeedView v = decode_ride_speed(p);
+  TEST_ASSERT_TRUE(v.max_ok);
+  TEST_ASSERT_FALSE(v.avg_ok);
+  const uint8_t q[] = {0xFF, 0xFF, 0x00, 0x00};
+  const RideSpeedView w = decode_ride_speed(q);
+  TEST_ASSERT_FALSE(w.max_ok);
+  TEST_ASSERT_TRUE(w.avg_ok);
+}
+
+static void test_ride_speed_notify_validates_and_decodes() {
+  const uint8_t frame[] = {0x46, 0x64, 0xAA, 0x04, 0x3E, 0x01, 0xEB, 0x00, 0x7B, 0x00};
+  std::array<uint8_t, sizeof(frame)> f{};
+  std::ranges::copy(frame, f.begin());
+  f.back() = compute_crc(std::span<const uint8_t>(f).first(f.size() - 1));
+  const NotifyView n = validate_notify(f);
+  TEST_ASSERT_TRUE(n.valid);
+  TEST_ASSERT_TRUE(n.addr == Addr::RIDE_SPEED);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 49.1f, decode_ride_speed(n.payload).max_kmh);
+}
+
 static void test_decode_flags_light_needs_the_controller_on() {
   // Bit 3 can be set with the controller off; the lamp is not lit then.
   TEST_ASSERT_FALSE(decode_flags({0x08}, {}, {}, {}, {}, {}).light_on);
@@ -149,6 +188,10 @@ void run_decode_tests() {
   RUN_TEST(test_decode_stats_copies_the_capability_bytes);
   RUN_TEST(test_decode_stats_rejects_a_nibble_pair_that_means_nothing);
   RUN_TEST(test_decode_stats_bounds_reject_impossible_values);
+  RUN_TEST(test_decode_ride_speed_reads_max_then_average);
+  RUN_TEST(test_decode_ride_speed_rejects_wrong_length);
+  RUN_TEST(test_decode_ride_speed_bounds_each_value_on_its_own);
+  RUN_TEST(test_ride_speed_notify_validates_and_decodes);
   RUN_TEST(test_decode_flags_light_needs_the_controller_on);
   RUN_TEST(test_decode_flags_inverted_bits);
   RUN_TEST(test_decode_flags_speaker_is_audible_only_on_zero);

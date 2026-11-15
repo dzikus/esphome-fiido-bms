@@ -57,6 +57,7 @@ which reads as success. `compute_masked_write()` picks the type from the address
 | STATS | 0x05 | 53 | speed, distance, gear, SOC, status flags (0x05..0x39) |
 | METER | 0x60 | 13 | display HW/SW, mode |
 | SPEEDLIM | 0x3C | 1 | speed limit value in km/h |
+| RIDESPEED | 0x3E | 4 | max speed 0x3E..0x3F, average speed 0x40..0x41, 2B BE each, tenths of a km/h |
 | BOOST | 0x52 | 1 | PAS boost level |
 | DISPLAY | 0x57 | 2 | brightness and guard time |
 | BATTERY | 0x7B | 13 | capacity, voltage, current, manufacturer |
@@ -94,7 +95,8 @@ a field's ADDR and its constant differ by the width minus one.
 
 The checksum is a plain XOR, so a corrupted frame can still validate. Distance,
 speed and SOC are therefore range-checked before they reach an entity, and a
-sample outside its bound is dropped rather than published.
+sample outside its bound is dropped rather than published. Max and average speed
+from RIDESPEED share the 100 km/h bound of the STATS speed.
 
 ## Speed limit
 

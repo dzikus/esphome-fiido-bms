@@ -220,6 +220,8 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   SUB_SENSOR(total_take_energy)
   SUB_SENSOR(startup_time)
   SUB_SENSOR(bicycle_speed)
+  SUB_SENSOR(max_speed)
+  SUB_SENSOR(average_speed)
   SUB_SENSOR(current_kilometers)
   SUB_SENSOR(total_kilometers)
   SUB_SENSOR(battery_soc)
@@ -280,6 +282,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void enable_motor_poll() { this->poll_enabled_[poll_index(Addr::MOTOR)] = true; }
   void enable_energy_poll() { this->poll_enabled_[poll_index(Addr::ENERGY)] = true; }
   void enable_meter_poll() { this->poll_enabled_[poll_index(Addr::METER)] = true; }
+  void enable_ride_speed_poll() { this->poll_enabled_[poll_index(Addr::RIDE_SPEED)] = true; }
 
  protected:
   static constexpr auto FLAG_CONTROLS = std::to_array<FlagControl>({
@@ -663,6 +666,7 @@ class FiidoBMSHub : public ble_client::BLEClientNode, public PollingComponent {
   void log_capabilities_(const StatsView &sv);
   void parse_meter_(std::span<const uint8_t> payload);
   void parse_speed_limit_(std::span<const uint8_t> payload);
+  void parse_ride_speed_(std::span<const uint8_t> payload);
   void parse_boost_(std::span<const uint8_t> payload);
   void parse_display_(std::span<const uint8_t> payload);
   void apply_speed_limit_(SpeedLimitOption option);

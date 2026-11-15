@@ -31,8 +31,9 @@ static void test_build_poll_frame_all_polls() {
       {0x46, 0x64, 0x55, 0x01, 0x3C, 0x4A},  // SPEEDLIM
       {0x46, 0x64, 0x55, 0x01, 0x52, 0x24},  // BOOST
       {0x46, 0x64, 0x55, 0x02, 0x57, 0x22},  // DISPLAY
+      {0x46, 0x64, 0x55, 0x04, 0x3E, 0x4D},  // RIDESPEED
   };
-  TEST_ASSERT_EQUAL_UINT(9, POLL_TABLE_SIZE);
+  TEST_ASSERT_EQUAL_UINT(10, POLL_TABLE_SIZE);
   for (size_t i = 0; i < POLL_TABLE_SIZE; i++) {
     const auto out = build_poll_frame(POLL_TABLE[i].addr, POLL_TABLE[i].len);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(expected[i], out.data(), POLL_FRAME_LEN);

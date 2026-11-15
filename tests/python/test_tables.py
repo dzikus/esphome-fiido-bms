@@ -52,7 +52,9 @@ class PollGroups(unittest.TestCase):
         # to_code calls enable_<group>_poll on the hub; an unknown group is an
         # AttributeError at code generation, long after validation passed.
         groups = {g for g in fb_sensor.SENSOR_POLL_GROUP.values() if g is not None}
-        self.assertEqual(groups, {"battery", "ctrl", "motor", "energy", "meter"})
+        self.assertEqual(
+            groups, {"battery", "ctrl", "motor", "energy", "meter", "ride_speed"}
+        )
 
     def test_every_poll_enable_emitted_by_codegen_exists_on_the_hub(self):
         # Codegen emits any method name as given; a missing one fails only when

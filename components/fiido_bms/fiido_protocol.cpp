@@ -119,6 +119,18 @@ StatsView decode_stats(std::span<const uint8_t> payload) {
   return v;
 }
 
+RideSpeedView decode_ride_speed(std::span<const uint8_t> payload) {
+  RideSpeedView v{};
+  if (payload.size() != ride_speed::PAYLOAD_LEN)
+    return v;
+  v.valid = true;
+  v.max_kmh = static_cast<float>(u16be(payload, ride_speed::MAX_KMH)) / 10.0f;
+  v.max_ok = v.max_kmh <= stats::MAX_SPEED_KMH;
+  v.avg_kmh = static_cast<float>(u16be(payload, ride_speed::AVG_KMH)) / 10.0f;
+  v.avg_ok = v.avg_kmh <= stats::MAX_SPEED_KMH;
+  return v;
+}
+
 FlagView decode_flags(RegValue<Addr::FLAGS_27> b27, RegValue<Addr::FLAGS_28> b28, RegValue<Addr::FLAGS_2B> b2b,
                       RegValue<Addr::FLAGS_2C> b2c, RegValue<Addr::FLAGS_38> b38, RegValue<Addr::FLAGS_39> b39) {
   FlagView f{};

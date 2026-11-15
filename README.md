@@ -216,6 +216,8 @@ is the byte offset inside the STATS poll payload `[0..52]`.
 | `motor_capacity`          | Motor Capacity         | W     | MOTOR        |     |
 | `startup_time`            | Uptime                 | s     | ENERGY 0xD3  | seconds since BMS power-up |
 | `bicycle_speed`           | Speed                  | km/h  | STATS 0x23   | 2B BE / 10 |
+| `max_speed`               | Max Speed              | km/h  | RIDESPEED 0x3F | 2B BE / 10 |
+| `average_speed`           | Average Speed          | km/h  | RIDESPEED 0x41 | 2B BE / 10 |
 | `current_kilometers`      | Trip Distance          | km    | STATS 0x21   | 2B BE / 10 |
 | `total_kilometers`        | Total Distance         | km    | STATS 0x1F   | 4B BE / 10 |
 | `battery_soc`             | Battery SOC            | %     | STATS 0x24   | 1B, matches the bike display bars |
@@ -642,7 +644,7 @@ once per connection. A `select:` or `number:` block adds entities only with
 
 | Platform        | Built by default | Only with `expose_dev_sensors: true` (hidden in HA) | Never built |
 |-----------------|------------------|------------------------------------------------------|-------------|
-| `sensor`        | `battery_soc`, `battery_voltage`, `bicycle_speed`, `current_kilometers`, `total_kilometers` | the other 31, including `motor_temperature`, `battery_capacity` and `startup_time` | - |
+| `sensor`        | `battery_soc`, `battery_voltage`, `bicycle_speed`, `current_kilometers`, `total_kilometers` | the other 33, including `motor_temperature`, `battery_capacity`, `startup_time`, `max_speed` and `average_speed` | - |
 | `binary_sensor` | `connected`      | `brake`, `pas_limit`                                 | - |
 | `switch`        | `bluetooth`, `auto_shutdown` | `motor`, `light`, `speaker`, `key_sound`, `slow_mode_on_boot`, `bike_guard`, `cruise`, `start_mode`, `insensitivity`, `show_total_km`, `auto_screen_off`, `ring`, `double_speed` | `throttle` |
 | `select`        | -                | `speed_limit`                                        | `gear`, `mode`, `speed_unit` |
