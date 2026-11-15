@@ -114,6 +114,13 @@ HIDDEN_SENSOR_KEYS = frozenset(
     }
 )
 
+OPT_IN_SENSOR_KEYS = frozenset(
+    {
+        "max_speed",
+        "average_speed",
+    }
+)
+
 DEV_KEYS_BY_PLATFORM = {
     "sensor": DEV_SENSOR_KEYS,
     "binary_sensor": DEV_BINARY_SENSOR_KEYS,

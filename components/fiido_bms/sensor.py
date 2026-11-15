@@ -32,6 +32,7 @@ from . import (
     DEV_SENSOR_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
     HIDDEN_SENSOR_KEYS,
+    OPT_IN_SENSOR_KEYS,
     apply_entity_prefix,
     hub_entity_config,
     hub_name_prefix,
@@ -417,6 +418,29 @@ SENSORS = [
         ENTITY_CATEGORY_DIAGNOSTIC,
         "Gear Start",
     ),
+    # RIDE_SPEED
+    (
+        "max_speed",
+        "set_max_speed_sensor",
+        UNIT_KILOMETER_PER_HOUR,
+        1,
+        DEVICE_CLASS_SPEED,
+        STATE_CLASS_MEASUREMENT,
+        "mdi:speedometer",
+        None,
+        "Max Speed",
+    ),
+    (
+        "average_speed",
+        "set_average_speed_sensor",
+        UNIT_KILOMETER_PER_HOUR,
+        1,
+        DEVICE_CLASS_SPEED,
+        STATE_CLASS_MEASUREMENT,
+        "mdi:speedometer-medium",
+        None,
+        "Average Speed",
+    ),
     # METER
     (
         "meter_hw_version",
@@ -488,6 +512,8 @@ SENSOR_POLL_GROUP = {
     "meter_hw_version": "meter",
     "meter_sw_version": "meter",
     "meter_mode_data": "meter",
+    "max_speed": "ride_speed",
+    "average_speed": "ride_speed",
     "bicycle_speed": None,
     "current_kilometers": None,
     "total_kilometers": None,
@@ -517,6 +543,7 @@ def _inject_defaults(config):
         config,
         _DEFAULT_NAMES,
         hidden=DEV_SENSOR_KEYS | HIDDEN_SENSOR_KEYS,
+        opt_in=OPT_IN_SENSOR_KEYS,
         platform="sensor",
     )
 

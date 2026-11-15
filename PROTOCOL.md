@@ -57,6 +57,7 @@ which reads as success. `compute_masked_write()` picks the type from the address
 | STATS | 0x05 | 53 | speed, distance, gear, SOC, status flags (0x05..0x39) |
 | METER | 0x60 | 13 | display HW/SW, mode |
 | SPEEDLIM | 0x3C | 1 | speed limit value in km/h |
+| RIDESPEED | 0x3E | 4 | max speed 0x3E..0x3F, average speed 0x40..0x41, 2B BE each, tenths of a km/h |
 | BOOST | 0x52 | 1 | PAS boost level |
 | DISPLAY | 0x57 | 2 | brightness and guard time |
 | BATTERY | 0x7B | 13 | capacity, voltage, current, manufacturer |
@@ -65,6 +66,12 @@ which reads as success. `compute_masked_write()` picks the type from the address
 | ENERGY | 0xC8 | 12 | crank torque and rpm, energy, uptime |
 
 A handshake poll of ADDR 0x0D goes out once per connection.
+
+RIDESPEED was read with both bikes parked and trip distance at 0. The C11 Pro gave
+0 for max and average. The M1 Pro 2025 gave max 44.7 km/h and average 0, and kept
+the 44.7 across a controller off/on. It had logged 49.3 km/h in May 2026, so max is
+not a lifetime figure. Owner reports: a C21's average matches trip distance over
+elapsed time to within about 0.2 km/h, and a T2's max and average match its display.
 
 ## STATS payload
 
@@ -94,7 +101,8 @@ a field's ADDR and its constant differ by the width minus one.
 
 The checksum is a plain XOR, so a corrupted frame can still validate. Distance,
 speed and SOC are therefore range-checked before they reach an entity, and a
-sample outside its bound is dropped rather than published.
+sample outside its bound is dropped rather than published. Max and average speed
+from RIDESPEED share the 100 km/h bound of the STATS speed.
 
 ## Speed limit
 
@@ -155,3 +163,5 @@ the bars on the bike's own display.
 - `STATS` at DEBUG: the flag bytes 0x25, 0x27, 0x28, 0x2A, 0x2B, 0x2C and 0x38. On
   the C11 Pro and M1 Pro 2025 the bike's Power and Light buttons change bits 7 and
   3 of `addr27=`.
+- `RIDE_SPEED max=<n> avg=<n> (0.1 km/h)` at DEBUG: the raw RIDESPEED registers,
+  one line per reply.

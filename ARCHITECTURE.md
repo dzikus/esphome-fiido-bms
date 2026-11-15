@@ -9,7 +9,7 @@ meanings are in [PROTOCOL.md](PROTOCOL.md) and are not repeated here.
 ```
 components/fiido_bms/
   __init__.py                  hub schema, model entity sets, auto-offset, dev gating
-  sensor.py                    36 sensors (10 by default, 26 dev), poll group per sensor
+  sensor.py                    38 sensors (10 by default, 2 opt-in, 26 dev), poll group per sensor
   binary_sensor.py             3 binary sensors (2 by default, 1 dev)
   select.py                    4 selects
   switch.py                    16 switches (9 by default, 7 dev)
@@ -78,7 +78,7 @@ generation calls `enable_<group>_poll()` for each poll an entity of the hub read
 
 | Poll                                | Enabled by                                           |
 |-------------------------------------|------------------------------------------------------|
-| BATTERY, CTRL, MOTOR, ENERGY, METER | a sensor mapped to it in `SENSOR_POLL_GROUP` (`sensor.py`) |
+| BATTERY, CTRL, MOTOR, ENERGY, METER, RIDESPEED | a sensor mapped to it in `SENSOR_POLL_GROUP` (`sensor.py`) |
 | SPEEDLIM                            | the `speed_limit` select                             |
 | BOOST                               | the `boost` number                                   |
 | DISPLAY                             | the `brightness` or `guard_time` number              |
@@ -114,8 +114,9 @@ at most once every 5 s.
 
 BATTERY, CTRL, MOTOR, ENERGY and METER payloads are length-checked and published
 through the `SensorField` tables in `fiido_bms.h`. The signed motor and controller
-temperatures are decoded outside the tables. SPEEDLIM, BOOST and DISPLAY update the
-register cache and their entities.
+temperatures are decoded outside the tables. RIDESPEED goes through
+`decode_ride_speed()`, which bounds both values like the STATS speed. SPEEDLIM, BOOST
+and DISPLAY update the register cache and their entities.
 
 Sensors, selects and numbers go through `publish_changed()`, which skips a value the
 entity already holds. Switches and binary sensors deduplicate in ESPHome itself.
@@ -210,12 +211,13 @@ Air entity set.
 ### A sensor
 
 1. `fiido_protocol.h`: the field offset in the namespace of its poll (`battery`,
-   `ctrl`, `motor`, `energy`, `meter`).
+   `ctrl`, `motor`, `energy`, `meter`, `ride_speed`).
 2. `fiido_bms.h`: `SUB_SENSOR(name)` and a row with offset, width and divisor in the
    `SensorField` table of that poll. A field that needs its own decoding gets code in
    the `parse_*_()` function instead.
 3. `sensor.py`: a `SENSORS` row and a `SENSOR_POLL_GROUP` entry, and in `__init__.py`
-   the key in `DEV_SENSOR_KEYS` for a dev sensor.
+   the key in `DEV_SENSOR_KEYS` for a dev sensor or in `OPT_IN_SENSOR_KEYS` for one
+   built only when the yaml names it.
 4. A row in the [sensor table](README.md#entities-sensor).
 
 A sensor fed by STATS uses `None` in `SENSOR_POLL_GROUP` and goes through
@@ -228,14 +230,14 @@ New functionality comes with tests in the same pull request: protocol, decoding 
 hub state in `tests/test_protocol/`, code generation and the entity tables in
 `tests/python/`.
 
-- 144 host unit tests (PlatformIO + Unity) in `tests/test_protocol/` cover
+- 148 host unit tests (PlatformIO + Unity) in `tests/test_protocol/` cover
   `fiido_protocol`, `fiido_state` and `fiido_model.h`:
 
   ```
   pio test -d tests -e native
   ```
 
-- 71 Python tests in `tests/python/` cover code generation and the tables; they need
+- 73 Python tests in `tests/python/` cover code generation and the tables; they need
   ESPHome installed:
 
   ```

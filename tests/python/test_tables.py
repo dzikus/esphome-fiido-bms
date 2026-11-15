@@ -52,7 +52,9 @@ class PollGroups(unittest.TestCase):
         # to_code calls enable_<group>_poll on the hub; an unknown group is an
         # AttributeError at code generation, long after validation passed.
         groups = {g for g in fb_sensor.SENSOR_POLL_GROUP.values() if g is not None}
-        self.assertEqual(groups, {"battery", "ctrl", "motor", "energy", "meter"})
+        self.assertEqual(
+            groups, {"battery", "ctrl", "motor", "energy", "meter", "ride_speed"}
+        )
 
     def test_every_poll_enable_emitted_by_codegen_exists_on_the_hub(self):
         # Codegen emits any method name as given; a missing one fails only when
@@ -120,6 +122,15 @@ class KeySets(unittest.TestCase):
 
     def test_dev_keys_by_platform_names_every_platform(self):
         self.assertEqual(set(fb.DEV_KEYS_BY_PLATFORM), set(PLATFORM_KEYS))
+
+    def test_opt_in_sensor_keys_all_exist(self):
+        self.assertEqual(fb.OPT_IN_SENSOR_KEYS - SENSOR_KEYS, frozenset())
+
+    def test_opt_in_sensors_are_built_only_when_named(self):
+        unnamed = fb_sensor._inject_defaults({})
+        self.assertEqual(fb.OPT_IN_SENSOR_KEYS & unnamed.keys(), set())
+        named = fb_sensor._inject_defaults(dict.fromkeys(fb.OPT_IN_SENSOR_KEYS))
+        self.assertLessEqual(fb.OPT_IN_SENSOR_KEYS, named.keys())
 
 
 class ModelNames(unittest.TestCase):

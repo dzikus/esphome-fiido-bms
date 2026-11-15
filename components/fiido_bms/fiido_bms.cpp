@@ -125,6 +125,8 @@ void FiidoBMSHub::dump_config() {
   this->log_sensors_(METER_FIELDS);
   for (const auto &[member, label] : STATS_SENSORS)
     LOG_SENSOR("  ", label, this->*member);
+  LOG_SENSOR("  ", "Max Speed", this->max_speed_sensor_);
+  LOG_SENSOR("  ", "Average Speed", this->average_speed_sensor_);
   LOG_BINARY_SENSOR("  ", "Connected", this->connected_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Brake", this->brake_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Pas Limit", this->pas_limit_binary_sensor_);
@@ -357,6 +359,7 @@ void FiidoBMSHub::handle_notify_(std::span<const uint8_t> frame) {
       {.addr = Addr::STATS, .parse = &FiidoBMSHub::parse_stats_},
       {.addr = Addr::METER, .parse = &FiidoBMSHub::parse_meter_},
       {.addr = Addr::SPEED_LIMIT, .parse = &FiidoBMSHub::parse_speed_limit_},
+      {.addr = Addr::RIDE_SPEED, .parse = &FiidoBMSHub::parse_ride_speed_},
       {.addr = Addr::PAS_BOOST, .parse = &FiidoBMSHub::parse_boost_},
       {.addr = Addr::DISPLAY, .parse = &FiidoBMSHub::parse_display_},
   });
@@ -1286,6 +1289,18 @@ void FiidoBMSHub::pair_watch() {
   }
 }
 #endif
+
+void FiidoBMSHub::parse_ride_speed_(std::span<const uint8_t> p) {
+  const RideSpeedView v = decode_ride_speed(p);
+  if (!v.valid)
+    return;
+  if (v.max_ok)
+    publish_changed(this->max_speed_sensor_, v.max_kmh);
+  if (v.avg_ok)
+    publish_changed(this->average_speed_sensor_, v.avg_kmh);
+  ESP_LOGD(TAG, "[%s] RIDE_SPEED max=%u avg=%u (0.1 km/h)", this->parent_->address_str(),
+           (unsigned)u16be(p, ride_speed::MAX_KMH), (unsigned)u16be(p, ride_speed::AVG_KMH));
+}
 
 void FiidoBMSHub::parse_boost_(std::span<const uint8_t> p) {
   if (p.size() != pas_boost::PAYLOAD_LEN)
