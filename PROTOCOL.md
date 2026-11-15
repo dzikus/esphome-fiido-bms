@@ -67,6 +67,12 @@ which reads as success. `compute_masked_write()` picks the type from the address
 
 A handshake poll of ADDR 0x0D goes out once per connection.
 
+RIDESPEED was read with both bikes parked and trip distance at 0. The C11 Pro gave
+0 for max and average. The M1 Pro 2025 gave max 44.7 km/h and average 0, and kept
+the 44.7 across a controller off/on. It had logged 49.3 km/h in May 2026, so max is
+not a lifetime figure. Owner reports: a C21's average matches trip distance over
+elapsed time to within about 0.2 km/h, and a T2's max and average match its display.
+
 ## STATS payload
 
 Offsets are into the payload, which starts at ADDR 0x05, so a one-byte field at
@@ -157,3 +163,5 @@ the bars on the bike's own display.
 - `STATS` at DEBUG: the flag bytes 0x25, 0x27, 0x28, 0x2A, 0x2B, 0x2C and 0x38. On
   the C11 Pro and M1 Pro 2025 the bike's Power and Light buttons change bits 7 and
   3 of `addr27=`.
+- `RIDE_SPEED max=<n> avg=<n> (0.1 km/h)` at DEBUG: the raw RIDESPEED registers,
+  one line per reply.

@@ -91,7 +91,8 @@ entities of that platform listed below. Dev entities are created only with
 
 - Sensors: 10 by default (battery voltage, battery capacity, motor wheel diameter,
   motor temperature, motor capacity, speed, trip distance, total distance, battery
-  SOC, uptime) and 26 dev (hardware and software
+  SOC, uptime), 2 opt-in (max speed, average speed; see
+  [Entities (sensor)](#entities-sensor)) and 26 dev (hardware and software
   versions, manufacturers, battery current and current voltage, controller voltage
   limits, current and temperature, motor construction data, crank torque and RPM,
   trip and total energy, meter mode data, gear start).
@@ -216,11 +217,28 @@ is the byte offset inside the STATS poll payload `[0..52]`.
 | `motor_capacity`          | Motor Capacity         | W     | MOTOR        |     |
 | `startup_time`            | Uptime                 | s     | ENERGY 0xD3  | seconds since BMS power-up |
 | `bicycle_speed`           | Speed                  | km/h  | STATS 0x23   | 2B BE / 10 |
-| `max_speed`               | Max Speed              | km/h  | RIDESPEED 0x3F | 2B BE / 10 |
-| `average_speed`           | Average Speed          | km/h  | RIDESPEED 0x41 | 2B BE / 10 |
 | `current_kilometers`      | Trip Distance          | km    | STATS 0x21   | 2B BE / 10 |
 | `total_kilometers`        | Total Distance         | km    | STATS 0x1F   | 4B BE / 10 |
 | `battery_soc`             | Battery SOC            | %     | STATS 0x24   | 1B, matches the bike display bars |
+
+**Opt-in** (created and polled only when the key is in the `sensor:` block):
+
+| Key                       | Default name           | Unit  | Source         | Notes |
+|---------------------------|------------------------|-------|----------------|-------|
+| `max_speed`               | Max Speed              | km/h  | RIDESPEED 0x3F | 2B BE / 10 |
+| `average_speed`           | Average Speed          | km/h  | RIDESPEED 0x41 | 2B BE / 10 |
+
+A T2 (2025) owner checked both against the display, a C21 owner against GPS. On
+the C11 Pro and M1 Pro 2025 they read back fine but haven't been compared with a
+ride yet.
+
+```yaml
+sensor:
+  - platform: fiido_bms
+    fiido_bms_id: hub_c11
+    max_speed:
+    average_speed:
+```
 
 **Dev** (created only with `expose_dev_sensors: true`, then `disabled_by_default`):
 
@@ -644,7 +662,7 @@ once per connection. A `select:` or `number:` block adds entities only with
 
 | Platform        | Built by default | Only with `expose_dev_sensors: true` (hidden in HA) | Never built |
 |-----------------|------------------|------------------------------------------------------|-------------|
-| `sensor`        | `battery_soc`, `battery_voltage`, `bicycle_speed`, `current_kilometers`, `total_kilometers` | the other 33, including `motor_temperature`, `battery_capacity`, `startup_time`, `max_speed` and `average_speed` | - |
+| `sensor`        | `battery_soc`, `battery_voltage`, `bicycle_speed`, `current_kilometers`, `total_kilometers` | the other 33, including `motor_temperature`, `battery_capacity` and `startup_time`; `max_speed` and `average_speed` also need their key in the block | - |
 | `binary_sensor` | `connected`      | `brake`, `pas_limit`                                 | - |
 | `switch`        | `bluetooth`, `auto_shutdown` | `motor`, `light`, `speaker`, `key_sound`, `slow_mode_on_boot`, `bike_guard`, `cruise`, `start_mode`, `insensitivity`, `show_total_km`, `auto_screen_off`, `ring`, `double_speed` | `throttle` |
 | `select`        | -                | `speed_limit`                                        | `gear`, `mode`, `speed_unit` |

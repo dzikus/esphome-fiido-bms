@@ -9,7 +9,7 @@ meanings are in [PROTOCOL.md](PROTOCOL.md) and are not repeated here.
 ```
 components/fiido_bms/
   __init__.py                  hub schema, model entity sets, auto-offset, dev gating
-  sensor.py                    38 sensors (12 by default, 26 dev), poll group per sensor
+  sensor.py                    38 sensors (10 by default, 2 opt-in, 26 dev), poll group per sensor
   binary_sensor.py             3 binary sensors (2 by default, 1 dev)
   select.py                    4 selects
   switch.py                    16 switches (9 by default, 7 dev)
@@ -216,7 +216,8 @@ Air entity set.
    `SensorField` table of that poll. A field that needs its own decoding gets code in
    the `parse_*_()` function instead.
 3. `sensor.py`: a `SENSORS` row and a `SENSOR_POLL_GROUP` entry, and in `__init__.py`
-   the key in `DEV_SENSOR_KEYS` for a dev sensor.
+   the key in `DEV_SENSOR_KEYS` for a dev sensor or in `OPT_IN_SENSOR_KEYS` for one
+   built only when the yaml names it.
 4. A row in the [sensor table](README.md#entities-sensor).
 
 A sensor fed by STATS uses `None` in `SENSOR_POLL_GROUP` and goes through
@@ -236,7 +237,7 @@ hub state in `tests/test_protocol/`, code generation and the entity tables in
   pio test -d tests -e native
   ```
 
-- 71 Python tests in `tests/python/` cover code generation and the tables; they need
+- 73 Python tests in `tests/python/` cover code generation and the tables; they need
   ESPHome installed:
 
   ```

@@ -2,11 +2,10 @@
 
 ## v3.3.0 (2026-11-15)
 
-- New sensors `max_speed` and `average_speed`, read with one extra poll that
-  goes out only when one of them is configured. Both are built by default;
-  set them to `false` to leave them out. With `model: air` they need
-  `expose_dev_sensors: true`.
-- Code changes for clang-tidy 23; CI, devcontainer and dependency updates.
+- New sensors `max_speed` and `average_speed`. They are opt-in: list them in
+  the `sensor:` block, which also adds one poll. With `model: air` they need
+  `expose_dev_sensors: true` as well.
+- Code fixes for clang-tidy 23, plus CI, devcontainer and dependency updates.
 
 ## v3.2.0 (2026-09-13)
 

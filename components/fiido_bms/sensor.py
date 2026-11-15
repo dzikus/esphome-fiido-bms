@@ -32,6 +32,7 @@ from . import (
     DEV_SENSOR_KEYS,
     FIIDO_BMS_COMPONENT_SCHEMA,
     HIDDEN_SENSOR_KEYS,
+    OPT_IN_SENSOR_KEYS,
     apply_entity_prefix,
     hub_entity_config,
     hub_name_prefix,
@@ -542,6 +543,7 @@ def _inject_defaults(config):
         config,
         _DEFAULT_NAMES,
         hidden=DEV_SENSOR_KEYS | HIDDEN_SENSOR_KEYS,
+        opt_in=OPT_IN_SENSOR_KEYS,
         platform="sensor",
     )
 

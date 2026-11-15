@@ -123,6 +123,15 @@ class KeySets(unittest.TestCase):
     def test_dev_keys_by_platform_names_every_platform(self):
         self.assertEqual(set(fb.DEV_KEYS_BY_PLATFORM), set(PLATFORM_KEYS))
 
+    def test_opt_in_sensor_keys_all_exist(self):
+        self.assertEqual(fb.OPT_IN_SENSOR_KEYS - SENSOR_KEYS, frozenset())
+
+    def test_opt_in_sensors_are_built_only_when_named(self):
+        unnamed = fb_sensor._inject_defaults({})
+        self.assertEqual(fb.OPT_IN_SENSOR_KEYS & unnamed.keys(), set())
+        named = fb_sensor._inject_defaults(dict.fromkeys(fb.OPT_IN_SENSOR_KEYS))
+        self.assertLessEqual(fb.OPT_IN_SENSOR_KEYS, named.keys())
+
 
 class ModelNames(unittest.TestCase):
     # codegen emits Model::<name> as given; a name missing from the enum fails
