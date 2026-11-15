@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.3.0 (2026-11-15)
+
+- New sensors `max_speed` and `average_speed`, read with one extra poll that
+  goes out only when one of them is configured. Both are built by default;
+  set them to `false` to leave them out. With `model: air` they need
+  `expose_dev_sensors: true`.
+- Code changes for clang-tidy 23; CI, devcontainer and dependency updates.
+
 ## v3.2.0 (2026-09-13)
 
 - New hub option `model: c11_pro | m1_pro_2025 | air`. `air` selects the Fiido
