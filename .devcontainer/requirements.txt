@@ -1,7 +1,7 @@
 esphome==2026.10.0
 platformio==6.1.19
 pre-commit==4.7.0
-ruff==0.17.3
+ruff==0.17.4
 clang-tidy==23.1.4
 clang-format==23.1.5
-homeassistant==2026.10.4
+homeassistant==2026.11.1
