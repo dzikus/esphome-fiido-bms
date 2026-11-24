@@ -1,5 +1,5 @@
-esphome==2026.10.0
-platformio==6.1.19
+esphome==2026.11.0
+platformio==6.2.0
 pre-commit==4.7.0
 ruff==0.17.4
 clang-tidy==23.1.4

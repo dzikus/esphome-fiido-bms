@@ -318,17 +318,19 @@ jobs:
           ota_password: ci-ota-password
           fiido_mac: AA:BB:CC:DD:EE:FF
           EOF
+      - name: Drop the sub-device relation, which ESPHome before 2026.11 rejects
+        run: grep -v '^ *relation:' .github/ci-build.yaml > .github/ci-build-floor.yaml
       - name: Validate example, CI and IntelliSense configs
         run: |
           set -euo pipefail
           esphome config example.yaml
-          esphome config .github/ci-build.yaml
+          esphome config .github/ci-build-floor.yaml
           esphome config .intellisense.yaml
       - name: Compile at the floor
         run: |
           set -euo pipefail
-          esphome -s expose_dev true compile .github/ci-build.yaml
-          esphome -s expose_dev false compile .github/ci-build.yaml
+          esphome -s expose_dev true compile .github/ci-build-floor.yaml
+          esphome -s expose_dev false compile .github/ci-build-floor.yaml
       - name: Save the pip cache
         if: github.ref == 'refs/heads/main' && steps.pip-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0

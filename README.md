@@ -457,15 +457,18 @@ fiido_bms:
 ```
 
 Each platform then needs one entry per hub. Use `device_id` to put entities under a
-separate sub-device in HA:
+separate sub-device in HA. From ESPHome 2026.11 every entry under `devices:` needs
+`relation: via`, and earlier releases reject that line, so leave it out there:
 
 ```yaml
 esphome:
   devices:
     - id: dev_c11
       name: "Fiido C11 Pro"
+      relation: via
     - id: dev_m1
       name: "Fiido M1 PRO 2025"
+      relation: via
 
 sensor:
   - platform: fiido_bms
