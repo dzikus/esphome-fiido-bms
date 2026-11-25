@@ -13,8 +13,10 @@ esphome:
   devices:
     - id: dev_second
       name: "Second Bike"
+      relation: via
     - id: dev_air
       name: "Air Bike"
+      relation: via
 
 esp32:
   board: ${board}
