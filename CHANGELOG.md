@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.4.0 (2026-11-25)
+
+- New `model` values `t2_2025` and `c21`. Both use the FFE0 profile and behave
+  like an unset `model`. An owner runs the component on a T2 (2025); the C21 has
+  not been tested with it. See [Fiido T2 (2025)](README.md#fiido-t2-2025) and
+  [Fiido C21 (untested)](README.md#fiido-c21-untested).
+- Builds on ESPHome 2026.11, with the minimum still at 2026.1.0. From 2026.11
+  every entry under `esphome: devices:` needs `relation: via`; see
+  [Two bikes on one ESP32](README.md#two-bikes-on-one-esp32).
+- Dependency updates.
+
 ## v3.3.0 (2026-11-15)
 
 - New sensors `max_speed` and `average_speed`. They are opt-in: list them in
