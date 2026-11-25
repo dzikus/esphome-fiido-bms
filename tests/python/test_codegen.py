@@ -193,7 +193,7 @@ class ModelOption(unittest.TestCase):
         self.assertEqual(out["model"], "air")
 
     def test_gear_options_pass_for_every_other_model(self):
-        for model in (None, "c11_pro", "m1_pro_2025"):
+        for model in (None, "c11_pro", "m1_pro_2025", "t2_2025", "c21"):
             options = {"enforce_gear_mode_3": True, "ui_gear_mode_3": True}
             if model is not None:
                 options["model"] = model
@@ -256,7 +256,7 @@ class HubEntityConfig(unittest.TestCase):
                 entity = {"name": key}
                 self._use(expose_dev=expose_dev)
                 expected = fb.hub_entity_config("hub_x", platform, key, entity)
-                for model in ("c11_pro", "m1_pro_2025"):
+                for model in ("c11_pro", "m1_pro_2025", "t2_2025", "c21"):
                     with self.subTest(expose_dev=expose_dev, key=key, model=model):
                         self._use(expose_dev=expose_dev, model=model)
                         self.assertIs(

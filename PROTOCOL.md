@@ -1,7 +1,7 @@
 # Fiido BMS BLE protocol
 
-Reconstructed from a live C11 Pro and M1 Pro 2025. Fiido Air details come from an
-Air owner's reports; no Air was tested. Kept in step with
+Reconstructed from a live C11 Pro and M1 Pro 2025. T2 (2025), C21 and Fiido Air
+details come from owner reports. Kept in step with
 `components/fiido_bms/fiido_protocol.h` and `fiido_model.h`.
 
 ## Transport
@@ -10,7 +10,7 @@ Two GATT profiles carry the same frames:
 
 | profile | service | notify, bike to host | write, host to bike | bikes |
 |---|---|---|---|---|
-| FFE0 | `00010203-0405-0607-0809-0a0b0c0dffe0` | `00010203-0405-0607-0809-0a0b0c0dffe1` | `00010203-0405-0607-0809-0a0b0c0dffe2` | C11 Pro, M1 Pro 2025 |
+| FFE0 | `00010203-0405-0607-0809-0a0b0c0dffe0` | `00010203-0405-0607-0809-0a0b0c0dffe1` | `00010203-0405-0607-0809-0a0b0c0dffe2` | C11 Pro, M1 Pro 2025; T2 (2025) and C21 (owner reports) |
 | FEA0 | `c3e6fea0-e966-1000-8000-be99c223df6a` | `c3e6fea2-e966-1000-8000-be99c223df6a` | `c3e6fea1-e966-1000-8000-be99c223df6a` | Air (owner report) |
 
 Writes go out as write-without-response. Negotiated MTU is 247, and no frame in

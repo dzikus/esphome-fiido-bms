@@ -36,10 +36,13 @@ The component speaks the BLE protocol of the official Fiido app (`com.fiido.mete
 That protocol is model-agnostic: the same frame format and register map are used
 across the adult Fiido ebike line, so the component is not tied to one model. It
 was developed and verified empirically on a Fiido C11 Pro and a Fiido M1 Pro 2025;
-everything here was confirmed on that hardware unless noted. Other adult Fiido
-ebikes exposing the same `Fiido_*` BLE service are likely compatible but untested -
-reports and PRs welcome. The K1 / Kidz children's line uses a different register
-layout and is not covered.
+everything here was confirmed on that hardware unless noted. A T2 (2025) owner runs
+the component; see [Fiido T2 (2025)](#fiido-t2-2025). A C21 owner checked the
+frames and writes with an app of their own, and the component has not run on a C21;
+see [Fiido C21 (untested)](#fiido-c21-untested). Other adult Fiido ebikes exposing
+the same `Fiido_*` BLE service are likely compatible but untested; reports and PRs
+are welcome. The K1 / Kidz children's line uses a different register layout and is
+not covered.
 
 A Fiido Air owner reports the same frames over a different GATT service, which
 `model: air` selects. No Air has been tested with this component; see
@@ -49,6 +52,8 @@ A Fiido Air owner reports the same frames over a different GATT service, which
 |-----------------------|-----------------|---------------------|------------------|
 | Fiido C11 Pro         | `Fiido_C11Pro`  | `XX:XX:XX:XX:XX:XX` | 48V/11.6Ah, 350W, 28 inch |
 | Fiido M1 Pro 2025     | `Fiido_M1PRO`   | `XX:XX:XX:XX:XX:XX` | 48V/11.6Ah, 500W, 22 inch |
+| Fiido T2 (2025)       | not reported    | `XX:XX:XX:XX:XX:XX` | 48V/11.6Ah, 750W, 22 inch (owner report) |
+| Fiido C21 ([untested](#fiido-c21-untested)) | not reported | `XX:XX:XX:XX:XX:XX` | 36V/11.6Ah, 350W, 28 inch (owner report) |
 | Fiido Air ([untested](#fiido-air-untested)) | not reported | `XX:XX:XX:XX:XX:XX` | 36V, 250W (owner report) |
 
 MACs above are placeholders; scan your bike with any BLE tool to get the real
@@ -185,7 +190,7 @@ Set on the `fiido_bms:` entry, not on the platforms.
 | Option                | Type     | Default | Effect                                                                                          |
 |-----------------------|----------|---------|-------------------------------------------------------------------------------------------------|
 | `ble_client_id`       | id       | -       | Required. Points to the `ble_client` entry for this bike's MAC.                                 |
-| `model`               | enum     | unset   | `c11_pro`, `m1_pro_2025` or `air`. Selects the GATT profile and, for `air`, the entity set. Unset: FFE0 profile, all entities. `c11_pro` and `m1_pro_2025` match unset and add a `Model:` line to `dump_config`. `air` rejects `ui_gear_mode_3: true` and `enforce_gear_mode_3: true`. See [Fiido Air (untested)](#fiido-air-untested). |
+| `model`               | enum     | unset   | `c11_pro`, `m1_pro_2025`, `t2_2025`, `c21` or `air`. Selects the GATT profile and, for `air`, the entity set. Unset: FFE0 profile, all entities. `c11_pro`, `m1_pro_2025`, `t2_2025` and `c21` match unset and add a `Model:` line to `dump_config`. `air` rejects `ui_gear_mode_3: true` and `enforce_gear_mode_3: true`. See [Fiido T2 (2025)](#fiido-t2-2025), [Fiido C21 (untested)](#fiido-c21-untested) and [Fiido Air (untested)](#fiido-air-untested). |
 | `startup_delay`       | time     | `0s`    | Delays the first poll after connect, and sets this hub's burst phase for the whole uptime. Auto-derived from `hub_index` if omitted; set the same value on two hubs and their bursts collide. |
 | `update_interval_on`  | time     | `3s`    | Burst rotation period while motor controller is ON (bit 7 ADDR 0x27 set).                       |
 | `update_interval_off` | time     | `15s`   | Burst rotation period while motor controller is OFF. Fast enough to catch a physical power-on.  |
@@ -621,6 +626,44 @@ the official app cannot pair. To use the app:
 
 ESPHome will reconnect and start polling again on the next tick.
 
+### Fiido T2 (2025)
+
+Owner report in [#55](https://github.com/dzikus/esphome-fiido-bms/issues/55): the
+component runs on an ESP32-C3 with ESPHome 2026.10.2 and `model` unset, over the
+FFE0 profile. All default entities are created and get values. Power, light, gear,
+gear count, speed limit, speed unit, throttle, horn, key sound, slow mode on boot,
+auto shutdown and bluetooth work; the owner did not try bike guard.
+`battery_voltage` reads a constant 48.0 V, as on the C11 Pro and M1 Pro 2025. The
+`No limit` option of `speed_limit` is what the Fiido app calls rocket mode.
+
+`model: t2_2025` behaves like an unset `model` and adds `Model: T2 2025` to
+`dump_config`.
+
+### Fiido C21 (untested)
+
+Owner report in [#56](https://github.com/dzikus/esphome-fiido-bms/issues/56). The
+owner reads the bike with an app of their own, and the component has not run on a
+C21. That app confirms the `46 64` frames and XOR checksum, the FFE1/FFE2
+characteristics, the STATS layout, gear writes to 0x26, and the power, light and
+speed limit flag writes to bits 7, 3 and 5 of 0x27. The BMS answers polls with the
+controller off. Power off takes effect only at 0 km/h.
+
+Readings that differ from the C11 Pro and M1 Pro 2025:
+
+- `battery_soc` (STATS 0x24) only ever showed 90 or 70, and 90 on a full battery.
+- `battery_voltage` reads a constant 36.0 V.
+- MOTOR 0x9D-0x9E, decoded as `motor_temperature`, reads 99 after a full charge and
+  falls in 1% steps while riding. On the C11 Pro and M1 Pro 2025 it stays at 0 and
+  25, so the component keeps decoding it as motor temperature.
+- Total distance keeps only whole kilometres across a power cycle.
+
+Torque, cadence, trip and total energy, controller current and temperature, and
+battery current read 0 for whole rides, as in
+[Telemetry these bikes do not provide](#telemetry-these-bikes-do-not-provide), even
+though the C21 sets the torque transducer bit (0x2D bit 1).
+
+`model: c21` behaves like an unset `model` and adds `Model: C21` to `dump_config`.
+
 ### Fiido Air (untested)
 
 Air support is based on the owner reports in the README of the
@@ -724,8 +767,8 @@ error naming the model to set:
 
 | Hub `model`                         | Bike offers | Log                                                        |
 |-------------------------------------|-------------|------------------------------------------------------------|
-| unset, `c11_pro` or `m1_pro_2025`   | FEA0        | `bike offers the FEA0 service, set model: air`             |
-| `air`                               | FFE0        | `bike offers the FFE0 service, set model: c11_pro or m1_pro_2025` |
+| unset, `c11_pro`, `m1_pro_2025`, `t2_2025` or `c21` | FEA0 | `bike offers the FEA0 service, set model: air` |
+| `air`                               | FFE0        | `bike offers the FFE0 service, set model: c11_pro, m1_pro_2025, t2_2025 or c21` |
 
 The hub then sets its warning status, clears queued writes and drops the link. Until
 the `bluetooth` switch is turned off and on or the node restarts, it does not probe
@@ -881,6 +924,7 @@ release changes nothing for you.
 | Current, controller and crank-energy registers read zero on the C11 / M1                   | Not a decode error and no write arms them; the bikes clear the capability bits for the sensors that would fill them. Use `battery_soc`. See [Telemetry these bikes do not provide](#telemetry-these-bikes-do-not-provide). |
 | M1 charging is invisible on BLE                                                            | No register reports charge current / voltage delta. Do not try to detect charging from BMS state.                                  |
 | Official app and the component share the BLE link                                          | Only one central at a time. Use the `bluetooth` switch to release the link before pairing with the app. Air owner report: the paired watch uses the same connection. |
+| `model: c21` is untested                                                                   | The component has not run on a C21. Owner report: frames and writes match the C11 / M1, `battery_soc` is coarse and `battery_voltage` reads a constant 36.0 V. See [Fiido C21 (untested)](#fiido-c21-untested). |
 | `model: air` is untested                                                                   | No write has been verified on an Air, `auto_shutdown` included. Owner report: the Air BMS does not answer polls while the controller sleeps. See [Fiido Air (untested)](#fiido-air-untested). |
 | `slow_mode_on_boot` (bit 6 ADDR 0x2C) has an instant side-effect on ADDR 0x3C              | BMS rewrites the speed-limit value on the same WRITE: ON forces 6 km/h, OFF restores the user choice. The component only writes bit 6; do not also write 0x3C in the same burst. |
 | Speaker (bits 3:2 ADDR 0x38) is binary in firmware                                         | Only bits = 00 (audible) and bits = 01 (silent) have a physical effect. Other values collapse to silent.                           |

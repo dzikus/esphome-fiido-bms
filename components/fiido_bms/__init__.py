@@ -289,6 +289,8 @@ MODELS = {
     "c11_pro": Model.C11_PRO,
     "m1_pro_2025": Model.M1_PRO_2025,
     "air": Model.AIR,
+    "t2_2025": Model.T2_2025,
+    "c21": Model.C21,
 }
 
 FIIDO_BMS_COMPONENT_SCHEMA = cv.Schema(
