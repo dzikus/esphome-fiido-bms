@@ -13,6 +13,8 @@ enum class Model : uint8_t {
   C11_PRO = 0,
   M1_PRO_2025,
   AIR,
+  T2_2025,
+  C21,
 };
 
 struct GattProfile {
@@ -28,7 +30,7 @@ inline constexpr GattProfile FFE0_GATT{
     .service = "00010203-0405-0607-0809-0a0b0c0dffe0",
     .notify = "00010203-0405-0607-0809-0a0b0c0dffe1",
     .write = "00010203-0405-0607-0809-0a0b0c0dffe2",
-    .used_by = "c11_pro or m1_pro_2025",
+    .used_by = "c11_pro, m1_pro_2025, t2_2025 or c21",
 };
 
 inline constexpr GattProfile FEA0_GATT{
@@ -57,6 +59,8 @@ inline constexpr auto MODEL_PROFILES = std::to_array<ModelProfile>({
     {.model = Model::C11_PRO, .name = "C11 Pro", .gatt = FFE0_GATT, .traits = {.light_bit_persists = true}},
     {.model = Model::M1_PRO_2025, .name = "M1 Pro 2025", .gatt = FFE0_GATT, .traits = {.light_bit_persists = true}},
     {.model = Model::AIR, .name = "Air", .gatt = FEA0_GATT, .traits = {.light_bit_persists = false}},
+    {.model = Model::T2_2025, .name = "T2 2025", .gatt = FFE0_GATT, .traits = {.light_bit_persists = true}},
+    {.model = Model::C21, .name = "C21", .gatt = FFE0_GATT, .traits = {.light_bit_persists = true}},
 });
 
 [[nodiscard]] constexpr bool is_uuid128_text(std::string_view text) {

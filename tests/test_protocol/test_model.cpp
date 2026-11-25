@@ -44,7 +44,7 @@ static void test_air_uses_the_fea0_profile() {
 }
 
 static void test_reference_models_use_the_ffe0_profile() {
-  for (const Model model : {Model::C11_PRO, Model::M1_PRO_2025}) {
+  for (const Model model : {Model::C11_PRO, Model::M1_PRO_2025, Model::T2_2025, Model::C21}) {
     const ModelProfile &profile = model_profile(model);
     TEST_ASSERT_EQUAL_STRING("FFE0", profile.gatt.label);
     TEST_ASSERT_EQUAL_STRING("00010203-0405-0607-0809-0a0b0c0dffe0", profile.gatt.service);
@@ -54,6 +54,8 @@ static void test_reference_models_use_the_ffe0_profile() {
   }
   TEST_ASSERT_EQUAL_STRING("C11 Pro", model_profile(Model::C11_PRO).name);
   TEST_ASSERT_EQUAL_STRING("M1 Pro 2025", model_profile(Model::M1_PRO_2025).name);
+  TEST_ASSERT_EQUAL_STRING("T2 2025", model_profile(Model::T2_2025).name);
+  TEST_ASSERT_EQUAL_STRING("C21", model_profile(Model::C21).name);
 }
 
 static void test_foreign_gatt_is_null_while_the_configured_service_is_present() {
@@ -81,7 +83,7 @@ static void test_air_on_an_ffe0_bike_points_to_the_reference_models() {
   const GattProfile *found = foreign_gatt(model_profile(Model::AIR).gatt, offers_ffe0);
   TEST_ASSERT_NOT_NULL(found);
   TEST_ASSERT_EQUAL_STRING("FFE0", found->label);
-  TEST_ASSERT_EQUAL_STRING("c11_pro or m1_pro_2025", found->used_by);
+  TEST_ASSERT_EQUAL_STRING("c11_pro, m1_pro_2025, t2_2025 or c21", found->used_by);
 }
 
 void run_model_tests() {
